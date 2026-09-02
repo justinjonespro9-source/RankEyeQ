@@ -1,0 +1,884 @@
+// RankIQ persistent data model
+// Identity is universal-profile-ready; RankIQ contests reference UniversalProfile.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProfileType {
+  HUMAN
+  AI
+  BENCHMARK
+}
+
+enum BenchmarkCaptureType {
+  THURSDAY
+  SUNDAY
+  MANUAL_FINAL
+}
+
+enum BenchmarkSnapshotStatus {
+  DRAFT
+  CAPTURED
+  LOCKED
+  GRADED
+  NOT_AVAILABLE
+  LATE
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ProfileStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum WeekStatus {
+  UPCOMING
+  OPEN
+  LOCKED
+  COMPLETE
+  ARCHIVED
+}
+
+enum ContestPosition {
+  QB
+  RB
+  WR
+  TE
+  DEF
+}
+
+enum ContestStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  LIVE
+  GRADING
+  FINAL
+  ARCHIVED
+}
+
+enum RankableEntryType {
+  PLAYER
+  DEFENSE
+}
+
+enum EntryAvailability {
+  ACTIVE
+  QUESTIONABLE
+  DOUBTFUL
+  OUT
+  INACTIVE
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  LOCKED
+  GRADED
+}
+
+enum BoardRevealPreference {
+  FREE_REVEAL
+  PREMIUM_REVEAL
+}
+
+enum EntitlementType {
+  SINGLE_BOARD
+  CREATOR_WEEK
+  POSITION_WEEK
+  WEEK_ALL_ACCESS
+  SUBSCRIPTION
+}
+
+enum UnlockAccessType {
+  FREE_REVEAL
+  PREMIUM_ENTITLEMENT
+  PUBLIC_AFTER_RELEASE
+  OWNER
+  ADMIN
+}
+
+enum LedgerEntryType {
+  TEST
+  BOARD_UNLOCK
+  SUBSCRIPTION
+  ADJUSTMENT
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  EARNED
+  PAYABLE
+  PAID
+  REVERSED
+}
+
+enum NflGameStatus {
+  SCHEDULED
+  IN_PROGRESS
+  FINAL
+  POSTPONED
+  CANCELED
+  OTHER
+}
+
+enum ScoringVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+model UniversalProfile {
+  id              String        @id @default(cuid())
+  /// Future cross-platform Handicap Hero / FantasyTrack mapping key.
+  universalUserId String?       @unique
+  username        String        @unique
+  displayName     String
+  avatarUrl       String?
+  bio             String?
+  /// When false, profile page returns not-found for non-owners/admins.
+  publicVisible   Boolean       @default(true)
+  profileType     ProfileType   @default(HUMAN)
+  status          ProfileStatus @default(ACTIVE)
+  /// When false, AI/BENCHMARK profiles are excluded from active competitor roster / coverage.
+  /// Humans ignore this flag. Prefer this over SUSPENDED for retired bots/sources.
+  competitorActive Boolean      @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  submissions RankingSubmission[]
+  benchmarkSnapshots BenchmarkSnapshot[]
+  /// Auth.js account linked to this sports identity (humans only).
+  authUser    User?
+  followsGiven     ProfileFollow[]      @relation("FollowsGiven")
+  followsReceived  ProfileFollow[]      @relation("FollowsReceived")
+  creatorProfile   CreatorProfile?
+  entitlementsViewed BoardEntitlement[] @relation("EntitlementViewer")
+  entitlementsGranted BoardEntitlement[] @relation("EntitlementCreator")
+  unlocksViewed    BoardUnlockEvent[]   @relation("UnlockViewer")
+  unlocksReceived  BoardUnlockEvent[]   @relation("UnlockCreator")
+  ledgerAsCreator  CreatorLedgerEntry[] @relation("LedgerCreator")
+  ledgerAsViewer   CreatorLedgerEntry[] @relation("LedgerViewer")
+  expertSource     ExpertSourceProfile?
+}
+
+/// Persistent expert / third-party ranking source identity (profileType BENCHMARK).
+/// Public UI label: Expert. Graded via the same RankingSubmission path as Human/AI.
+model ExpertSourceProfile {
+  id                 String   @id @default(cuid())
+  universalProfileId String   @unique
+  /// Publisher, site, or analyst brand (e.g. "FantasyPros ECR", "Establish The Run").
+  publicationName    String?
+  /// Optional analyst name when the source is an individual.
+  analystName        String?
+  sourceUrl          String?
+  /// PUBLISHER | ANALYST | SITE_CONSENSUS
+  sourceKind         String   @default("PUBLISHER")
+  /// Contest positions this source typically publishes (empty = all).
+  positionsCovered Json?
+  active             Boolean  @default(true)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Cascade)
+
+  @@index([active])
+}
+
+/// Persistent follow edge. Historical rows survive suspension.
+model ProfileFollow {
+  id                String   @id @default(cuid())
+  followerProfileId String
+  followedProfileId String
+  createdAt         DateTime @default(now())
+
+  follower UniversalProfile @relation("FollowsGiven", fields: [followerProfileId], references: [id], onDelete: Cascade)
+  followed UniversalProfile @relation("FollowsReceived", fields: [followedProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([followerProfileId, followedProfileId])
+  @@index([followedProfileId])
+  @@index([followerProfileId, createdAt])
+}
+
+/// Creator opt-in + default reveal preference. Qualification is derived, not stored.
+model CreatorProfile {
+  id                      String                @id @default(cuid())
+  universalProfileId      String                @unique
+  enabled                 Boolean               @default(false)
+  defaultRevealPreference BoardRevealPreference @default(FREE_REVEAL)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Cascade)
+}
+
+/// Persistent board-access entitlement. Dev env flag remains a fallback only.
+model BoardEntitlement {
+  id               String          @id @default(cuid())
+  viewerProfileId  String
+  entitlementType  EntitlementType
+  contestId        String?
+  creatorProfileId String?
+  weekId           String?
+  startsAt         DateTime
+  expiresAt        DateTime?
+  source           String
+  revokedAt        DateTime?
+  createdAt        DateTime        @default(now())
+
+  viewer  UniversalProfile  @relation("EntitlementViewer", fields: [viewerProfileId], references: [id], onDelete: Cascade)
+  creator UniversalProfile? @relation("EntitlementCreator", fields: [creatorProfileId], references: [id], onDelete: SetNull)
+  contest RankIQContest?    @relation(fields: [contestId], references: [id], onDelete: SetNull)
+  week    Week?             @relation(fields: [weekId], references: [id], onDelete: SetNull)
+  unlocks BoardUnlockEvent[]
+  ledger  CreatorLedgerEntry[]
+
+  @@index([viewerProfileId, revokedAt])
+  @@index([creatorProfileId])
+  @@index([contestId])
+  @@index([weekId])
+}
+
+/// First meaningful board unlock per viewer + creator + contest.
+model BoardUnlockEvent {
+  id               String           @id @default(cuid())
+  viewerProfileId  String
+  creatorProfileId String
+  contestId        String
+  entitlementId    String?
+  accessType       UnlockAccessType
+  createdAt        DateTime         @default(now())
+
+  viewer      UniversalProfile  @relation("UnlockViewer", fields: [viewerProfileId], references: [id], onDelete: Cascade)
+  creator     UniversalProfile  @relation("UnlockCreator", fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  contest     RankIQContest     @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  entitlement BoardEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+
+  @@unique([viewerProfileId, creatorProfileId, contestId])
+  @@index([creatorProfileId, createdAt])
+  @@index([contestId])
+}
+
+/// Non-financial creator ledger stub. No real money movement.
+model CreatorLedgerEntry {
+  id                 String            @id @default(cuid())
+  creatorProfileId   String
+  viewerProfileId    String?
+  contestId          String?
+  entitlementId      String?
+  type               LedgerEntryType
+  grossAmountMinor   Int               @default(0)
+  platformFeeMinor   Int               @default(0)
+  creatorAmountMinor Int               @default(0)
+  currency           String            @default("USD")
+  status             LedgerEntryStatus @default(PENDING)
+  createdAt          DateTime          @default(now())
+
+  creator     UniversalProfile  @relation("LedgerCreator", fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  viewer      UniversalProfile? @relation("LedgerViewer", fields: [viewerProfileId], references: [id], onDelete: SetNull)
+  contest     RankIQContest?    @relation(fields: [contestId], references: [id], onDelete: SetNull)
+  entitlement BoardEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+
+  @@index([creatorProfileId, createdAt])
+  @@index([status])
+}
+
+/// Auth.js user account — not the RankIQ sports identity.
+/// Contests and scores reference UniversalProfile, never this model directly.
+model User {
+  id                 String    @id @default(cuid())
+  name               String?
+  email              String?   @unique
+  emailVerified      DateTime?
+  image              String?
+  role               UserRole  @default(USER)
+  universalProfileId String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  universalProfile UniversalProfile? @relation(fields: [universalProfileId], references: [id], onDelete: SetNull)
+  accounts         Account[]
+  sessions         Session[]
+  auditLogs        AdminAuditLog[]
+  benchmarkSnapshots BenchmarkSnapshot[]
+  manualImports    ManualImportLog[]
+  policyAcceptances PolicyAcceptance[]
+}
+
+/// Lightweight operator audit trail. Never store secrets or auth tokens.
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  adminUser User @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([adminUserId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Season {
+  id        String   @id @default(cuid())
+  year      Int
+  sport     String   @default("NFL")
+  active    Boolean  @default(false)
+  /// Default RankEyeQ ranking formula for newly created contests in this season.
+  activeRankingScoringVersionId String?
+  /// Default FantasyTrack fantasy scoring ruleset for new weeks in this season.
+  fantasyScoringVersion         String   @default("FANTASYTRACK_NFL_FULL_PPR_V1")
+  /// Last NFL roster bootstrap source label (e.g. nfl.com 2026 roster pages).
+  rosterSyncSource              String?
+  rosterSyncedAt                DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  weeks    Week[]
+  contests RankIQContest[]
+  games    NflGame[]
+  seasonPlayers SeasonPlayer[]
+  activeRankingScoringVersion RankingScoringVersion? @relation("SeasonActiveScoringVersion", fields: [activeRankingScoringVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([year, sport])
+}
+
+model Week {
+  id                    String     @id @default(cuid())
+  seasonId              String
+  weekNumber            Int
+  label                 String
+  startsAt              DateTime
+  endsAt                DateTime
+  status                WeekStatus @default(UPCOMING)
+  /// Official RankIQ fantasy scoring ruleset used for this week’s results.
+  fantasyScoringVersion String     @default("FANTASYTRACK_NFL_FULL_PPR_V1")
+  /// Sport-agnostic contest timing (NFL defaults: Tue open / Sun 10am lock / noon public).
+  rankingsOpenAt        DateTime?
+  fullLockAt            DateTime?
+  revealStartsAt        DateTime?
+  publicReleaseAt       DateTime?
+  /// Historical / sandbox weeks excluded from public leaderboards and consensus.
+  isTest                Boolean    @default(false)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  season           Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  contests         RankIQContest[]
+  games            NflGame[]
+  playerWeekStats  PlayerWeekStat[]
+  defenseWeekStats DefenseWeekStat[]
+  entitlements     BoardEntitlement[]
+  benchmarkSnapshots BenchmarkSnapshot[]
+  manualImports    ManualImportLog[]
+
+  @@unique([seasonId, weekNumber])
+}
+
+/// Persistent NFL schedule game — shared by players/defenses for a week.
+model NflGame {
+  id         String        @id @default(cuid())
+  provider   String
+  externalId String
+  seasonId   String?
+  weekId     String?
+  seasonYear Int
+  weekNumber Int
+  homeTeam   String
+  awayTeam   String
+  startsAt   DateTime
+  status     NflGameStatus @default(SCHEDULED)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  season         Season?         @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  week           Week?           @relation(fields: [weekId], references: [id], onDelete: SetNull)
+  contestEntries ContestEntry[]
+  /// Optional denormalized “current game” pointer on rankable entries.
+  rankableEntries  RankableEntry[]
+  playerWeekStats  PlayerWeekStat[]
+  defenseWeekStats DefenseWeekStat[]
+
+  @@unique([provider, externalId])
+  @@index([seasonYear, weekNumber])
+  @@index([weekId])
+}
+
+model RankIQContest {
+  id           String          @id @default(cuid())
+  seasonId     String
+  weekId       String
+  sport        String          @default("NFL")
+  position     ContestPosition
+  title        String
+  rankingDepth Int
+  status       ContestStatus   @default(DRAFT)
+  opensAt      DateTime?
+  locksAt      DateTime?
+  /// Frozen ranking formula used when this contest was graded/finalized.
+  rankingScoringVersionId String?
+  /// Immutable config snapshot applied at grade time (survives version edits).
+  rankingScoringConfig    Json?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  season       Season               @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  week         Week                 @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  rankingScoringVersion RankingScoringVersion? @relation(fields: [rankingScoringVersionId], references: [id], onDelete: SetNull)
+  entries      ContestEntry[]
+  submissions  RankingSubmission[]
+  entitlements BoardEntitlement[]
+  unlocks      BoardUnlockEvent[]
+  ledgerEntries CreatorLedgerEntry[]
+  benchmarkSnapshots BenchmarkSnapshot[]
+  pregameSnapshot    ContestPregameSnapshot?
+
+  @@unique([weekId, position])
+  @@index([seasonId, status])
+}
+
+/// Immutable pregame consensus + selection metrics captured at Sunday full lock.
+model ContestPregameSnapshot {
+  id               String   @id @default(cuid())
+  contestId        String   @unique
+  lockedAt         DateTime
+  sampleSizeAll    Int      @default(0)
+  sampleSizeHuman  Int      @default(0)
+  sampleSizeAi     Int      @default(0)
+  sampleSizeExpert Int      @default(0)
+  /// ballot_union (legacy HUMAN+AI ballots) | group_weighted (equal HUMAN/AI/EXPERT groups)
+  allConsensusMode String   @default("group_weighted")
+  createdAt        DateTime @default(now())
+
+  contest RankIQContest                 @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  entries ContestPregameSnapshotEntry[]
+
+  @@index([lockedAt])
+}
+
+model ContestPregameSnapshotEntry {
+  id                      String @id @default(cuid())
+  snapshotId              String
+  rankableEntryId         String
+  selectionRateAll        Float  @default(0)
+  averageSelectedRankAll  Float?
+  selectionRateHuman      Float  @default(0)
+  averageSelectedRankHuman Float?
+  selectionRateAi         Float  @default(0)
+  averageSelectedRankAi   Float?
+  selectionRateExpert     Float  @default(0)
+  averageSelectedRankExpert Float?
+  consensusRankAll        Int?
+  consensusRankHuman      Int?
+  consensusRankAi         Int?
+  consensusRankExpert     Int?
+
+  snapshot      ContestPregameSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry          @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, rankableEntryId])
+  @@index([snapshotId, consensusRankAll])
+}
+
+/// Canonical NFL player or defense reused across weeks/contests.
+/// Week-specific opponent/kickoff live on ContestEntry.game (preferred) with
+/// denormalized RankableEntry fields kept for display convenience.
+model RankableEntry {
+  id           String            @id @default(cuid())
+  provider     String            @default("mock")
+  externalId   String
+  type         RankableEntryType
+  name         String
+  shortName    String
+  team         String
+  /// Denormalized weekly display fields (updated by import / pool build).
+  opponent     String            @default("TBD")
+  position     ContestPosition
+  headshotUrl  String?
+  gameStartsAt DateTime?
+  gameId       String?
+  availability EntryAvailability @default(ACTIVE)
+  active       Boolean           @default(true)
+  /// Optional operator note for master-directory maintenance (not public).
+  adminNotes   String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  game             NflGame?          @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  contestEntries   ContestEntry[]
+  seasonPlayers    SeasonPlayer[]
+  picks            RankingPick[]
+  benchmarkSnapshotPicks BenchmarkSnapshotPick[]
+  pregameSnapshotEntries ContestPregameSnapshotEntry[]
+  playerWeekStats  PlayerWeekStat[]
+  defenseWeekStats DefenseWeekStat[]
+
+  @@unique([provider, externalId])
+  @@index([position, team])
+  @@index([provider, position])
+  @@index([active, position])
+}
+
+/// Normalized offensive player weekly fantasy stat line (audit + recompute).
+model PlayerWeekStat {
+  id                 String   @id @default(cuid())
+  provider           String
+  weekId             String
+  rankableEntryId    String?
+  gameId             String?
+  externalPlayerId   String
+  scoringVersion     String
+  passingYards       Float    @default(0)
+  passingTds         Int      @default(0)
+  interceptions      Int      @default(0)
+  rushingYards       Float    @default(0)
+  rushingTds         Int      @default(0)
+  receptions         Int      @default(0)
+  receivingYards     Float    @default(0)
+  receivingTds       Int      @default(0)
+  twoPointConversions Int     @default(0)
+  fumblesLost        Int      @default(0)
+  /// Offensive player defensive/special-teams TDs when provided.
+  returnTds          Int      @default(0)
+  fantasyPoints      Float
+  /// League-wide positional finish for this week (all scored NFL players at position).
+  leagueActualRank   Int?
+  /// True while the related game is not FINAL.
+  isProvisional      Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  week          Week           @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry? @relation(fields: [rankableEntryId], references: [id], onDelete: SetNull)
+  game          NflGame?       @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, weekId, externalPlayerId])
+  @@index([weekId, fantasyPoints])
+  @@index([weekId, leagueActualRank])
+  @@index([rankableEntryId])
+}
+
+/// Normalized D/ST weekly fantasy stat line.
+model DefenseWeekStat {
+  id                String   @id @default(cuid())
+  provider          String
+  weekId            String
+  rankableEntryId   String?
+  gameId            String?
+  team              String
+  externalId        String
+  scoringVersion    String
+  sacks             Float    @default(0)
+  interceptions     Int      @default(0)
+  fumbleRecoveries  Int      @default(0)
+  defensiveTds      Int      @default(0)
+  specialTeamsTds   Int      @default(0)
+  safeties          Int      @default(0)
+  blockedKicks      Int      @default(0)
+  pointsAllowed     Int      @default(0)
+  fantasyPoints     Float
+  /// League-wide DEF finish for this week (all scored D/ST units).
+  leagueActualRank  Int?
+  isProvisional     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  week          Week           @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry? @relation(fields: [rankableEntryId], references: [id], onDelete: SetNull)
+  game          NflGame?       @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, weekId, team])
+  @@index([weekId, fantasyPoints])
+  @@index([weekId, leagueActualRank])
+  @@index([rankableEntryId])
+}
+
+/// Season-long NFL player roster entry (persistent identity for a season).
+/// Distinct from weekly ContestEntry activation.
+model SeasonPlayer {
+  id                String          @id @default(cuid())
+  seasonId          String
+  rankableEntryId   String
+  firstName         String?
+  lastName          String?
+  displayName       String
+  team              String
+  position          ContestPosition
+  /// ACTIVE, IR, PUP, etc. — operator-maintained.
+  nflStatus         String          @default("ACTIVE")
+  activeOnNFLRoster Boolean         @default(true)
+  /// Raw NFL.com position when it differs from RankEyeQ fantasy position (e.g. FB).
+  sourcePosition    String?
+  /// Raw NFL.com roster status code (ACT, CUT, RES, etc.).
+  sourceNflStatus   String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  season        Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([seasonId, rankableEntryId])
+  @@index([seasonId, position, team])
+  @@index([rankableEntryId])
+}
+
+/// Join: which RankableEntry is eligible for a given contest (+ optional results).
+model ContestEntry {
+  id              String   @id @default(cuid())
+  contestId       String
+  rankableEntryId String
+  gameId          String?
+  /// Team abbreviation during this NFL week (preserved if player is traded mid-season).
+  weekTeam        String?
+  /// Admin/data exclusion from the ranking field (suspended, not rostered, duplicate, etc.).
+  /// Not for editorial “unlikely to matter” — eligible rostered players should be active.
+  excluded        Boolean  @default(false)
+  /// Admin manually added an omitted player; preserved across pool rebuilds.
+  manuallyAdded   Boolean  @default(false)
+  /// Optional internal relevance hint for admin review (never shown as a user ranking).
+  suggested       Boolean  @default(false)
+  /// Optional internal ordering hint for admin review (not a user-facing rank).
+  seedRank        Int?
+  inactiveReason  String?
+  fantasyPoints   Float?
+  actualRank      Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contest       RankIQContest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry @relation(fields: [rankableEntryId], references: [id], onDelete: Cascade)
+  game          NflGame?      @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  @@unique([contestId, rankableEntryId])
+  @@index([contestId, actualRank])
+  @@index([contestId, excluded])
+}
+
+model RankingSubmission {
+  id                 String                 @id @default(cuid())
+  contestId          String
+  universalProfileId String
+  status             SubmissionStatus       @default(DRAFT)
+  /// Reveal preference during Sunday 10am–noon CT. Ignored after public release.
+  revealPreference   BoardRevealPreference  @default(FREE_REVEAL)
+  submittedAt        DateTime?
+  lockedAt           DateTime?
+  rawScore           Float?
+  normalizedScore    Float?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  contest          RankIQContest    @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  /// Restrict so deleting a profile cannot silently erase historical RankIQ scores.
+  universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  picks            RankingPick[]
+
+  @@unique([contestId, universalProfileId])
+  @@index([contestId, status])
+}
+
+model RankingPick {
+  id              String    @id @default(cuid())
+  submissionId    String
+  rankableEntryId String
+  predictedRank   Int
+  actualRank      Int?
+  fantasyPoints   Float?
+  basePoints      Float?
+  accuracyPoints  Float?
+  podiumPoints    Float?
+  totalPoints     Float?
+  /// Last time this pick/rank was committed while the slot was still editable.
+  committedAt     DateTime?
+  /// Instant this slot locked (typically the player’s game kickoff or full-board lock).
+  lockedAt        DateTime?
+  /// Rank frozen at lock — proof of pre-kickoff conviction.
+  lockedRank      Int?
+  slotLocked      Boolean   @default(false)
+  /// Original third-party source rank when this pick came from a benchmark snapshot.
+  sourceRank      Int?
+
+  submission    RankingSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry     @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, predictedRank])
+  @@unique([submissionId, rankableEntryId])
+}
+
+/// Manual capture of a third-party expert ranking. Never silently overwritten.
+/// Official on-time boards still grade through RankingSubmission + lib/scoring.ts.
+model BenchmarkSnapshot {
+  id                 String                    @id @default(cuid())
+  universalProfileId String
+  contestId          String
+  weekId             String
+  captureType        BenchmarkCaptureType
+  capturedAt         DateTime
+  sourcePublishedAt  DateTime?
+  sourceUrl          String?
+  notes              String?
+  rawText            String?                   @db.Text
+  status             BenchmarkSnapshotStatus   @default(CAPTURED)
+  publicBoardAllowed Boolean                   @default(true)
+  late               Boolean                   @default(false)
+  adminUserId        String
+  correctionOfId     String?
+  correctionReason   String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  universalProfile UniversalProfile      @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  contest          RankIQContest         @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  week             Week                  @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  adminUser        User                  @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  correctionOf     BenchmarkSnapshot?    @relation("SnapshotCorrections", fields: [correctionOfId], references: [id], onDelete: SetNull)
+  corrections      BenchmarkSnapshot[]   @relation("SnapshotCorrections")
+  picks            BenchmarkSnapshotPick[]
+
+  @@index([contestId, universalProfileId, capturedAt])
+  @@index([weekId, universalProfileId])
+  @@index([correctionOfId])
+}
+
+model BenchmarkSnapshotPick {
+  id              String   @id @default(cuid())
+  snapshotId      String
+  rankableEntryId String?
+  rawName         String
+  sourceRank      Int
+  rankIqRank      Int?
+  excluded        Boolean  @default(false)
+  exclusionReason String?
+  issue           String?
+  selected        Boolean  @default(false)
+  slotLocked      Boolean  @default(false)
+  lockedAt        DateTime?
+  lockedRank      Int?
+  kickoffAt       DateTime?
+
+  snapshot      BenchmarkSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry?    @relation(fields: [rankableEntryId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, sourceRank])
+  @@index([rankableEntryId])
+}
+
+/// Operator audit for manual NFL schedule/pool/results pastes. No secrets.
+model ManualImportLog {
+  id            String   @id @default(cuid())
+  adminUserId   String
+  weekId        String?
+  importType    String
+  rowCount      Int      @default(0)
+  createdCount  Int      @default(0)
+  updatedCount  Int      @default(0)
+  excludedCount Int      @default(0)
+  warnings      Json?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  adminUser User  @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  week      Week? @relation(fields: [weekId], references: [id], onDelete: SetNull)
+
+  @@index([weekId, createdAt])
+  @@index([adminUserId, createdAt])
+  @@index([importType])
+}
+
+/// Versioned RankEyeQ ranking formula — frozen on each graded contest.
+model RankingScoringVersion {
+  id          String               @id @default(cuid())
+  slug        String               @unique
+  label       String
+  status      ScoringVersionStatus @default(DRAFT)
+  description String?
+  /// JSON matching RankingScoringConfig (see lib/ranking-scoring-version.ts).
+  config      Json
+  activatedAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  contests       RankIQContest[]
+  activeSeasons  Season[] @relation("SeasonActiveScoringVersion")
+}
+
+/// Published legal/policy document revision (placeholder until legal review).
+model PolicyDocument {
+  id             String   @id @default(cuid())
+  slug           String
+  version        String
+  title          String
+  content        String   @db.Text
+  /// True until counsel approves final language.
+  requiresReview Boolean  @default(true)
+  publishedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  acceptances PolicyAcceptance[]
+
+  @@unique([slug, version])
+  @@index([slug, publishedAt])
+}
+
+/// Records which policy revision a user accepted and when.
+model PolicyAcceptance {
+  id               String   @id @default(cuid())
+  userId           String
+  policyDocumentId String
+  acceptedAt       DateTime @default(now())
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policyDocument PolicyDocument @relation(fields: [policyDocumentId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, policyDocumentId])
+  @@index([userId])
+}
