@@ -13,6 +13,11 @@ import {
   pickPreferredPoolRow,
 } from "@/lib/nfl/pool-identity";
 import { isMutableWeeklyPool } from "@/lib/nfl/weekly-pool-mutable";
+import { normalizeTeamAbbr } from "@/lib/nfl/manual/parse-common";
+import {
+  findGameForTeam,
+  formatOpponentLabel,
+} from "@/lib/providers/nfl/eligibility";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 
 export type WeeklyEligibilityRow = {
@@ -279,6 +284,24 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
     include: { season: true },
   });
 
+  const mutable = await isMutableWeeklyPool(week.id);
+  if (!mutable) {
+    return {
+      contestId: null as string | null,
+      created: 0,
+      updated: 0,
+      activated: 0,
+      skippedIneligible: 0,
+      skippedNonProduction: 0,
+      pruned: 0,
+      pruneReasons: {} as Record<string, number>,
+      skippedNonCanonical: 0,
+      candidates: 0,
+      matchupsStamped: 0,
+      skippedImmutable: true as const,
+    };
+  }
+
   const contest = await prisma.rankIQContest.upsert({
     where: {
       weekId_position: { weekId: week.id, position: input.position },
@@ -295,23 +318,27 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
   });
 
   const games = await prisma.nflGame.findMany({ where: { weekId: week.id } });
-  const scheduledTeams = new Set<string>();
+  const scheduledCanonicalTeams = new Set<string>();
   for (const game of games) {
-    scheduledTeams.add(game.homeTeam);
-    scheduledTeams.add(game.awayTeam);
+    scheduledCanonicalTeams.add(normalizeTeamAbbr(game.homeTeam));
+    scheduledCanonicalTeams.add(normalizeTeamAbbr(game.awayTeam));
   }
 
-  const seasonPlayers = await prisma.seasonPlayer.findMany({
+  const seasonPlayersRaw = await prisma.seasonPlayer.findMany({
     where: {
       seasonId: week.seasonId,
       position: input.position,
-      ...(scheduledTeamsOnly && scheduledTeams.size > 0
-        ? { team: { in: [...scheduledTeams] } }
-        : {}),
     },
     include: { rankableEntry: true },
     orderBy: { displayName: "asc" },
   });
+
+  const seasonPlayers =
+    scheduledTeamsOnly && scheduledCanonicalTeams.size > 0
+      ? seasonPlayersRaw.filter((player) =>
+          scheduledCanonicalTeams.has(normalizeTeamAbbr(player.team)),
+        )
+      : seasonPlayersRaw;
 
   let created = 0;
   let updated = 0;
@@ -319,6 +346,7 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
   let skippedIneligible = 0;
   let skippedNonCanonical = 0;
   let skippedNonProduction = 0;
+  let matchupsStamped = 0;
   const eligibleRankableEntryIds = new Set<string>();
   const canonicalDefenseTeams = await loadCanonicalDefenseTeams(week.seasonId);
 
@@ -359,9 +387,31 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
 
     eligibleRankableEntryIds.add(player.rankableEntryId);
 
-    const game = games.find(
-      (row) => row.homeTeam === player.team || row.awayTeam === player.team,
-    );
+    const game = findGameForTeam(games, player.team);
+
+    if (game) {
+      const opponent = formatOpponentLabel(
+        player.team,
+        game.homeTeam,
+        game.awayTeam,
+      );
+      const needsStamp =
+        player.rankableEntry.opponent !== opponent ||
+        player.rankableEntry.gameId !== game.id ||
+        (player.rankableEntry.gameStartsAt?.getTime() ?? 0) !==
+          game.startsAt.getTime();
+      if (needsStamp) {
+        await prisma.rankableEntry.update({
+          where: { id: player.rankableEntryId },
+          data: {
+            opponent,
+            gameId: game.id,
+            gameStartsAt: game.startsAt,
+          },
+        });
+        matchupsStamped += 1;
+      }
+    }
 
     const existing = await prisma.contestEntry.findUnique({
       where: {
@@ -449,6 +499,8 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
     pruneReasons: pruneResult.reasons,
     skippedNonCanonical,
     candidates: seasonPlayers.length,
+    matchupsStamped,
+    skippedImmutable: false as const,
   };
 }
 
@@ -526,12 +578,19 @@ export async function activateWeeklyPlayer(input: {
     },
   });
 
-  const game = await prisma.nflGame.findFirst({
-    where: {
-      weekId: input.weekId,
-      OR: [{ homeTeam: player.team }, { awayTeam: player.team }],
-    },
-  });
+  const games = await prisma.nflGame.findMany({ where: { weekId: input.weekId } });
+  const game = findGameForTeam(games, player.team);
+
+  if (game) {
+    await prisma.rankableEntry.update({
+      where: { id: input.rankableEntryId },
+      data: {
+        opponent: formatOpponentLabel(player.team, game.homeTeam, game.awayTeam),
+        gameId: game.id,
+        gameStartsAt: game.startsAt,
+      },
+    });
+  }
 
   return prisma.contestEntry.upsert({
     where: {

@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/db";
 import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import { normalizeTeamAbbr } from "@/lib/nfl/manual/parse-common";
 import { createNflDataProvider } from "@/lib/providers/nfl";
 import type { NflDataProvider } from "@/lib/providers/nfl/types";
+import { findGameForTeam, formatOpponentLabel } from "@/lib/providers/nfl/eligibility";
 
 const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
 
@@ -52,8 +54,8 @@ export async function buildRankIqPositionPools(input: {
   });
   const gameByTeam = new Map<string, (typeof games)[number]>();
   for (const game of games) {
-    gameByTeam.set(game.homeTeam, game);
-    gameByTeam.set(game.awayTeam, game);
+    gameByTeam.set(normalizeTeamAbbr(game.homeTeam), game);
+    gameByTeam.set(normalizeTeamAbbr(game.awayTeam), game);
   }
 
   for (const position of POSITIONS) {
@@ -78,15 +80,18 @@ export async function buildRankIqPositionPools(input: {
         provider: provider.name,
         position,
         active: true,
-        team: { in: [...gameByTeam.keys()] },
       },
       orderBy: { name: "asc" },
     });
 
-    result.byPosition[position].eligible = candidates.length;
+    const scheduledCandidates = candidates.filter((entry) =>
+      gameByTeam.has(normalizeTeamAbbr(entry.team)),
+    );
 
-    for (const entry of candidates) {
-      const game = gameByTeam.get(entry.team);
+    result.byPosition[position].eligible = scheduledCandidates.length;
+
+    for (const entry of scheduledCandidates) {
+      const game = gameByTeam.get(normalizeTeamAbbr(entry.team));
       if (!game) continue;
 
       const existing = await prisma.contestEntry.findUnique({
@@ -122,10 +127,7 @@ export async function buildRankIqPositionPools(input: {
           data: {
             gameId: game.id,
             gameStartsAt: game.startsAt,
-            opponent:
-              entry.team === game.homeTeam
-                ? `vs ${game.awayTeam}`
-                : `@ ${game.homeTeam}`,
+            opponent: formatOpponentLabel(entry.team, game.homeTeam, game.awayTeam),
           },
         });
         result.entriesCreated += 1;
@@ -140,6 +142,14 @@ export async function buildRankIqPositionPools(input: {
         } else {
           result.entriesUnchanged += 1;
         }
+        await prisma.rankableEntry.update({
+          where: { id: entry.id },
+          data: {
+            gameId: game.id,
+            gameStartsAt: game.startsAt,
+            opponent: formatOpponentLabel(entry.team, game.homeTeam, game.awayTeam),
+          },
+        });
         result.byPosition[position].inPool += 1;
       }
     }
@@ -184,9 +194,21 @@ export async function addManualContestEntry(input: {
     (entry.gameId
       ? await prisma.nflGame.findUnique({ where: { id: entry.gameId } })
       : null) ??
-    (await prisma.nflGame.findFirst({
-      where: { weekId: contest.weekId, OR: [{ homeTeam: entry.team }, { awayTeam: entry.team }] },
-    }));
+    findGameForTeam(
+      await prisma.nflGame.findMany({ where: { weekId: contest.weekId } }),
+      entry.team,
+    );
+
+  if (game) {
+    await prisma.rankableEntry.update({
+      where: { id: entry.id },
+      data: {
+        opponent: formatOpponentLabel(entry.team, game.homeTeam, game.awayTeam),
+        gameId: game.id,
+        gameStartsAt: game.startsAt,
+      },
+    });
+  }
 
   return prisma.contestEntry.upsert({
     where: {
@@ -199,11 +221,13 @@ export async function addManualContestEntry(input: {
       excluded: false,
       manuallyAdded: true,
       gameId: game?.id ?? undefined,
+      weekTeam: entry.team,
     },
     create: {
       contestId: input.contestId,
       rankableEntryId: input.rankableEntryId,
       gameId: game?.id ?? null,
+      weekTeam: entry.team,
       excluded: false,
       manuallyAdded: true,
     },

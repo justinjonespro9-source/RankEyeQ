@@ -80,8 +80,56 @@ export function parseContestPosition(raw: string): ContestPosition | null {
   return null;
 }
 
+/** Common legacy / alternate codes → RankEyeQ canonical abbreviations. */
+const TEAM_CODE_ALIASES: Record<string, string> = {
+  JAC: "JAX",
+  JAX: "JAX",
+  WSH: "WAS",
+  WAS: "WAS",
+  GNB: "GB",
+  GB: "GB",
+  KAN: "KC",
+  KC: "KC",
+  NOR: "NO",
+  NO: "NO",
+  NWE: "NE",
+  NE: "NE",
+  SFO: "SF",
+  SF: "SF",
+  TAM: "TB",
+  TB: "TB",
+  OAK: "LV",
+  LVR: "LV",
+  LV: "LV",
+  SD: "LAC",
+  LAC: "LAC",
+  STL: "LAR",
+  LAR: "LAR",
+  // Ambiguous "LA" historically meant Rams in many feeds.
+  LA: "LAR",
+  ARZ: "ARI",
+  ARI: "ARI",
+  BLT: "BAL",
+  BAL: "BAL",
+  CLV: "CLE",
+  CLE: "CLE",
+  HST: "HOU",
+  HOU: "HOU",
+};
+
+/**
+ * Canonical NFL team abbreviation for schedule ↔ roster matching.
+ * Uppercases, strips dots, and maps known aliases (JAC→JAX, WSH→WAS, etc.).
+ */
 export function normalizeTeamAbbr(raw: string) {
-  return raw.trim().toUpperCase().replace(/\./g, "");
+  const upper = raw.trim().toUpperCase().replace(/\./g, "");
+  if (!upper) return upper;
+  return TEAM_CODE_ALIASES[upper] ?? upper;
+}
+
+/** True when two team codes refer to the same franchise after alias normalization. */
+export function teamCodesMatch(left: string, right: string) {
+  return normalizeTeamAbbr(left) === normalizeTeamAbbr(right);
 }
 
 export function isMissingTeam(team: string) {

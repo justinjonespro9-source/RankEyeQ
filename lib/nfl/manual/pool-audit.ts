@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { evaluateWeeklyEligibility } from "@/lib/nfl/manual/eligibility";
-import { isMissingTeam } from "@/lib/nfl/manual/parse-common";
+import { isMissingTeam, teamCodesMatch } from "@/lib/nfl/manual/parse-common";
 import { normalizePlayerName } from "@/lib/admin/ai-parser";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
@@ -70,11 +70,11 @@ export async function auditContestPool(
   const nameCounts = new Map<string, number>();
 
   for (const entry of active) {
-    const team = entry.rankableEntry.team;
+    const team = entry.weekTeam ?? entry.rankableEntry.team;
     const hasGame =
       Boolean(entry.gameId) ||
       Boolean(entry.game) ||
-      teamsWithGames.has(team);
+      [...teamsWithGames].some((scheduled) => teamCodesMatch(scheduled, team));
     const kickoff =
       entry.game?.startsAt ?? entry.rankableEntry.gameStartsAt ?? null;
     const opponent = entry.rankableEntry.opponent;
