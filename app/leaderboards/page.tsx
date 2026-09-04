@@ -96,6 +96,7 @@ function BoardTable({
                 displayName={entry.displayName}
                 isAi={entry.profileType === "AI"}
                 isExpert={entry.profileType === "BENCHMARK"}
+                expertPublisher={entry.expertPublisher}
               />
               {follow && entry.profileType !== "BENCHMARK" ? (
                 <p className="mt-1 text-xs text-muted">

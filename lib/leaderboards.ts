@@ -11,6 +11,7 @@ export type LeaderboardRow = {
   username: string;
   displayName: string;
   profileType: ProfileType;
+  expertPublisher: string | null;
   contestsPlayed: number;
   averageScore: number;
   bestScore: number;
@@ -36,6 +37,7 @@ type GradedAgg = {
   username: string;
   displayName: string;
   profileType: ProfileType;
+  expertPublisher: string | null;
   scores: number[];
   topNHits: number;
   topNOpportunities: number;
@@ -55,6 +57,7 @@ function toRows(aggs: GradedAgg[]): LeaderboardRow[] {
         username: agg.username,
         displayName: agg.displayName,
         profileType: agg.profileType,
+        expertPublisher: agg.expertPublisher,
         contestsPlayed: agg.scores.length,
         averageScore,
         bestScore,
@@ -89,12 +92,14 @@ function emptyAgg(profile: {
   username: string;
   displayName: string;
   profileType: ProfileType;
+  expertSource?: { publicationName: string | null; analystName: string | null } | null;
 }): GradedAgg {
   return {
     universalProfileId: profile.id,
     username: profile.username,
-    displayName: profile.displayName,
+    displayName: profile.expertSource?.analystName?.trim() || profile.displayName,
     profileType: profile.profileType,
+    expertPublisher: profile.expertSource?.publicationName ?? null,
     scores: [],
     topNHits: 0,
     topNOpportunities: 0,
@@ -126,7 +131,7 @@ async function loadGradedSubmissions(where: {
       },
     },
     include: {
-      universalProfile: true,
+      universalProfile: { include: { expertSource: true } },
       contest: true,
       picks: true,
     },

@@ -97,6 +97,8 @@ export default async function ProfilePage(
     isBot: view.profileType === "AI",
     isBenchmark: view.profileType === "BENCHMARK",
     suspended: view.status === "SUSPENDED",
+    expertAnalystName: view.expertAnalystName,
+    expertPublicationName: view.expertPublicationName,
     bio:
       profileRecord?.bio ??
       (view.status === "SUSPENDED"
@@ -104,7 +106,7 @@ export default async function ProfilePage(
         : view.profileType === "AI"
           ? "AI competitor — rankings are submitted through RankEyeQ's administrative workflow."
           : view.profileType === "BENCHMARK"
-            ? "Independent RankEyeQ expert benchmark source."
+            ? "Independent RankEyeQ Expert."
             : undefined),
     rankiq: view.stats,
   };

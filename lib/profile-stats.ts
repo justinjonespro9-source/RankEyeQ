@@ -22,6 +22,8 @@ export type RankIQProfileView = {
   status: "ACTIVE" | "SUSPENDED";
   universalUserId: string | null;
   avatarUrl: string | null;
+  expertAnalystName: string | null;
+  expertPublicationName: string | null;
   stats: RankIQProfileStats;
   history: ProfileContestHistoryItem[];
   contestsPlayed: number;
@@ -40,6 +42,7 @@ export async function getRankIQProfileView(
 ): Promise<RankIQProfileView | null> {
   const profile = await prisma.universalProfile.findUnique({
     where: { username },
+    include: { expertSource: true },
   });
   if (!profile) return null;
   if (!profile.publicVisible && profile.status === "SUSPENDED") return null;
@@ -219,6 +222,8 @@ export async function getRankIQProfileView(
     status: profile.status,
     universalUserId: profile.universalUserId,
     avatarUrl: profile.avatarUrl,
+    expertAnalystName: profile.expertSource?.analystName ?? null,
+    expertPublicationName: profile.expertSource?.publicationName ?? null,
     contestsPlayed,
     stats: {
       overallRank,

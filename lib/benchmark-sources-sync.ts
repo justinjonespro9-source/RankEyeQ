@@ -1,17 +1,21 @@
 import { prisma } from "@/lib/db";
 import {
-  EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT,
+  EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT,
   OFFICIAL_BENCHMARK_SOURCES,
   OFFICIAL_BENCHMARK_USERNAMES,
 } from "@/lib/benchmark-sources";
-import { ensureExpertSourceMetadata } from "@/lib/expert-identity";
+import {
+  EXPERT_SOURCE_KIND,
+  ensureExpertSourceMetadata,
+} from "@/lib/expert-identity";
 
 type BenchmarkDb = {
   universalProfile: typeof prisma.universalProfile;
 };
 
 /**
- * Active expert/benchmark sources for coverage, smoke checks, and public profiles.
+ * Active Expert competitors for weekly coverage / import grids.
+ * Individual analysts should be competitorActive; publisher shells should not.
  */
 export async function listActiveBenchmarkSources(db: BenchmarkDb = prisma) {
   return db.universalProfile.findMany({
@@ -20,6 +24,7 @@ export async function listActiveBenchmarkSources(db: BenchmarkDb = prisma) {
       competitorActive: true,
       status: "ACTIVE",
     },
+    include: { expertSource: true },
     orderBy: { displayName: "asc" },
   });
 }
@@ -30,14 +35,24 @@ export async function countActiveBenchmarkSources(db: BenchmarkDb = prisma) {
       profileType: "BENCHMARK",
       competitorActive: true,
       status: "ACTIVE",
+    },
+  });
+}
+
+export async function countOfficialPublisherShells(db: BenchmarkDb = prisma) {
+  return db.universalProfile.count({
+    where: {
+      profileType: "BENCHMARK",
       username: { in: [...OFFICIAL_BENCHMARK_USERNAMES] },
     },
   });
 }
 
 /**
- * Idempotent upsert of the official 8 expert/benchmark sources.
- * Safe for seed. Does not delete graded history.
+ * Idempotent upsert of official publisher affiliation shells.
+ * These are NOT weekly Expert ballots when attributable analysts exist.
+ * Historical rankings on these profiles are preserved; competitorActive=false
+ * keeps them out of active coverage / consensus enrollment expectations.
  */
 export async function ensureOfficialBenchmarkSources(db: BenchmarkDb = prisma) {
   for (const source of OFFICIAL_BENCHMARK_SOURCES) {
@@ -47,7 +62,8 @@ export async function ensureOfficialBenchmarkSources(db: BenchmarkDb = prisma) {
         displayName: source.displayName,
         profileType: "BENCHMARK",
         status: "ACTIVE",
-        competitorActive: true,
+        // Publisher shells stay in the directory but are not active competitors.
+        competitorActive: false,
         universalUserId: source.universalUserId,
       },
       create: {
@@ -55,7 +71,7 @@ export async function ensureOfficialBenchmarkSources(db: BenchmarkDb = prisma) {
         displayName: source.displayName,
         profileType: "BENCHMARK",
         status: "ACTIVE",
-        competitorActive: true,
+        competitorActive: false,
         universalUserId: source.universalUserId,
       },
     });
@@ -63,13 +79,16 @@ export async function ensureOfficialBenchmarkSources(db: BenchmarkDb = prisma) {
       universalProfileId: profile.id,
       displayName: source.displayName,
       publicationName: source.displayName,
+      sourceKind: EXPERT_SOURCE_KIND.PUBLISHER,
+      active: true,
     });
   }
 
-  const activeCount = await countActiveBenchmarkSources(db);
+  const shellCount = await countOfficialPublisherShells(db);
   return {
-    ok: activeCount === EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT,
-    activeCount,
-    expected: EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT,
+    ok: shellCount === EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT,
+    activeCount: shellCount,
+    expected: EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT,
+    publisherShells: shellCount,
   };
 }

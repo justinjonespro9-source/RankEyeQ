@@ -210,7 +210,8 @@ export async function getBenchmarkCoverage(
     sources: sources.map((source) => ({
       id: source.id,
       username: source.username,
-      displayName: source.displayName,
+      displayName:
+        source.expertSource?.analystName?.trim() || source.displayName,
     })),
     positions: usePositions,
     cells,

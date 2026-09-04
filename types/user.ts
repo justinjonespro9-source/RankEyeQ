@@ -35,6 +35,10 @@ export type UniversalProfile = {
   isBenchmark?: boolean;
   suspended?: boolean;
   bio?: string;
+  /** Expert analyst name when different from displayName. */
+  expertAnalystName?: string | null;
+  /** Expert publisher affiliation (Yahoo Fantasy, ESPN, …). */
+  expertPublicationName?: string | null;
   rankiq: RankIQProfileStats | null;
 };
 

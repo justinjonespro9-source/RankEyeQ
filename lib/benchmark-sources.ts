@@ -52,8 +52,12 @@ export const OFFICIAL_BENCHMARK_SOURCES: readonly OfficialBenchmarkSource[] = [
   },
 ] as const;
 
-export const EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT =
+export const EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT =
   OFFICIAL_BENCHMARK_SOURCES.length;
+
+/** @deprecated Prefer EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT — shells are not active competitors. */
+export const EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT =
+  EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT;
 
 export const OFFICIAL_BENCHMARK_USERNAMES = new Set(
   OFFICIAL_BENCHMARK_SOURCES.map((source) => source.username),
@@ -64,7 +68,7 @@ export function isOfficialBenchmarkUsername(username: string) {
 }
 
 export function benchmarkAffiliationDisclaimer(sourceName: string) {
-  return `Independent RankEYEQ Expert Benchmark. Rankings are entered from publicly available or otherwise authorized source rankings and scored independently by RankEYEQ. This profile is not operated by or affiliated with ${sourceName}.`;
+  return `Independent RankEyeQ Expert. Rankings are entered from publicly available or otherwise authorized source rankings and scored independently by RankEyeQ. This profile is not operated by or affiliated with ${sourceName}.`;
 }
 
 export const LATE_CAPTURE_WARNING =

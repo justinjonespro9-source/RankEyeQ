@@ -1,24 +1,40 @@
-# Expert identities vs benchmark datasets
+# Expert identities vs publisher affiliations
 
-## Current model
+## Model
 
-Public **Expert** rankers (fantasy analysts, publisher consensus boards, editorial ranking sources) are stored as `UniversalProfile` rows with `profileType: BENCHMARK`. The UI label is **Expert**; the database enum retains the historical `BENCHMARK` name.
+Public **Experts** are competitive identities stored as `UniversalProfile` with
+`profileType: BENCHMARK` (historical enum name; UI says Expert).
 
-`ExpertSourceProfile` holds publication metadata (display name, analyst, URL, positions covered, active flag). Expert weekly rankings flow through `BenchmarkSnapshot` → `RankingSubmission` and grade with the same RankEyeQ EYEQ engine as Human and AI ballots.
+| Concept | Representation |
+|---------|----------------|
+| **Expert (person)** | `UniversalProfile.displayName` + `ExpertSourceProfile.analystName`, `sourceKind = ANALYST` |
+| **Publisher (affiliation)** | `ExpertSourceProfile.publicationName` (Yahoo Fantasy, ESPN, CBS Sports, …) |
+| **Staff / unattributed consensus** | Allowed only when rankings are genuinely unattributed — use `sourceKind = SITE_CONSENSUS` or `PUBLISHER` and import to that shell only |
 
-## Future separation (not migrated yet)
+Official publisher shells (`espn-fantasy`, `yahoo-fantasy`, …) remain in the database for history and affiliation labels. They are **`competitorActive: false`** so they are not expected Week competitors when individual analysts exist.
 
-RankEyeQ may later distinguish:
+## Public display
 
-| Concept | Examples | Public role |
-|---------|----------|-------------|
-| **Expert** | Analysts, site consensus boards | Competitive ranker identity, consensus segment, leaderboards |
-| **Benchmark** | ADP, projection systems, market prices, statistical models | Reference data — not necessarily “fantasy experts” |
+- Primary: analyst name (`analystName` / `displayName`)
+- Badge: `EXPERT · {publicationName}`
 
-The current schema does **not** block this split:
+## Consensus / leaderboards
 
-- `BENCHMARK` profiles can be reclassified or aliased when a dedicated type is introduced.
-- `ExpertSourceProfile.sourceKind` can distinguish publisher vs analyst vs other.
-- Official seed sources (`OFFICIAL_BENCHMARK_SOURCES`) are a subset; custom expert profiles already coexist.
+- Expert Consensus uses only **submitted** Expert (`BENCHMARK`) ballots for that week
+- Do **not** import both a publisher shell ballot and an analyst ballot for the same source board
+- EYEQ grading engine is unchanged
 
-No schema migration is required until non-expert benchmark datasets need separate UX and consensus treatment.
+## Admin
+
+- `/admin/experts` — create analysts, set publisher/URL/positions, activate/deactivate (no delete)
+- `/admin/benchmarks` — week-specific import availability/status
+
+## Seeding ~20 Week 1 analysts
+
+Use Admin → Experts → “Add Expert analyst”, or a scripted loop calling `createExpertAnalyst` with:
+
+- `analystName` (person)
+- `publicationName` (Yahoo Fantasy / ESPN Fantasy / …)
+- optional `sourceUrl`, `positionsCovered`, `competitorActive: true`
+
+Then import each analyst’s Week 1 boards from `/admin/benchmarks` (not the inactive publisher shells).

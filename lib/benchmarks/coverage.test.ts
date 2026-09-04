@@ -70,7 +70,7 @@ describe("benchmark coverage matrix", () => {
 describe("benchmark affiliation disclaimer", () => {
   it("states independent capture and names the source without implying affiliation", () => {
     const text = benchmarkAffiliationDisclaimer("FantasyPros ECR");
-    expect(text).toMatch(/Independent RankEYEQ Expert Benchmark/);
+    expect(text).toMatch(/Independent RankEyeQ Expert/);
     expect(text).toMatch(/not operated by or affiliated with FantasyPros ECR/);
     expect(text).not.toMatch(/official partner/i);
   });

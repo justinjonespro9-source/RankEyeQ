@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/db";
 import { EXPECTED_ACTIVE_AI_COMPETITOR_COUNT } from "@/lib/ai-competitors";
 import { countActiveAiCompetitors } from "@/lib/ai-competitors-sync";
-import { EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT } from "@/lib/benchmark-sources";
-import { countActiveBenchmarkSources } from "@/lib/benchmark-sources-sync";
+import { EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT } from "@/lib/benchmark-sources";
+import { countOfficialPublisherShells } from "@/lib/benchmark-sources-sync";
 import { validateEnv } from "@/lib/env";
 import { DEFAULT_FANTASY_SCORING_VERSION, RANKIQ_NFL_PPR_V1 } from "@/lib/fantasy/scoring-config";
 import { resolveNflProviderName } from "@/lib/providers/nfl";
@@ -105,11 +105,11 @@ export async function getSmokeDiagnostics(): Promise<{
     detail: `${aiCount} active AI competitors (expected ${EXPECTED_ACTIVE_AI_COMPETITOR_COUNT})`,
   });
 
-  const benchmarkCount = await countActiveBenchmarkSources();
+  const shellCount = await countOfficialPublisherShells();
   checks.push({
     key: "benchmark_profiles",
-    ok: benchmarkCount === EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT,
-    detail: `${benchmarkCount} active expert/benchmark sources (expected ${EXPECTED_ACTIVE_BENCHMARK_SOURCE_COUNT})`,
+    ok: shellCount === EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT,
+    detail: `${shellCount} official publisher shells (expected ${EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT}); active Expert competitors are managed separately`,
   });
 
   const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });

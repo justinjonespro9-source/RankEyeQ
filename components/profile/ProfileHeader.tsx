@@ -3,6 +3,10 @@ import { Badge } from "@/components/ui/Badge";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { benchmarkAffiliationDisclaimer } from "@/lib/benchmark-sources";
+import {
+  formatExpertAffiliationBadge,
+  formatExpertPrimaryName,
+} from "@/lib/expert-identity";
 import type { UniversalProfile } from "@/types/user";
 
 export function ProfileHeader({
@@ -28,6 +32,24 @@ export function ProfileHeader({
     qualified: boolean;
   };
 }) {
+  const expertPrimary = profile.isBenchmark
+    ? formatExpertPrimaryName({
+        displayName: profile.displayName,
+        analystName: profile.expertAnalystName,
+        publicationName: profile.expertPublicationName,
+      })
+    : profile.displayName;
+  const expertBadge = profile.isBenchmark
+    ? formatExpertAffiliationBadge({
+        displayName: profile.displayName,
+        analystName: profile.expertAnalystName,
+        publicationName: profile.expertPublicationName,
+        sourceKind: profile.expertAnalystName ? "ANALYST" : "PUBLISHER",
+      })
+    : null;
+  const disclaimerSource =
+    profile.expertPublicationName?.trim() || profile.displayName;
+
   return (
     <header className="rounded-lg border border-border bg-surface-elevated px-5 py-6 sm:px-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -36,12 +58,19 @@ export function ProfileHeader({
             Universal profile
           </p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-            {profile.displayName}
+            {expertPrimary}
           </h1>
           <p className="mt-1 text-muted">@{profile.username}</p>
+          {profile.isBenchmark &&
+          profile.expertPublicationName &&
+          profile.expertAnalystName ? (
+            <p className="mt-1 text-sm text-muted">
+              {profile.expertPublicationName}
+            </p>
+          ) : null}
           {profile.isBenchmark ? (
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-              {benchmarkAffiliationDisclaimer(profile.displayName)}
+              {benchmarkAffiliationDisclaimer(disclaimerSource)}
             </p>
           ) : (
             <p className="mt-3 text-sm text-muted">
@@ -77,7 +106,7 @@ export function ProfileHeader({
               }
             >
               {profile.isBenchmark
-                ? "Independent Benchmark"
+                ? (expertBadge ?? "Expert")
                 : profile.isBot
                   ? "AI Competitor"
                   : "Human"}
@@ -100,11 +129,6 @@ export function ProfileHeader({
               canFollow={follow.canFollow}
             />
           ) : null}
-          <p className="text-xs text-muted">
-            {profile.universalUserId
-              ? `universalUserId: ${profile.universalUserId}`
-              : "Not linked to a universal ID yet"}
-          </p>
         </div>
       </div>
     </header>

@@ -13,6 +13,7 @@ export function ProfileLink({
   displayName,
   isAi = false,
   isExpert = false,
+  expertPublisher = null,
   showAvatar = true,
   className = "",
 }: {
@@ -20,9 +21,18 @@ export function ProfileLink({
   displayName: string;
   isAi?: boolean;
   isExpert?: boolean;
+  /** Publisher affiliation for Experts, e.g. "Yahoo Fantasy" → badge EXPERT · Yahoo Fantasy */
+  expertPublisher?: string | null;
   showAvatar?: boolean;
   className?: string;
 }) {
+  const expertBadge =
+    isExpert && expertPublisher?.trim()
+      ? `EXPERT · ${expertPublisher.trim()}`
+      : isExpert
+        ? "Expert"
+        : null;
+
   return (
     <Link
       href={`/profile/${username}`}
@@ -41,7 +51,7 @@ export function ProfileLink({
         <span className="block truncate text-xs text-muted">@{username}</span>
       </span>
       {isAi ? <Badge className="shrink-0">AI</Badge> : null}
-      {isExpert ? <Badge className="shrink-0">Expert</Badge> : null}
+      {expertBadge ? <Badge className="shrink-0">{expertBadge}</Badge> : null}
     </Link>
   );
 }
