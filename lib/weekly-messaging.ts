@@ -1,7 +1,7 @@
 /** Public copy clarifying weekly slate rankings (not draft or season-long projections). */
 
 export const WEEKLY_RANKINGS_TAGLINE =
-  "Weekly player rankings. Not draft rankings.";
+  "Weekly player rankings. Real weekly receipts.";
 
 export const WEEKLY_RANKINGS_EXPLAINER =
   "Each week, rank the top QBs, RBs, WRs, TEs, and defenses for that specific NFL slate. Rankings lock before kickoff and are graded against actual fantasy-point finishes for that week.";
