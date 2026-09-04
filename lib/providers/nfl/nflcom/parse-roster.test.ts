@@ -51,11 +51,59 @@ describe("NFL.com roster status mapping", () => {
     expect(mapNflComStatusToSeasonFields("RES").nflStatus).toBe("PRACTICE_SQUAD");
   });
 
+  it("marks DEV (NFL.com practice squad / developmental) as inactive", () => {
+    expect(mapNflComStatusToSeasonFields("DEV")).toEqual({
+      nflStatus: "PRACTICE_SQUAD",
+      activeOnNFLRoster: false,
+    });
+    expect(mapNflComStatusToSeasonFields("dev").activeOnNFLRoster).toBe(false);
+  });
+
+  it("marks E14 and INA as inactive roster statuses", () => {
+    expect(mapNflComStatusToSeasonFields("E14")).toEqual({
+      nflStatus: "PRACTICE_SQUAD",
+      activeOnNFLRoster: false,
+    });
+    expect(mapNflComStatusToSeasonFields("INA")).toEqual({
+      nflStatus: "INACTIVE",
+      activeOnNFLRoster: false,
+    });
+  });
+
+  it("marks RSN (non-football IR) as not on the active roster", () => {
+    expect(mapNflComStatusToSeasonFields("RSN")).toEqual({
+      nflStatus: "RSN",
+      activeOnNFLRoster: false,
+    });
+  });
+
+  it("keeps EXE (commissioner exempt) roster-affiliated for separate eligibility rules", () => {
+    expect(mapNflComStatusToSeasonFields("EXE")).toEqual({
+      nflStatus: "EXE",
+      activeOnNFLRoster: true,
+    });
+  });
+
   it("preserves SUS and IR for eligibility rules", () => {
     expect(mapNflComStatusToSeasonFields("SUS")).toEqual({
       nflStatus: "SUSPENDED",
       activeOnNFLRoster: true,
     });
     expect(mapNflComStatusToSeasonFields("IR").activeOnNFLRoster).toBe(true);
+  });
+});
+
+describe("DEV weekly eligibility", () => {
+  it("excludes DEV-mapped season players from the weekly field", async () => {
+    const { isSeasonPlayerEligibleForWeeklyField } = await import(
+      "@/lib/nfl/eligibility-rules"
+    );
+    const mapped = mapNflComStatusToSeasonFields("DEV");
+    expect(
+      isSeasonPlayerEligibleForWeeklyField({
+        activeOnNFLRoster: mapped.activeOnNFLRoster,
+        nflStatus: mapped.nflStatus,
+      }),
+    ).toBe(false);
   });
 });
