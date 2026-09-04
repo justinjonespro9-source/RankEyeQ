@@ -15,17 +15,25 @@ import {
   getFantasyScoringSummary,
 } from "@/lib/fantasy/scoring-reference";
 import {
+  SCORING_CALL_THE_PODIUM,
+  SCORING_FIND_THE_FIELD,
+  SCORING_RANK_THE_REST,
+  SCORING_TABLE_ROWS,
+  getEyeqWorkedExample,
+} from "@/lib/scoring-messaging";
+import {
   NOT_DRAFT_OR_PROJECTIONS,
   SEASON_LEADERBOARD_NOTE,
   WEEKLY_RANKINGS_EXPLAINER,
   WEEKLY_RANKINGS_SHORT,
   WEEKLY_RANKINGS_TAGLINE,
 } from "@/lib/weekly-messaging";
+import { TOP_10_MAX_RAW, TOP_15_MAX_RAW } from "@/lib/scoring";
 
 export const metadata: Metadata = {
   title: "How It Works",
   description:
-    "Weekly NFL player rankings: rank this week's slate before kickoff, graded against actual fantasy-point finishes. Not draft rankings or season-long projections.",
+    "How RankEyeQ fantasy points and EYEQ Scores are calculated — Full PPR finishes and weekly ranking accuracy.",
   ...PUBLIC_INDEX,
   ...canonicalMetadata("/how-it-works"),
 };
@@ -41,11 +49,11 @@ const HOW_STEPS = [
   },
   {
     title: "See how everyone ranked them",
-    body: "After the Sunday lock, community, human, and AI rankings can be revealed during the reveal window.",
+    body: "After the Sunday lock, community, human, Expert, Creator, and AI rankings can be revealed during the reveal window.",
   },
   {
     title: "Watch the games decide",
-    body: "Actual fantasy production determines each player's final positional order using FantasyTrack Full PPR scoring.",
+    body: "Actual fantasy production determines each player's final positional order using FantasyTrack Full PPR scoring — the same engine RankEyeQ and FantasyTrack share.",
   },
   {
     title: "Build your RankEyeQ",
@@ -56,6 +64,8 @@ const HOW_STEPS = [
 export default function HowItWorksPage() {
   const fantasySummary = getFantasyScoringSummary();
   const fantasyTables = getFantasyScoringReferenceTables();
+  const example = getEyeqWorkedExample();
+
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
@@ -70,6 +80,17 @@ export default function HowItWorksPage() {
         </p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           {WEEKLY_RANKINGS_SHORT} {NOT_DRAFT_OR_PROJECTIONS}
+        </p>
+        <p className="mt-3 text-sm text-muted">
+          Jump to{" "}
+          <a href="#fantasy-scoring" className="font-medium text-accent hover:underline">
+            fantasy scoring
+          </a>{" "}
+          or{" "}
+          <a href="#scoring" className="font-medium text-accent hover:underline">
+            EYEQ Score
+          </a>
+          .
         </p>
       </div>
 
@@ -101,8 +122,8 @@ export default function HowItWorksPage() {
             <li>{NO_WAGERING_DISCLAIMER}</li>
             <li>{ELIGIBILITY_SUMMARY}</li>
             <li>
-              Humans, Experts, and labeled AI Competitors use the same weekly
-              rules and scoring. See the{" "}
+              Humans, Experts, Creators, and labeled AI Competitors use the same
+              weekly rules and scoring. See the{" "}
               <Link href={policyRoute("ai-disclosure")} className="text-accent hover:underline">
                 AI Disclosure
               </Link>{" "}
@@ -152,9 +173,7 @@ export default function HowItWorksPage() {
               Before Sunday lock, other users’ boards, AI boards, and consensus
               stay private. Submission counts remain visible.
             </li>
-            <li>
-              Community EYEQ is free after Sunday 10:00 AM CT.
-            </li>
+            <li>Community EYEQ is free after Sunday 10:00 AM CT.</li>
             <li>
               Individual boards may be revealed during 10:00 AM–12:00 PM CT to
               entitled viewers. After noon CT, all official boards are public.
@@ -188,10 +207,10 @@ export default function HowItWorksPage() {
 
         <section
           id="fantasy-scoring"
-          className="rounded-lg border border-border bg-surface-elevated p-6"
+          className="scroll-mt-24 rounded-lg border border-border bg-surface-elevated p-6"
         >
           <h2 className="font-display text-xl font-semibold text-ink">
-            Actual finishes: Full PPR fantasy scoring
+            How fantasy points are calculated
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             {fantasySummary.summary} RankEyeQ and FantasyTrack use the same
@@ -199,46 +218,50 @@ export default function HowItWorksPage() {
             are identical in both products for the same NFL week.
           </p>
           <p className="mt-3 text-sm font-medium text-ink">
-            Format: {fantasySummary.formatLabel}
+            Format: {fantasySummary.formatLabel} · version{" "}
+            <span className="font-mono text-xs">{fantasySummary.version}</span>
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            There are <strong className="font-medium text-ink">no</strong>{" "}
+            100-yard rushing or receiving bonuses and{" "}
+            <strong className="font-medium text-ink">no</strong> 300-yard passing
+            bonus in the production engine. Fumble scoring applies to{" "}
+            <em>fumbles lost</em> only.
           </p>
 
-          <details className="mt-6 rounded-md border border-border bg-surface px-4 py-3">
-            <summary className="cursor-pointer text-sm font-medium text-ink">
-              Detailed Full PPR scoring table
-            </summary>
-            <div className="mt-4 grid gap-6 lg:grid-cols-2">
-              <FantasyTable title="Offense" rows={fantasyTables.offenseRows} />
-              <FantasyTable title="D/ST" rows={fantasyTables.defenseRows} />
-            </div>
-          </details>
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <FantasyTable title="Offense" rows={fantasyTables.offenseRows} />
+            <FantasyTable title="D/ST" rows={fantasyTables.defenseRows} />
+          </div>
+
+          <p className="mt-4 text-sm leading-relaxed text-muted">
+            Positional finishes use competition ranking on fantasy points (e.g.
+            tied scores share a rank such as 1, 2, 2, 4). Those ranks are what
+            EYEQ grades against.
+          </p>
         </section>
 
         <section
           id="scoring"
-          className="rounded-lg border border-border bg-surface-elevated p-6"
+          className="scroll-mt-24 rounded-lg border border-border bg-surface-elevated p-6"
         >
           <h2 className="font-display text-xl font-semibold text-ink">
-            RankEyeQ EYEQ Score
+            How your EYEQ Score is calculated
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             Pick the players you believe will finish at the top this week. Your
-            EYEQ Score is normalized against the theoretical maximum for that
-            position depth (210 for Top-10 contests, 285 for WR Top-15).
+            EYEQ Score is raw ranking points divided by the theoretical maximum
+            for that position depth ({TOP_10_MAX_RAW} for Top-10 contests,{" "}
+            {TOP_15_MAX_RAW} for WR Top-15), then scaled to 0–100.
           </p>
 
           <div className="mt-6 grid gap-4 lg:grid-cols-3">
-            <ScoringPillar
-              title="Find the field"
-              body="Every player you correctly put inside the actual Top 10 (Top 15 for WR) earns +10."
-            />
+            <ScoringPillar title="Find the field" body={SCORING_FIND_THE_FIELD} />
             <ScoringPillar
               title="Call the podium"
-              body="Your first 3 slots are Podium Picks. If any finish actual Top 3, you earn a +10 Podium Call bonus. Order within your Top 3 does not matter."
+              body={SCORING_CALL_THE_PODIUM}
             />
-            <ScoringPillar
-              title="Rank the rest"
-              body="For slots 4+, exact and near-exact placements earn precision points (+5 / +3 / +1)."
-            />
+            <ScoringPillar title="Rank the rest" body={SCORING_RANK_THE_REST} />
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-md border border-border">
@@ -250,14 +273,9 @@ export default function HowItWorksPage() {
                 </tr>
               </thead>
               <tbody className="text-ink">
-                <ScoringRow label="Top-N Hit" value="+10" />
-                <ScoringRow label="Precision — exact" value="+5" />
-                <ScoringRow label="Precision — off by 1" value="+3" />
-                <ScoringRow label="Precision — off by 2" value="+1" />
-                <ScoringRow label="Actual podium — #1" value="+20" />
-                <ScoringRow label="Actual podium — #2" value="+15" />
-                <ScoringRow label="Actual podium — #3" value="+10" />
-                <ScoringRow label="Podium Call" value="+10" />
+                {SCORING_TABLE_ROWS.map((row) => (
+                  <ScoringRow key={row.label} label={row.label} value={row.value} />
+                ))}
               </tbody>
             </table>
           </div>
@@ -267,9 +285,49 @@ export default function HowItWorksPage() {
             an exact numerical match. If a Podium Pick misses the actual podium
             but still finishes inside the Top N, normal precision scoring applies.
             Actual podium finishers ranked outside your Top 3 still earn base +
-            actual podium + precision, but not the Podium Call bonus.{" "}
+            actual podium + precision, but not the Podium Call bonus. Picks whose
+            actual finish is outside the scoring field earn 0.{" "}
             {SEASON_LEADERBOARD_NOTE}
           </p>
+
+          <div className="mt-8 rounded-md border border-border bg-surface px-4 py-5">
+            <h3 className="font-display text-lg font-semibold text-ink">
+              Worked ranking example (Top 10)
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Point totals below are computed with the production{" "}
+              <code className="text-xs">scorePlayerPick</code> engine — not
+              hand-rounded marketing math.
+            </p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[24rem] text-left text-sm">
+                <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="py-2 pr-3 font-semibold">Pick</th>
+                    <th className="py-2 pr-3 font-semibold">Pts</th>
+                    <th className="py-2 font-semibold">Why</th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink">
+                  {example.picks.map((pick) => (
+                    <tr
+                      key={pick.label}
+                      className="border-b border-border last:border-0 align-top"
+                    >
+                      <td className="py-2.5 pr-3 font-medium">{pick.label}</td>
+                      <td className="py-2.5 pr-3 tabular-nums">{pick.totalPoints}</td>
+                      <td className="py-2.5 text-muted">{pick.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-muted">
+              {example.narrative.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
         </section>
 
         <section className="rounded-lg border border-border bg-surface-elevated p-6">

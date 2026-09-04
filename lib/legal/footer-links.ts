@@ -8,7 +8,7 @@ export type FooterLink = {
 };
 
 export const FOOTER_PRIMARY_LINKS: FooterLink[] = [
-  { label: "How to Play", href: "/how-it-works" },
+  { label: "How It Works", href: "/how-it-works" },
   { label: "Terms", href: policyRoute("terms") },
   { label: "Privacy", href: policyRoute("privacy") },
   { label: "Eligibility", href: policyRoute("eligibility") },

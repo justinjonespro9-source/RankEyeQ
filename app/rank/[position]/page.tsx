@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { RankingWorkspace } from "@/components/rank/RankingWorkspace";
+import { ScoringRulesDetails } from "@/components/rank/ScoringRulesDetails";
 import { Badge } from "@/components/ui/Badge";
 import { getAuthContext } from "@/lib/auth/session";
 import { isPosition, POSITION_CONFIGS } from "@/lib/contest";
@@ -19,7 +21,6 @@ import {
   parsePlayerResearchWindow,
   researchWindowLabel,
 } from "@/lib/player-research";
-import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -225,6 +226,11 @@ export default async function PositionRankPage(
           </div>
         ) : null}
       </header>
+
+      <ScoringRulesDetails
+        slotCount={challenge.slotCount}
+        positionLabel={challenge.shortLabel}
+      />
 
       <RankingWorkspace
         challenge={challenge}

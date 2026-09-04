@@ -36,7 +36,11 @@ function FooterLinkRow({
           <Link
             key={link.href}
             href={link.href}
-            className="text-muted hover:text-ink"
+            className={
+              link.href === "/how-it-works"
+                ? "font-medium text-ink hover:text-accent"
+                : "text-muted hover:text-ink"
+            }
           >
             {link.label}
           </Link>

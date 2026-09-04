@@ -41,7 +41,7 @@ describe("footer links", () => {
   it("includes required primary legal links", () => {
     const labels = FOOTER_PRIMARY_LINKS.map((link) => link.label);
     expect(labels).toEqual([
-      "How to Play",
+      "How It Works",
       "Terms",
       "Privacy",
       "Eligibility",
