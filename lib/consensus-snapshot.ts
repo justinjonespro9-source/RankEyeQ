@@ -18,10 +18,11 @@ export type SegmentMetrics = {
   consensusRank: number | null;
 };
 
-function segmentForProfile(profileType: ProfileType): "HUMAN" | "AI" | "EXPERT" | null {
+function segmentForProfile(profileType: ProfileType): "HUMAN" | "AI" | "EXPERT" | "CREATOR" | null {
   if (profileType === "HUMAN") return "HUMAN";
   if (profileType === "AI") return "AI";
   if (profileType === "BENCHMARK") return "EXPERT";
+  if (profileType === "CREATOR") return "CREATOR";
   return null;
 }
 

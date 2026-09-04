@@ -129,6 +129,36 @@ describe("expert analyst identities", () => {
     expect(reactivated.competitorActive).toBe(true);
   });
 
+  it("upserts analysts idempotently without reactivating publisher shells", async () => {
+    const { upsertExpertAnalyst } = await import("@/lib/expert-identity");
+    await ensureOfficialBenchmarkSources();
+
+    const first = await upsertExpertAnalyst({
+      analystName: `Idempotent Analyst ${suffix}`,
+      publicationName: "Yahoo Fantasy",
+      username: `idem_analyst_${suffix.slice(-6)}`,
+      positionsCovered: ["QB", "RB", "WR", "TE", "DEF"],
+      competitorActive: true,
+    });
+    createdIds.push(first.profile.id);
+    expect(first.action).toBe("created");
+
+    const second = await upsertExpertAnalyst({
+      analystName: `Idempotent Analyst ${suffix}`,
+      publicationName: "Yahoo Fantasy",
+      username: `idem_analyst_${suffix.slice(-6)}`,
+      positionsCovered: ["QB", "RB", "WR", "TE", "DEF"],
+      competitorActive: true,
+    });
+    expect(second.action).toBe("unchanged");
+    expect(second.profile.id).toBe(first.profile.id);
+
+    const yahoo = await prisma.universalProfile.findUniqueOrThrow({
+      where: { username: "yahoo-fantasy" },
+    });
+    expect(yahoo.competitorActive).toBe(false);
+  });
+
   it("Expert Consensus only counts submitted Expert ballots (no publisher double-count by default)", () => {
     const submissions = [
       { id: "a", status: "LOCKED" as const, profileType: "BENCHMARK" as const },

@@ -218,6 +218,7 @@ export async function ensureExpertSourceMetadata(input: {
 /**
  * Create an individual analyst Expert identity (BENCHMARK profile).
  * Does not create publisher-level ballots. Historical publisher shells stay separate.
+ * Fails if the username already exists (use upsertExpertAnalyst for idempotent seeding).
  */
 export async function createExpertAnalyst(input: {
   analystName: string;
@@ -228,6 +229,39 @@ export async function createExpertAnalyst(input: {
   competitorActive?: boolean;
   notes?: string | null;
 }) {
+  const result = await upsertExpertAnalyst(input);
+  if (result.action !== "created") {
+    throw new ExpertIdentityError(
+      `Username @${result.profile.username} is already taken`,
+    );
+  }
+  return result.profile;
+}
+
+export type UpsertExpertAnalystResult = {
+  action: "created" | "updated" | "unchanged";
+  profile: {
+    id: string;
+    username: string;
+    displayName: string;
+    profileType: ProfileType;
+    competitorActive: boolean;
+  };
+};
+
+/**
+ * Idempotent analyst upsert by stable username slug.
+ * Never reactivates official publisher shells or converts them into analysts.
+ */
+export async function upsertExpertAnalyst(input: {
+  analystName: string;
+  publicationName: string;
+  username?: string;
+  sourceUrl?: string | null;
+  positionsCovered?: ContestPosition[];
+  competitorActive?: boolean;
+  notes?: string | null;
+}): Promise<UpsertExpertAnalystResult> {
   const nameResult = validateDisplayName(input.analystName);
   if (!nameResult.ok) throw new ExpertIdentityError(nameResult.error);
   const publication = input.publicationName.trim();
@@ -250,14 +284,90 @@ export async function createExpertAnalyst(input: {
     );
   }
 
+  const competitorActive = input.competitorActive ?? true;
+  const sourceUrl = input.sourceUrl?.trim() || null;
+  const positions = input.positionsCovered ?? [];
+  const notes = input.notes ?? null;
+
   const existing = await prisma.universalProfile.findUnique({
     where: { username },
+    include: { expertSource: true },
   });
+
   if (existing) {
-    throw new ExpertIdentityError(`Username @${username} is already taken`);
+    if (existing.profileType !== "BENCHMARK") {
+      throw new ExpertIdentityError(`Username @${username} is already taken`);
+    }
+    if (isOfficialBenchmarkUsername(existing.username)) {
+      throw new ExpertIdentityError(
+        `Refusing to convert publisher shell @${existing.username} into an analyst`,
+      );
+    }
+
+    const currentPositions = parsePositionsCovered(
+      existing.expertSource?.positionsCovered,
+    );
+    const positionsEqual =
+      currentPositions.length === positions.length &&
+      currentPositions.every((position) => positions.includes(position));
+
+    const unchanged =
+      existing.displayName === nameResult.username &&
+      existing.competitorActive === competitorActive &&
+      existing.status === "ACTIVE" &&
+      (existing.expertSource?.analystName ?? null) === nameResult.username &&
+      (existing.expertSource?.publicationName ?? null) === publication &&
+      (existing.expertSource?.sourceUrl ?? null) === sourceUrl &&
+      (existing.expertSource?.sourceKind ?? null) === EXPERT_SOURCE_KIND.ANALYST &&
+      (existing.expertSource?.active ?? true) === true &&
+      positionsEqual &&
+      (existing.expertSource?.notes ?? null) === notes;
+
+    if (unchanged) {
+      return {
+        action: "unchanged",
+        profile: {
+          id: existing.id,
+          username: existing.username,
+          displayName: existing.displayName,
+          profileType: existing.profileType,
+          competitorActive: existing.competitorActive,
+        },
+      };
+    }
+
+    await prisma.universalProfile.update({
+      where: { id: existing.id },
+      data: {
+        displayName: nameResult.username,
+        status: "ACTIVE",
+        competitorActive,
+        publicVisible: true,
+      },
+    });
+    await upsertExpertSourceProfile({
+      universalProfileId: existing.id,
+      analystName: nameResult.username,
+      publicationName: publication,
+      sourceUrl,
+      sourceKind: EXPERT_SOURCE_KIND.ANALYST,
+      positionsCovered: positions,
+      active: true,
+      notes,
+    });
+
+    return {
+      action: "updated",
+      profile: {
+        id: existing.id,
+        username: existing.username,
+        displayName: nameResult.username,
+        profileType: "BENCHMARK",
+        competitorActive,
+      },
+    };
   }
 
-  const competitorActive = input.competitorActive ?? true;
   const profile = await prisma.universalProfile.create({
     data: {
       username,
@@ -274,14 +384,23 @@ export async function createExpertAnalyst(input: {
     universalProfileId: profile.id,
     analystName: nameResult.username,
     publicationName: publication,
-    sourceUrl: input.sourceUrl?.trim() || null,
+    sourceUrl,
     sourceKind: EXPERT_SOURCE_KIND.ANALYST,
-    positionsCovered: input.positionsCovered ?? [],
+    positionsCovered: positions,
     active: true,
-    notes: input.notes ?? null,
+    notes,
   });
 
-  return profile;
+  return {
+    action: "created",
+    profile: {
+      id: profile.id,
+      username: profile.username,
+      displayName: profile.displayName,
+      profileType: profile.profileType,
+      competitorActive: profile.competitorActive,
+    },
+  };
 }
 
 /** Directory + competitor activation without deleting historical Expert rows. */

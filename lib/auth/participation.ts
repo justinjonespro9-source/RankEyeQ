@@ -31,3 +31,7 @@ export function isAiProfileWithoutAuth(profileType: ProfileType) {
 export function isBenchmarkProfileWithoutAuth(profileType: ProfileType) {
   return profileType === "BENCHMARK";
 }
+
+export function isCreatorProfileWithoutAuth(profileType: ProfileType) {
+  return profileType === "CREATOR";
+}

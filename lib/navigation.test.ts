@@ -14,7 +14,7 @@ describe("primary navigation", () => {
       "Consensus",
       "Results",
       "Leaderboards",
-      "Players",
+      "Player Performance",
     ]);
   });
 
@@ -23,7 +23,7 @@ describe("primary navigation", () => {
     expect(labels).not.toContain("Receipts");
     expect(labels).not.toContain("Rankers");
     expect(labels).not.toContain("Following");
-    expect(labels).not.toContain("Player Performance");
+    expect(labels).not.toContain("Players");
     expect(labels).not.toContain("Live Results");
   });
 

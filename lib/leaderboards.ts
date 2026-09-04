@@ -4,7 +4,12 @@ import type {
   ProfileType,
 } from "@/lib/generated/prisma/client";
 
-export type LeaderboardFilter = "ALL" | "HUMAN" | "AI" | "EXPERT";
+export type LeaderboardFilter =
+  | "ALL"
+  | "HUMAN"
+  | "AI"
+  | "EXPERT"
+  | "CREATOR";
 
 export type LeaderboardRow = {
   universalProfileId: string;
@@ -12,6 +17,7 @@ export type LeaderboardRow = {
   displayName: string;
   profileType: ProfileType;
   expertPublisher: string | null;
+  creatorBrand: string | null;
   contestsPlayed: number;
   averageScore: number;
   bestScore: number;
@@ -29,6 +35,7 @@ function filterToProfileType(
   if (filter === "HUMAN") return "HUMAN";
   if (filter === "AI") return "AI";
   if (filter === "EXPERT") return "BENCHMARK";
+  if (filter === "CREATOR") return "CREATOR";
   return undefined;
 }
 
@@ -38,6 +45,7 @@ type GradedAgg = {
   displayName: string;
   profileType: ProfileType;
   expertPublisher: string | null;
+  creatorBrand: string | null;
   scores: number[];
   topNHits: number;
   topNOpportunities: number;
@@ -58,6 +66,7 @@ function toRows(aggs: GradedAgg[]): LeaderboardRow[] {
         displayName: agg.displayName,
         profileType: agg.profileType,
         expertPublisher: agg.expertPublisher,
+        creatorBrand: agg.creatorBrand,
         contestsPlayed: agg.scores.length,
         averageScore,
         bestScore,
@@ -93,13 +102,19 @@ function emptyAgg(profile: {
   displayName: string;
   profileType: ProfileType;
   expertSource?: { publicationName: string | null; analystName: string | null } | null;
+  creatorCompetitor?: { personName: string | null; brandName: string | null } | null;
 }): GradedAgg {
+  const creatorPerson = profile.creatorCompetitor?.personName?.trim();
   return {
     universalProfileId: profile.id,
     username: profile.username,
-    displayName: profile.expertSource?.analystName?.trim() || profile.displayName,
+    displayName:
+      creatorPerson ||
+      profile.expertSource?.analystName?.trim() ||
+      profile.displayName,
     profileType: profile.profileType,
     expertPublisher: profile.expertSource?.publicationName ?? null,
+    creatorBrand: profile.creatorCompetitor?.brandName ?? null,
     scores: [],
     topNHits: 0,
     topNOpportunities: 0,
@@ -131,7 +146,9 @@ async function loadGradedSubmissions(where: {
       },
     },
     include: {
-      universalProfile: { include: { expertSource: true } },
+      universalProfile: {
+        include: { expertSource: true, creatorCompetitor: true },
+      },
       contest: true,
       picks: true,
     },

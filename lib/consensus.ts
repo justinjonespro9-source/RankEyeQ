@@ -127,6 +127,9 @@ async function getContestConsensusFromSnapshot(
   contestId: string,
   filter: ConsensusFilter,
 ) {
+  // Creator segment is live-only until snapshot schema stores Creator columns.
+  if (filter === "CREATOR") return null;
+
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {

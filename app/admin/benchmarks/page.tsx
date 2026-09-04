@@ -42,9 +42,9 @@ export default async function AdminBenchmarksPage({
       <AdminBanner />
       <AdminNav current="/admin/benchmarks" />
       <SectionHeading
-        eyebrow="Expert sources"
+        eyebrow="Expert & Creator sources"
         title="Benchmark ranking coverage"
-        description="Manual capture of publicly published expert rankings. EYEQ scores them independently. Missing positions can be marked Not Available — they do not block Finalize Week."
+        description="Manual capture of publicly published Expert and Creator rankings. EYEQ scores them independently. Missing positions can be marked Not Available — they do not create empty ballots or block Finalize Week."
       />
 
       <div className="mb-4 flex flex-wrap gap-2">

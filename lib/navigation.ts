@@ -18,7 +18,7 @@ export const PRIMARY_NAV: NavLink[] = [
     label: "Leaderboards",
     activePrefixes: ["/leaderboards", "/rankers"],
   },
-  { href: "/players", label: "Players", activePrefixes: ["/players"] },
+  { href: "/players", label: "Player Performance", activePrefixes: ["/players"] },
 ];
 
 export const RESULTS_SUBNAV: NavLink[] = [
@@ -32,6 +32,7 @@ export const LEADERBOARDS_SUBNAV: NavLink[] = [
   { href: "/leaderboards", label: "Overall" },
   { href: "/leaderboards?filter=HUMAN", label: "Humans" },
   { href: "/leaderboards?filter=EXPERT", label: "Experts" },
+  { href: "/leaderboards?filter=CREATOR", label: "Creators" },
   { href: "/leaderboards?filter=AI", label: "AI" },
   { href: "/rankers", label: "Rankers" },
 ];

@@ -24,6 +24,8 @@ export type RankIQProfileView = {
   avatarUrl: string | null;
   expertAnalystName: string | null;
   expertPublicationName: string | null;
+  creatorPersonName: string | null;
+  creatorBrandName: string | null;
   stats: RankIQProfileStats;
   history: ProfileContestHistoryItem[];
   contestsPlayed: number;
@@ -42,7 +44,7 @@ export async function getRankIQProfileView(
 ): Promise<RankIQProfileView | null> {
   const profile = await prisma.universalProfile.findUnique({
     where: { username },
-    include: { expertSource: true },
+    include: { expertSource: true, creatorCompetitor: true },
   });
   if (!profile) return null;
   if (!profile.publicVisible && profile.status === "SUSPENDED") return null;
@@ -142,9 +144,11 @@ export async function getRankIQProfileView(
     const classFilter =
       profile.profileType === "BENCHMARK"
         ? "EXPERT"
-        : profile.profileType === "AI"
-          ? "AI"
-          : "ALL";
+        : profile.profileType === "CREATOR"
+          ? "CREATOR"
+          : profile.profileType === "AI"
+            ? "AI"
+            : "ALL";
     const overall = await getSeasonLeaderboard({
       seasonId: activeSeason.id,
       filter: classFilter,
@@ -224,6 +228,8 @@ export async function getRankIQProfileView(
     avatarUrl: profile.avatarUrl,
     expertAnalystName: profile.expertSource?.analystName ?? null,
     expertPublicationName: profile.expertSource?.publicationName ?? null,
+    creatorPersonName: profile.creatorCompetitor?.personName ?? null,
+    creatorBrandName: profile.creatorCompetitor?.brandName ?? null,
     contestsPlayed,
     stats: {
       overallRank,

@@ -33,12 +33,17 @@ export type UniversalProfile = {
   displayName: string;
   isBot: boolean;
   isBenchmark?: boolean;
+  isCreator?: boolean;
   suspended?: boolean;
   bio?: string;
   /** Expert analyst name when different from displayName. */
   expertAnalystName?: string | null;
   /** Expert publisher affiliation (Yahoo Fantasy, ESPN, …). */
   expertPublicationName?: string | null;
+  /** Creator person name when different from displayName. */
+  creatorPersonName?: string | null;
+  /** Creator brand / show affiliation. */
+  creatorBrandName?: string | null;
   rankiq: RankIQProfileStats | null;
 };
 

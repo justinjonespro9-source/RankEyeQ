@@ -13,7 +13,9 @@ export function ProfileLink({
   displayName,
   isAi = false,
   isExpert = false,
+  isCreator = false,
   expertPublisher = null,
+  creatorBrand = null,
   showAvatar = true,
   className = "",
 }: {
@@ -21,8 +23,11 @@ export function ProfileLink({
   displayName: string;
   isAi?: boolean;
   isExpert?: boolean;
+  isCreator?: boolean;
   /** Publisher affiliation for Experts, e.g. "Yahoo Fantasy" → badge EXPERT · Yahoo Fantasy */
   expertPublisher?: string | null;
+  /** Brand affiliation for Creators, e.g. "TCO Fantasy Show" → badge CREATOR · TCO Fantasy Show */
+  creatorBrand?: string | null;
   showAvatar?: boolean;
   className?: string;
 }) {
@@ -31,6 +36,12 @@ export function ProfileLink({
       ? `EXPERT · ${expertPublisher.trim()}`
       : isExpert
         ? "Expert"
+        : null;
+  const creatorBadge =
+    isCreator && creatorBrand?.trim()
+      ? `CREATOR · ${creatorBrand.trim()}`
+      : isCreator
+        ? "Creator"
         : null;
 
   return (
@@ -52,6 +63,7 @@ export function ProfileLink({
       </span>
       {isAi ? <Badge className="shrink-0">AI</Badge> : null}
       {expertBadge ? <Badge className="shrink-0">{expertBadge}</Badge> : null}
+      {creatorBadge ? <Badge className="shrink-0">{creatorBadge}</Badge> : null}
     </Link>
   );
 }

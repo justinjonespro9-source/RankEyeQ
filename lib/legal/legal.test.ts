@@ -134,7 +134,7 @@ describe("primary navigation unchanged", () => {
       "Consensus",
       "Results",
       "Leaderboards",
-      "Players",
+      "Player Performance",
     ]);
     const labels = PRIMARY_NAV.map((link) => link.label);
     expect(labels).not.toContain("Legal");

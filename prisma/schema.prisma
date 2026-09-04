@@ -14,6 +14,8 @@ enum ProfileType {
   HUMAN
   AI
   BENCHMARK
+  /// Content-creator competitor class (distinct from monetization CreatorProfile).
+  CREATOR
 }
 
 enum BenchmarkCaptureType {
@@ -150,7 +152,7 @@ model UniversalProfile {
   publicVisible   Boolean       @default(true)
   profileType     ProfileType   @default(HUMAN)
   status          ProfileStatus @default(ACTIVE)
-  /// When false, AI/BENCHMARK profiles are excluded from active competitor roster / coverage.
+  /// When false, AI/BENCHMARK/CREATOR profiles are excluded from active competitor roster / coverage.
   /// Humans ignore this flag. Prefer this over SUSPENDED for retired bots/sources.
   competitorActive Boolean      @default(true)
   createdAt       DateTime      @default(now())
@@ -163,6 +165,7 @@ model UniversalProfile {
   followsGiven     ProfileFollow[]      @relation("FollowsGiven")
   followsReceived  ProfileFollow[]      @relation("FollowsReceived")
   creatorProfile   CreatorProfile?
+  creatorCompetitor CreatorCompetitorProfile?
   entitlementsViewed BoardEntitlement[] @relation("EntitlementViewer")
   entitlementsGranted BoardEntitlement[] @relation("EntitlementCreator")
   unlocksViewed    BoardUnlockEvent[]   @relation("UnlockViewer")
@@ -209,6 +212,29 @@ model ProfileFollow {
   @@unique([followerProfileId, followedProfileId])
   @@index([followedProfileId])
   @@index([followerProfileId, createdAt])
+}
+
+/// Competitive Creator ranker metadata (profileType CREATOR).
+/// Distinct from monetization `CreatorProfile` (HUMAN payout opt-in).
+model CreatorCompetitorProfile {
+  id                 String   @id @default(cuid())
+  universalProfileId String   @unique
+  /// Individual person (e.g. "Tyler Cohen").
+  personName         String?
+  /// Brand / show affiliation (e.g. "TCO Fantasy Show").
+  brandName          String?
+  sourceUrl          String?
+  /// Contest positions this creator typically publishes (empty = all).
+  positionsCovered   Json?
+  /// Directory active flag (separate from weekly ballot presence).
+  active             Boolean  @default(true)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Cascade)
+
+  @@index([active])
 }
 
 /// Creator opt-in + default reveal preference. Qualification is derived, not stored.

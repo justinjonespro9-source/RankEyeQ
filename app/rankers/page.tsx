@@ -42,6 +42,7 @@ const FILTERS = [
   { key: "ALL", label: "All" },
   { key: "HUMAN", label: "Humans" },
   { key: "EXPERT", label: "Experts" },
+  { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
 ] as const;
 
@@ -146,6 +147,9 @@ export default async function RankersPage({
                       displayName={row.displayName}
                       isAi={row.profileType === "AI"}
                       isExpert={row.profileType === "BENCHMARK"}
+                      isCreator={row.profileType === "CREATOR"}
+                      expertPublisher={row.expertPublisher}
+                      creatorBrand={row.creatorBrand}
                     />
                     <CreatorBadge
                       enabled={row.creatorEnabled}
@@ -161,7 +165,8 @@ export default async function RankersPage({
                 </div>
               </div>
               {viewerId !== row.universalProfileId &&
-              row.profileType !== "BENCHMARK" ? (
+              row.profileType !== "BENCHMARK" &&
+              row.profileType !== "CREATOR" ? (
                 <FollowButton
                   targetProfileId={row.universalProfileId}
                   initialFollowing={followingIds.has(row.universalProfileId)}

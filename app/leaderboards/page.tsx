@@ -52,6 +52,7 @@ const FILTERS: { key: LeaderboardFilter; label: string }[] = [
   { key: "ALL", label: "All" },
   { key: "HUMAN", label: "Humans" },
   { key: "EXPERT", label: "Experts" },
+  { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
 ];
 
@@ -96,9 +97,13 @@ function BoardTable({
                 displayName={entry.displayName}
                 isAi={entry.profileType === "AI"}
                 isExpert={entry.profileType === "BENCHMARK"}
+                isCreator={entry.profileType === "CREATOR"}
                 expertPublisher={entry.expertPublisher}
+                creatorBrand={entry.creatorBrand}
               />
-              {follow && entry.profileType !== "BENCHMARK" ? (
+              {follow &&
+              entry.profileType !== "BENCHMARK" &&
+              entry.profileType !== "CREATOR" ? (
                 <p className="mt-1 text-xs text-muted">
                   {follow.followerCounts.get(entry.universalProfileId) ?? 0}{" "}
                   followers
@@ -144,7 +149,8 @@ function BoardTable({
           </div>
           {follow &&
           follow.viewerProfileId !== entry.universalProfileId &&
-          entry.profileType !== "BENCHMARK" ? (
+          entry.profileType !== "BENCHMARK" &&
+          entry.profileType !== "CREATOR" ? (
             <FollowButton
               targetProfileId={entry.universalProfileId}
               initialFollowing={follow.followingIds.has(entry.universalProfileId)}
@@ -181,7 +187,7 @@ export default async function LeaderboardsPage({
   const positionParam = (params.position?.toUpperCase() ?? "ALL") as
     | "ALL"
     | ContestPosition;
-  const filter = (["ALL", "HUMAN", "AI", "EXPERT"].includes(params.filter ?? "")
+  const filter = (["ALL", "HUMAN", "AI", "EXPERT", "CREATOR"].includes(params.filter ?? "")
     ? params.filter
     : "ALL") as LeaderboardFilter;
 

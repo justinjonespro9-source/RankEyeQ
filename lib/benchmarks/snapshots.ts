@@ -258,8 +258,10 @@ export async function captureBenchmarkSnapshot(input: {
     }),
   ]);
 
-  if (!profile || profile.profileType !== "BENCHMARK") {
-    throw new BenchmarkCaptureError("Benchmark captures require a BENCHMARK profile");
+  if (!profile || (profile.profileType !== "BENCHMARK" && profile.profileType !== "CREATOR")) {
+    throw new BenchmarkCaptureError(
+      "Captures require a BENCHMARK (Expert) or CREATOR profile",
+    );
   }
   if (profile.status === "SUSPENDED") {
     throw new BenchmarkCaptureError("This benchmark source is suspended");
@@ -404,8 +406,10 @@ export async function markBenchmarkNotAvailable(input: {
     }),
     prisma.rankIQContest.findUnique({ where: { id: input.contestId } }),
   ]);
-  if (!profile || profile.profileType !== "BENCHMARK") {
-    throw new BenchmarkCaptureError("Benchmark captures require a BENCHMARK profile");
+  if (!profile || (profile.profileType !== "BENCHMARK" && profile.profileType !== "CREATOR")) {
+    throw new BenchmarkCaptureError(
+      "Captures require a BENCHMARK (Expert) or CREATOR profile",
+    );
   }
   if (!contest) throw new BenchmarkCaptureError("Contest not found");
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { listActiveBenchmarkSources } from "@/lib/benchmark-sources-sync";
+import { listActiveCreatorCompetitors } from "@/lib/creator-identity";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 import type {
   BenchmarkCaptureType,
@@ -156,8 +157,9 @@ export function summarizeBenchmarkCoverage(input: {
 export async function getBenchmarkCoverage(
   weekId: string,
 ): Promise<BenchmarkCoverageSummary> {
-  const [sources, contests, snapshots] = await Promise.all([
+  const [experts, creators, contests, snapshots] = await Promise.all([
     listActiveBenchmarkSources(),
+    listActiveCreatorCompetitors(),
     prisma.rankIQContest.findMany({
       where: { weekId },
       include: {
@@ -169,6 +171,23 @@ export async function getBenchmarkCoverage(
       orderBy: { createdAt: "desc" },
     }),
   ]);
+
+  const sources = [
+    ...experts.map((source) => ({
+      id: source.id,
+      username: source.username,
+      displayName:
+        source.expertSource?.analystName?.trim() || source.displayName,
+      profileType: "BENCHMARK" as const,
+    })),
+    ...creators.map((source) => ({
+      id: source.id,
+      username: source.username,
+      displayName:
+        source.creatorCompetitor?.personName?.trim() || source.displayName,
+      profileType: "CREATOR" as const,
+    })),
+  ];
 
   const positions = CONTEST_POSITIONS.filter((position) =>
     contests.some((contest) => contest.position === position),
@@ -193,7 +212,8 @@ export async function getBenchmarkCoverage(
         contest.submissions.find(
           (row) =>
             row.universalProfileId === source.id &&
-            row.universalProfile.profileType === "BENCHMARK",
+            (row.universalProfile.profileType === "BENCHMARK" ||
+              row.universalProfile.profileType === "CREATOR"),
         ) ?? null;
       cells.push({
         universalProfileId: source.id,
@@ -210,8 +230,7 @@ export async function getBenchmarkCoverage(
     sources: sources.map((source) => ({
       id: source.id,
       username: source.username,
-      displayName:
-        source.expertSource?.analystName?.trim() || source.displayName,
+      displayName: source.displayName,
     })),
     positions: usePositions,
     cells,

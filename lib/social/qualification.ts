@@ -1,3 +1,5 @@
+import type { ProfileType } from "@/lib/generated/prisma/client";
+
 export type QualificationRules = {
   minGradedContests: number;
   requireActive: boolean;
@@ -21,7 +23,7 @@ export const DEFAULT_QUALIFICATION_RULES: QualificationRules = {
 export type QualificationStatus = "NOT_ELIGIBLE" | "ELIGIBLE" | "ENABLED";
 
 export type QualificationInput = {
-  profileType: "HUMAN" | "AI" | "BENCHMARK";
+  profileType: ProfileType;
   status: "ACTIVE" | "SUSPENDED";
   gradedContestCount: number;
   creatorEnabled: boolean;

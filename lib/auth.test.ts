@@ -3,6 +3,7 @@ import {
   assertClientProfileMatchesSession,
   isAiProfileWithoutAuth,
   isBenchmarkProfileWithoutAuth,
+  isCreatorProfileWithoutAuth,
   resolveParticipationState,
 } from "@/lib/auth/participation";
 import {
@@ -66,11 +67,13 @@ describe("participation + profile spoofing guards", () => {
     expect(assertClientProfileMatchesSession("mine", undefined).ok).toBe(true);
   });
 
-  it("treats AI and benchmark profiles as auth-free identities", () => {
+  it("treats AI, benchmark, and creator profiles as auth-free identities", () => {
     expect(isAiProfileWithoutAuth("AI")).toBe(true);
     expect(isAiProfileWithoutAuth("HUMAN")).toBe(false);
     expect(isBenchmarkProfileWithoutAuth("BENCHMARK")).toBe(true);
     expect(isBenchmarkProfileWithoutAuth("HUMAN")).toBe(false);
+    expect(isCreatorProfileWithoutAuth("CREATOR")).toBe(true);
+    expect(isCreatorProfileWithoutAuth("HUMAN")).toBe(false);
   });
 });
 

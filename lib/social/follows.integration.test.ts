@@ -101,7 +101,7 @@ describe("follow graph", () => {
         followedProfileId: bench.id,
       }),
     ).rejects.toMatchObject({
-      message: "Benchmark sources cannot be followed",
+      message: "Expert and Creator competitors cannot be followed",
     });
   });
 

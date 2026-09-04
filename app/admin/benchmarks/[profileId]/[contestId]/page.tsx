@@ -37,7 +37,11 @@ export default async function AdminBenchmarkContestPage(
       },
     }),
   ]);
-  if (!profile || profile.profileType !== "BENCHMARK" || !contest) {
+  if (
+    !profile ||
+    (profile.profileType !== "BENCHMARK" && profile.profileType !== "CREATOR") ||
+    !contest
+  ) {
     notFound();
   }
 

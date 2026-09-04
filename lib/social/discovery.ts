@@ -107,7 +107,14 @@ export async function getRankerDiscovery(input: {
 export function filterDiscoveryByProfileType(
   filter: string | undefined,
 ): RankerDiscoveryFilter {
-  if (filter === "HUMAN" || filter === "AI" || filter === "EXPERT") return filter;
+  if (
+    filter === "HUMAN" ||
+    filter === "AI" ||
+    filter === "EXPERT" ||
+    filter === "CREATOR"
+  ) {
+    return filter;
+  }
   return "ALL";
 }
 

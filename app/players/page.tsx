@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
+import { PlayerPerformanceMarketScaffold } from "@/components/players/PlayerPerformanceMarketScaffold";
 import { PlayerPerformanceTable } from "@/components/players/PlayerPerformanceTable";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
@@ -23,7 +24,7 @@ import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
 export const metadata: Metadata = {
   title: "Player Performance",
   description:
-    "Historical NFL player positional finishes from RankEyeQ weekly contests — separate from ranker leaderboards.",
+    "The Player Performance Market: NFL player production plus how Humans, Experts, Creators, and AI ranked players before kickoff.",
   ...PUBLIC_INDEX,
   ...canonicalMetadata("/players"),
 };
@@ -125,10 +126,16 @@ export default async function PlayersPage({
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
-        eyebrow="NFL players"
-        title="Player Performance"
-        description="Actual weekly positional finishes from RankEyeQ contests. This measures NFL player results — not human or AI ranker scores."
+        eyebrow="Player Performance Market"
+        title="The Player Performance Market"
+        description="RankEyeQ tracks actual player production and how Humans, Experts, Creators, and AI ranked that player before kickoff. Production metrics below use graded contest finishes only — ranking-market history appears when ballots exist."
       />
+
+      <PlayerPerformanceMarketScaffold />
+
+      <h2 className="mb-4 font-display text-xl font-semibold text-ink">
+        Production finishes
+      </h2>
 
       {seasons.length === 0 ? (
         <p className="text-sm text-muted">No NFL seasons configured yet.</p>

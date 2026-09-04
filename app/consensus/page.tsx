@@ -42,6 +42,7 @@ const FILTERS: { key: ConsensusFilter; label: string }[] = [
   { key: "ALL", label: "All" },
   { key: "HUMAN", label: "Humans" },
   { key: "EXPERT", label: "Experts" },
+  { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
 ];
 
@@ -64,7 +65,7 @@ export default async function ConsensusPage({
     adminTestPreview: isAdminTestPreviewRequested(params),
     legacyTestParam: params.test === "1",
   });
-  const filter = (["ALL", "HUMAN", "AI", "EXPERT"].includes(params.filter ?? "")
+  const filter = (["ALL", "HUMAN", "AI", "EXPERT", "CREATOR"].includes(params.filter ?? "")
     ? params.filter
     : "ALL") as ConsensusFilter;
   const view = params.view === "actual" ? "actual" : "consensus";

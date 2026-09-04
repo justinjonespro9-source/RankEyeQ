@@ -443,12 +443,14 @@ describe("filterEligibleConsensusSubmissions", () => {
     { id: "a", status: "LOCKED" as const, profileType: "AI" as const },
     { id: "g", status: "GRADED" as const, profileType: "HUMAN" as const },
     { id: "b", status: "LOCKED" as const, profileType: "BENCHMARK" as const },
+    { id: "c", status: "LOCKED" as const, profileType: "CREATOR" as const },
   ];
 
   it("excludes drafts from consensus sample", () => {
     const eligible = filterEligibleConsensusSubmissions(ballots, "ALL");
     expect(eligible.map((row) => row.id)).toEqual(["h", "a", "g"]);
     expect(eligible.some((row) => row.id === "b")).toBe(false);
+    expect(eligible.some((row) => row.id === "c")).toBe(false);
   });
 
   it("filters Human and AI official ballots", () => {
@@ -461,6 +463,9 @@ describe("filterEligibleConsensusSubmissions", () => {
     expect(
       filterEligibleConsensusSubmissions(ballots, "EXPERT").map((row) => row.id),
     ).toEqual(["b"]);
+    expect(
+      filterEligibleConsensusSubmissions(ballots, "CREATOR").map((row) => row.id),
+    ).toEqual(["c"]);
   });
 });
 

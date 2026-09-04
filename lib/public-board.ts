@@ -160,7 +160,7 @@ export async function getPublicProfileBoard(input: {
   });
 
   const benchmarkSnapshot =
-    profile.profileType === "BENCHMARK"
+    profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
       ? await prisma.benchmarkSnapshot.findFirst({
           where: {
             contestId: contest.id,
@@ -175,7 +175,7 @@ export async function getPublicProfileBoard(input: {
         })
       : null;
   const publicBoardRestricted =
-    profile.profileType === "BENCHMARK" &&
+    (profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR") &&
     (benchmarkSnapshot?.status === "NOT_AVAILABLE" ||
       benchmarkSnapshot?.publicBoardAllowed === false);
 
@@ -256,7 +256,7 @@ export async function getPublicProfileBoard(input: {
     picks: [],
     capturedAt: benchmarkSnapshot?.capturedAt ?? null,
     captureAttribution:
-      profile.profileType === "BENCHMARK"
+      profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
         ? "Source ranking captured by RankEYEQ"
         : null,
     publicBoardRestricted,

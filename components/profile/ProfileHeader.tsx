@@ -4,6 +4,10 @@ import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { benchmarkAffiliationDisclaimer } from "@/lib/benchmark-sources";
 import {
+  formatCreatorAffiliationBadge,
+  formatCreatorPrimaryName,
+} from "@/lib/creator-identity";
+import {
   formatExpertAffiliationBadge,
   formatExpertPrimaryName,
 } from "@/lib/expert-identity";
@@ -38,7 +42,13 @@ export function ProfileHeader({
         analystName: profile.expertAnalystName,
         publicationName: profile.expertPublicationName,
       })
-    : profile.displayName;
+    : profile.isCreator
+      ? formatCreatorPrimaryName({
+          displayName: profile.displayName,
+          personName: profile.creatorPersonName,
+          brandName: profile.creatorBrandName,
+        })
+      : profile.displayName;
   const expertBadge = profile.isBenchmark
     ? formatExpertAffiliationBadge({
         displayName: profile.displayName,
@@ -47,8 +57,16 @@ export function ProfileHeader({
         sourceKind: profile.expertAnalystName ? "ANALYST" : "PUBLISHER",
       })
     : null;
+  const creatorCompetitorBadge = profile.isCreator
+    ? formatCreatorAffiliationBadge({
+        displayName: profile.displayName,
+        personName: profile.creatorPersonName,
+        brandName: profile.creatorBrandName,
+      })
+    : null;
   const disclaimerSource =
     profile.expertPublicationName?.trim() || profile.displayName;
+  const isAuthFree = Boolean(profile.isBenchmark || profile.isCreator);
 
   return (
     <header className="rounded-lg border border-border bg-surface-elevated px-5 py-6 sm:px-7">
@@ -68,9 +86,17 @@ export function ProfileHeader({
               {profile.expertPublicationName}
             </p>
           ) : null}
+          {profile.isCreator && profile.creatorBrandName ? (
+            <p className="mt-1 text-sm text-muted">{profile.creatorBrandName}</p>
+          ) : null}
           {profile.isBenchmark ? (
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
               {benchmarkAffiliationDisclaimer(disclaimerSource)}
+            </p>
+          ) : profile.isCreator ? (
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+              Independent RankEyeQ Creator. Brand affiliation is shown for
+              context and is not an endorsement.
             </p>
           ) : (
             <p className="mt-3 text-sm text-muted">
@@ -80,7 +106,7 @@ export function ProfileHeader({
               following
             </p>
           )}
-          {profile.bio && !profile.isBenchmark ? (
+          {profile.bio && !isAuthFree ? (
             <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
               {profile.bio}
             </p>
@@ -98,7 +124,7 @@ export function ProfileHeader({
           <div className="flex flex-wrap justify-end gap-2">
             <Badge
               tone={
-                profile.isBenchmark
+                profile.isBenchmark || profile.isCreator
                   ? "warning"
                   : profile.isBot
                     ? "neutral"
@@ -107,11 +133,13 @@ export function ProfileHeader({
             >
               {profile.isBenchmark
                 ? (expertBadge ?? "Expert")
-                : profile.isBot
-                  ? "AI Competitor"
-                  : "Human"}
+                : profile.isCreator
+                  ? (creatorCompetitorBadge ?? "Creator")
+                  : profile.isBot
+                    ? "AI Competitor"
+                    : "Human"}
             </Badge>
-            {!profile.isBenchmark ? (
+            {!isAuthFree ? (
               <CreatorBadge
                 enabled={creator?.enabled}
                 qualified={creator?.qualified}
@@ -121,7 +149,7 @@ export function ProfileHeader({
               <Badge tone="warning">Unavailable</Badge>
             ) : null}
           </div>
-          {follow && !isOwner && !profile.isBenchmark ? (
+          {follow && !isOwner && !isAuthFree ? (
             <FollowButton
               targetProfileId={follow.targetProfileId}
               initialFollowing={follow.viewerIsFollowing}

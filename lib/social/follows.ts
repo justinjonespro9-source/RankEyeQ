@@ -60,8 +60,8 @@ export async function followProfile(input: {
     throw new FollowError("Suspended accounts cannot follow");
   }
   if (!followed) throw new FollowError("Profile not found");
-  if (followed.profileType === "BENCHMARK") {
-    throw new FollowError("Benchmark sources cannot be followed");
+  if (followed.profileType === "BENCHMARK" || followed.profileType === "CREATOR") {
+    throw new FollowError("Expert and Creator competitors cannot be followed");
   }
   if (followed.status === "SUSPENDED") {
     throw new FollowError("This profile cannot gain new followers");
