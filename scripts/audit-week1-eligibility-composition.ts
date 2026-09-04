@@ -6,12 +6,20 @@
  */
 import "dotenv/config";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@/lib/generated/prisma/client";
 import { isSeasonPlayerEligibleForWeeklyField } from "@/lib/nfl/eligibility-rules";
 import { isProductionWeeklyPoolIdentity } from "@/lib/nfl/pool-source";
 import { normalizeTeamAbbr } from "@/lib/nfl/manual/parse-common";
-import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 
 const POSITIONS = ["QB", "RB", "WR", "TE", "DEF"] as const;
+
+type SeasonPlayerWithRankable = Prisma.SeasonPlayerGetPayload<{
+  include: { rankableEntry: true };
+}>;
+
+type ActiveContestEntry = Prisma.ContestEntryGetPayload<{
+  include: { rankableEntry: true };
+}>;
 
 function maskDbUrl(url: string) {
   return url.replace(/:\/\/([^:/?#]+):([^@]+)@/, "://$1:***@");
@@ -23,10 +31,24 @@ function bump(map: Map<string, number>, key: string) {
 
 function printCounts(title: string, map: Map<string, number>) {
   console.log(`\n${title}`);
-  const rows = [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const rows = [...map.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
   for (const [key, count] of rows) {
     console.log(`  ${key || "(empty)"}: ${count}`);
   }
+}
+
+function samplePlayers(rows: SeasonPlayerWithRankable[], n = 8) {
+  return rows.slice(0, n).map((player) => ({
+    name: player.displayName,
+    team: player.team,
+    sourceNflStatus: player.sourceNflStatus,
+    nflStatus: player.nflStatus,
+    activeOnNFLRoster: player.activeOnNFLRoster,
+    sourcePosition: player.sourcePosition,
+    provider: player.rankableEntry.provider,
+  }));
 }
 
 async function main() {
@@ -61,11 +83,12 @@ async function main() {
   );
 
   for (const position of POSITIONS) {
-    const seasonPlayers = await prisma.seasonPlayer.findMany({
-      where: { seasonId: week.seasonId, position },
-      include: { rankableEntry: true },
-      orderBy: { displayName: "asc" },
-    });
+    const seasonPlayers: SeasonPlayerWithRankable[] =
+      await prisma.seasonPlayer.findMany({
+        where: { seasonId: week.seasonId, position },
+        include: { rankableEntry: true },
+        orderBy: { displayName: "asc" },
+      });
 
     const contest = await prisma.rankIQContest.findUnique({
       where: { weekId_position: { weekId: week.id, position } },
@@ -77,12 +100,13 @@ async function main() {
       },
     });
 
+    const activeEntries: ActiveContestEntry[] = contest?.entries ?? [];
     const activeIds = new Set(
-      contest?.entries.map((e) => e.rankableEntryId) ?? [],
+      activeEntries.map((entry) => entry.rankableEntryId),
     );
 
-    const onSchedule = seasonPlayers.filter((p) =>
-      scheduled.has(normalizeTeamAbbr(p.team)),
+    const onSchedule = seasonPlayers.filter((player) =>
+      scheduled.has(normalizeTeamAbbr(player.team)),
     );
 
     const bySourceStatus = new Map<string, number>();
@@ -95,19 +119,16 @@ async function main() {
     let productionIdentity = 0;
     let wouldSync = 0;
 
-    const inPoolSamples: typeof seasonPlayers = [];
-    const eligibleNotInPool: typeof seasonPlayers = [];
-    const inPoolButRuleIneligible: typeof seasonPlayers = [];
-    const practiceSquadInPool: typeof seasonPlayers = [];
-    const inactiveLikeInPool: typeof seasonPlayers = [];
+    const inPoolSamples: SeasonPlayerWithRankable[] = [];
+    const eligibleNotInPool: SeasonPlayerWithRankable[] = [];
+    const inPoolButRuleIneligible: SeasonPlayerWithRankable[] = [];
+    const practiceSquadInPool: SeasonPlayerWithRankable[] = [];
+    const inactiveLikeInPool: SeasonPlayerWithRankable[] = [];
 
     for (const player of onSchedule) {
       bump(bySourceStatus, player.sourceNflStatus ?? "(null)");
       bump(byNflStatus, player.nflStatus || "(empty)");
-      bump(
-        byActiveRoster,
-        player.activeOnNFLRoster ? "true" : "false",
-      );
+      bump(byActiveRoster, player.activeOnNFLRoster ? "true" : "false");
       bump(bySourcePosition, player.sourcePosition ?? "(null)");
       bump(byProvider, player.rankableEntry.provider);
 
@@ -129,7 +150,8 @@ async function main() {
       if (ruleOk && prodOk && !inPool) eligibleNotInPool.push(player);
       if (inPool && !ruleOk) inPoolButRuleIneligible.push(player);
 
-      const statusBlob = `${player.sourceNflStatus ?? ""} ${player.nflStatus}`.toUpperCase();
+      const statusBlob =
+        `${player.sourceNflStatus ?? ""} ${player.nflStatus}`.toUpperCase();
       if (
         inPool &&
         (/PRACTICE|PS|RESERVE|INACTIVE|RELEASED|CUT|FA|IR|PUP|NFI|SUSPENDED/.test(
@@ -142,14 +164,13 @@ async function main() {
       }
     }
 
-    // Active pool entries not backed by a scheduled SeasonPlayer (stale)
     const seasonById = new Map(
-      seasonPlayers.map((p) => [p.rankableEntryId, p]),
+      seasonPlayers.map((player) => [player.rankableEntryId, player] as const),
     );
-    const stalePool = (contest?.entries ?? []).filter((e) => {
-      const sp = seasonById.get(e.rankableEntryId);
-      if (!sp) return true;
-      if (!scheduled.has(normalizeTeamAbbr(sp.team))) return true;
+    const stalePool = activeEntries.filter((entry) => {
+      const seasonPlayer = seasonById.get(entry.rankableEntryId);
+      if (!seasonPlayer) return true;
+      if (!scheduled.has(normalizeTeamAbbr(seasonPlayer.team))) return true;
       return false;
     });
 
@@ -158,7 +179,7 @@ async function main() {
       `SeasonPlayers total=${seasonPlayers.length} onSchedule=${onSchedule.length}`,
     );
     const actOnly = onSchedule.filter(
-      (p) => (p.sourceNflStatus ?? "").toUpperCase() === "ACT",
+      (player) => (player.sourceNflStatus ?? "").toUpperCase() === "ACT",
     ).length;
     console.log(
       `ACT sourceNflStatus=${actOnly} Rule-eligible=${ruleEligible} productionIdentity=${productionIdentity} wouldSync=${wouldSync}`,
@@ -171,100 +192,101 @@ async function main() {
     );
 
     printCounts("Active pool by sourceNflStatus (via SeasonPlayer)", (() => {
-      const m = new Map<string, number>();
-      for (const p of inPoolSamples) bump(m, p.sourceNflStatus ?? "(null)");
-      return m;
+      const counts = new Map<string, number>();
+      for (const player of inPoolSamples) {
+        bump(counts, player.sourceNflStatus ?? "(null)");
+      }
+      return counts;
     })());
     printCounts("Active pool by nflStatus", (() => {
-      const m = new Map<string, number>();
-      for (const p of inPoolSamples) bump(m, p.nflStatus || "(empty)");
-      return m;
+      const counts = new Map<string, number>();
+      for (const player of inPoolSamples) {
+        bump(counts, player.nflStatus || "(empty)");
+      }
+      return counts;
     })());
     printCounts("Active pool by activeOnNFLRoster", (() => {
-      const m = new Map<string, number>();
-      for (const p of inPoolSamples)
-        bump(m, p.activeOnNFLRoster ? "true" : "false");
-      return m;
+      const counts = new Map<string, number>();
+      for (const player of inPoolSamples) {
+        bump(counts, player.activeOnNFLRoster ? "true" : "false");
+      }
+      return counts;
     })());
     printCounts("Active pool by sourcePosition", (() => {
-      const m = new Map<string, number>();
-      for (const p of inPoolSamples) bump(m, p.sourcePosition ?? "(null)");
-      return m;
+      const counts = new Map<string, number>();
+      for (const player of inPoolSamples) {
+        bump(counts, player.sourcePosition ?? "(null)");
+      }
+      return counts;
     })());
     printCounts("Active pool by provider", (() => {
-      const m = new Map<string, number>();
-      for (const p of inPoolSamples) bump(m, p.rankableEntry.provider);
-      return m;
+      const counts = new Map<string, number>();
+      for (const player of inPoolSamples) {
+        bump(counts, player.rankableEntry.provider);
+      }
+      return counts;
     })());
 
     printCounts("On-schedule SeasonPlayer by sourceNflStatus", bySourceStatus);
     printCounts("On-schedule SeasonPlayer by activeOnNFLRoster", byActiveRoster);
     printCounts("On-schedule SeasonPlayer by sourcePosition", bySourcePosition);
 
-    const sample = (rows: typeof seasonPlayers, n = 8) =>
-      rows.slice(0, n).map((p) => ({
-        name: p.displayName,
-        team: p.team,
-        sourceNflStatus: p.sourceNflStatus,
-        nflStatus: p.nflStatus,
-        activeOnNFLRoster: p.activeOnNFLRoster,
-        sourcePosition: p.sourcePosition,
-        provider: p.rankableEntry.provider,
-      }));
-
     if (practiceSquadInPool.length) {
       console.log("\nPractice-squad-like IN active pool:");
-      console.log(sample(practiceSquadInPool));
+      console.log(samplePlayers(practiceSquadInPool));
     }
     if (inactiveLikeInPool.length) {
       console.log("\nInactive/reserve/released-like IN active pool:");
-      console.log(sample(inactiveLikeInPool, 12));
+      console.log(samplePlayers(inactiveLikeInPool, 12));
     }
     if (inPoolButRuleIneligible.length) {
       console.log("\nIN pool but fails isSeasonPlayerEligibleForWeeklyField:");
-      console.log(sample(inPoolButRuleIneligible, 12));
+      console.log(samplePlayers(inPoolButRuleIneligible, 12));
     }
     if (stalePool.length) {
       console.log("\nStale active pool (no matching on-schedule SeasonPlayer):");
       console.log(
-        stalePool.slice(0, 12).map((e) => ({
-          name: e.rankableEntry.name,
-          team: e.weekTeam ?? e.rankableEntry.team,
-          provider: e.rankableEntry.provider,
-          externalId: e.rankableEntry.externalId,
-          seasonPlayer: Boolean(seasonById.get(e.rankableEntryId)),
+        stalePool.slice(0, 12).map((entry) => ({
+          name: entry.rankableEntry.name,
+          team: entry.weekTeam ?? entry.rankableEntry.team,
+          provider: entry.rankableEntry.provider,
+          externalId: entry.rankableEntry.externalId,
+          seasonPlayer: Boolean(seasonById.get(entry.rankableEntryId)),
         })),
       );
     }
 
-    // Who would be excluded by rule among on-schedule with activeOnNFLRoster false
-    const skippedInactive = onSchedule.filter((p) => !p.activeOnNFLRoster);
+    const skippedInactive = onSchedule.filter(
+      (player) => !player.activeOnNFLRoster,
+    );
     console.log(
       `\nOn-schedule with activeOnNFLRoster=false: ${skippedInactive.length} (sample)`,
     );
-    console.log(sample(skippedInactive, 10));
+    console.log(samplePlayers(skippedInactive, 10));
 
-    // Non-ACT source statuses that are still rule-eligible
-    const eligibleOddStatus = onSchedule.filter((p) => {
-      if (!isSeasonPlayerEligibleForWeeklyField(p)) return false;
-      if (!isProductionWeeklyPoolIdentity({
-        provider: p.rankableEntry.provider,
-        externalId: p.rankableEntry.externalId,
-        position: p.rankableEntry.position,
-        type: p.rankableEntry.type,
-        team: p.team,
-        active: p.rankableEntry.active,
-      })) return false;
-      const s = (p.sourceNflStatus ?? "").toUpperCase();
-      return s && s !== "ACT" && s !== "ACTIVE";
+    const eligibleOddStatus = onSchedule.filter((player) => {
+      if (!isSeasonPlayerEligibleForWeeklyField(player)) return false;
+      if (
+        !isProductionWeeklyPoolIdentity({
+          provider: player.rankableEntry.provider,
+          externalId: player.rankableEntry.externalId,
+          position: player.rankableEntry.position,
+          type: player.rankableEntry.type,
+          team: player.team,
+          active: player.rankableEntry.active,
+        })
+      ) {
+        return false;
+      }
+      const status = (player.sourceNflStatus ?? "").toUpperCase();
+      return Boolean(status) && status !== "ACT" && status !== "ACTIVE";
     });
     console.log(
       `\nRule-eligible with non-ACT sourceNflStatus: ${eligibleOddStatus.length}`,
     );
-    console.log(sample(eligibleOddStatus, 15));
+    console.log(samplePlayers(eligibleOddStatus, 15));
   }
 
-  // Intended rule summary
   console.log("\n=== INTENDED RULE (code) ===");
   console.log(
     "Weekly field requires: scheduled team + activeOnNFLRoster=true + nflStatus not in INELIGIBLE set + production identity (nflcom-bootstrap for players).",
@@ -278,7 +300,7 @@ async function main() {
 }
 
 main()
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
   })
