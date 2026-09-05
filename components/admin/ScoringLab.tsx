@@ -156,7 +156,7 @@ export function ScoringLab() {
                                   {player.totalPoints} pts
                                 </span>
                                 <span className="mt-1 block text-muted">
-                                  {formatPlayerScoreLines(player).join(" · ")}
+                                  {formatPlayerScoreLines(player, LAB_FIELD_SIZE).join(" · ")}
                                 </span>
                               </li>
                             ))}

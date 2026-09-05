@@ -10,10 +10,8 @@ import {
 import { ELIGIBILITY_SUMMARY } from "@/lib/legal/eligibility";
 import { policyRoute } from "@/lib/legal/policies";
 import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
-import {
-  getFantasyScoringReferenceTables,
-  getFantasyScoringSummary,
-} from "@/lib/fantasy/scoring-reference";
+import { FantasyTrackScoringRules } from "@/components/fantasy/FantasyTrackScoringRules";
+import { getFantasyScoringSummary } from "@/lib/fantasy/scoring-reference";
 import {
   SCORING_CALL_THE_PODIUM,
   SCORING_FIND_THE_FIELD,
@@ -33,7 +31,7 @@ import { TOP_10_MAX_RAW, TOP_15_MAX_RAW } from "@/lib/scoring";
 export const metadata: Metadata = {
   title: "How It Works",
   description:
-    "How RankEyeQ fantasy points and EYEQ Scores are calculated — Full PPR finishes and weekly ranking accuracy.",
+    "How RankEyeQ fantasy points and EYEQ Scores are calculated — Half PPR finishes and weekly ranking accuracy.",
   ...PUBLIC_INDEX,
   ...canonicalMetadata("/how-it-works"),
 };
@@ -53,7 +51,7 @@ const HOW_STEPS = [
   },
   {
     title: "Watch the games decide",
-    body: "Actual fantasy production determines each player's final positional order using FantasyTrack Full PPR scoring — the same engine RankEyeQ and FantasyTrack share.",
+    body: "Actual fantasy production determines each player's final positional order using FantasyTrack Half PPR scoring — the same engine RankEyeQ and FantasyTrack share.",
   },
   {
     title: "Build your RankEyeQ",
@@ -63,7 +61,6 @@ const HOW_STEPS = [
 
 export default function HowItWorksPage() {
   const fantasySummary = getFantasyScoringSummary();
-  const fantasyTables = getFantasyScoringReferenceTables();
   const example = getEyeqWorkedExample();
 
   return (
@@ -222,16 +219,23 @@ export default function HowItWorksPage() {
             <span className="font-mono text-xs">{fantasySummary.version}</span>
           </p>
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            There are <strong className="font-medium text-ink">no</strong>{" "}
-            100-yard rushing or receiving bonuses and{" "}
-            <strong className="font-medium text-ink">no</strong> 300-yard passing
-            bonus in the production engine. Fumble scoring applies to{" "}
-            <em>fumbles lost</em> only.
+            Fumble scoring applies to <em>fumbles lost</em> only. A punt or kick
+            return TD credits{" "}
+            <strong className="font-medium text-ink">+6 to the returner</strong>{" "}
+            and{" "}
+            <strong className="font-medium text-ink">
+              +6 to that team&apos;s D/ST
+            </strong>{" "}
+            (two scoring entities — not a within-entity double count). INT-return
+            and fumble-return TDs credit +6 to D/ST. Yardage milestones on the
+            current Half PPR standard:{" "}
+            <strong className="font-medium text-ink">+5</strong> at 300+ passing,
+            100+ rushing, and 100+ receiving yards — one-time per category and
+            stackable across categories.
           </p>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            <FantasyTable title="Offense" rows={fantasyTables.offenseRows} />
-            <FantasyTable title="D/ST" rows={fantasyTables.defenseRows} />
+          <div className="mt-6">
+            <FantasyTrackScoringRules />
           </div>
 
           <p className="mt-4 text-sm leading-relaxed text-muted">
@@ -346,30 +350,6 @@ export default function HowItWorksPage() {
         </section>
       </div>
     </Container>
-  );
-}
-
-function FantasyTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { category: string; value: string }[];
-}) {
-  return (
-    <div>
-      <h3 className="font-medium text-ink">{title}</h3>
-      <table className="mt-2 w-full text-left text-sm">
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.category} className="border-b border-border last:border-0">
-              <td className="py-2 text-muted">{row.category}</td>
-              <td className="py-2 font-medium tabular-nums text-ink">{row.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 

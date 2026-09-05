@@ -64,7 +64,11 @@ export function ResultsComparison({
 
         <ol>
           {summary.players.map((row) => (
-            <ScoredPlayerRow key={row.playerId} row={row} />
+            <ScoredPlayerRow
+              key={row.playerId}
+              row={row}
+              fieldSize={summary.fieldSize}
+            />
           ))}
         </ol>
       </div>

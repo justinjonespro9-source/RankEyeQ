@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { CONTEST_POSITIONS, rankingDepthForPosition } from "@/lib/contest-defaults";
 import { logAdminAction } from "@/lib/admin/audit";
 import { getActiveRankingScoringVersion } from "@/lib/ranking-scoring-versions";
-import { FANTASYTRACK_NFL_FULL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import { FANTASYTRACK_NFL_HALF_PPR_V2 } from "@/lib/fantasy/scoring-config";
 import { auditAllPools } from "@/lib/nfl/manual/pool-audit";
 import { validateWeeklyPoolCanonicalUniqueness } from "@/lib/nfl/pool-canonical-uniqueness";
 import { getWeeklyExceptionReview } from "@/lib/nfl/weekly-exceptions";
@@ -143,9 +143,9 @@ export async function getOpenWeekRankingsReadiness(
     blockers.push(
       "Fantasy scoring version is not set on the season or week.",
     );
-  } else if (fantasyVersion !== FANTASYTRACK_NFL_FULL_PPR_V1) {
+  } else if (fantasyVersion !== FANTASYTRACK_NFL_HALF_PPR_V2) {
     blockers.push(
-      `Fantasy scoring version is ${fantasyVersion}; expected ${FANTASYTRACK_NFL_FULL_PPR_V1}.`,
+      `Fantasy scoring version is ${fantasyVersion}; expected ${FANTASYTRACK_NFL_HALF_PPR_V2} (Half PPR + yardage bonuses) for new weeks.`,
     );
   }
 

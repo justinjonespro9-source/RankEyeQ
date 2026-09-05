@@ -36,8 +36,31 @@ export const SCORING_RANK_THE_REST =
 export const SCORING_PODIUM_HELPER =
   `Your Top 3 are your Podium Picks. Any of them that finish Top 3 earn a +${PODIUM_CALL_BONUS} Podium Call bonus.`;
 
+export function topFieldHitLabel(slotCount: number) {
+  return slotCount === 15 ? "Top 15 Hit" : "Top 10 Hit";
+}
+
+/** EYEQ point table for a specific contest depth. */
+export function getScoringTableRows(slotCount: number) {
+  return [
+    { label: topFieldHitLabel(slotCount), value: `+${BASE_HIT_POINTS}` },
+    { label: "Precision — exact", value: `+${PRECISION_EXACT}` },
+    { label: "Precision — off by 1", value: `+${PRECISION_OFF_BY_1}` },
+    { label: "Precision — off by 2", value: `+${PRECISION_OFF_BY_2}` },
+    { label: "Actual podium — #1", value: `+${ACTUAL_PODIUM_POINTS[1]}` },
+    { label: "Actual podium — #2", value: `+${ACTUAL_PODIUM_POINTS[2]}` },
+    { label: "Actual podium — #3", value: `+${ACTUAL_PODIUM_POINTS[3]}` },
+    { label: "Podium Call", value: `+${PODIUM_CALL_BONUS}` },
+  ] as const;
+}
+
+/**
+ * Public rules table listing both field sizes (homepage / how-it-works).
+ * Point values are identical; labels are position-specific.
+ */
 export const SCORING_TABLE_ROWS = [
-  { label: "Top-N Hit", value: `+${BASE_HIT_POINTS}` },
+  { label: "Top 10 Hit (QB/RB/TE/DEF)", value: `+${BASE_HIT_POINTS}` },
+  { label: "Top 15 Hit (WR)", value: `+${BASE_HIT_POINTS}` },
   { label: "Precision — exact", value: `+${PRECISION_EXACT}` },
   { label: "Precision — off by 1", value: `+${PRECISION_OFF_BY_1}` },
   { label: "Precision — off by 2", value: `+${PRECISION_OFF_BY_2}` },
@@ -57,10 +80,11 @@ export function eyeqMaxRaw(slotCount: number) {
 
 export function getCompactEyeqExplanation(slotCount: number) {
   const field = eyeqFieldLabel(slotCount);
+  const hit = topFieldHitLabel(slotCount);
   const maxRaw = eyeqMaxRaw(slotCount);
   return [
     `Rank ${field} for this position. EYEQ Score = raw points ÷ ${maxRaw} × 100.`,
-    `Top-N Hit +${BASE_HIT_POINTS} when a pick finishes inside the actual ${field}. Finishes outside ${field} score 0 for that pick.`,
+    `${hit} +${BASE_HIT_POINTS} when a pick finishes inside the actual ${field}. Finishes outside ${field} score 0 for that pick.`,
     `Podium Picks (slots 1–3): +${PODIUM_CALL_BONUS} if that player finishes actual #1–#3 (order among your Top 3 does not matter). Successful Podium Calls skip precision points.`,
     `Actual finish bonuses: #1 +${ACTUAL_PODIUM_POINTS[1]}, #2 +${ACTUAL_PODIUM_POINTS[2]}, #3 +${ACTUAL_PODIUM_POINTS[3]}.`,
     `Precision (when not a successful Podium Call): exact +${PRECISION_EXACT}, off by 1 +${PRECISION_OFF_BY_1}, off by 2 +${PRECISION_OFF_BY_2}.`,
@@ -108,7 +132,7 @@ export function getEyeqWorkedExample(): {
       label: "Your #1 → actual #1",
       predictedRank: 1,
       actualRank: 1,
-      note: `Top-N +${BASE_HIT_POINTS}, actual #1 +${ACTUAL_PODIUM_POINTS[1]}, Podium Call +${PODIUM_CALL_BONUS} (precision suppressed)`,
+      note: `Top 10 Hit +${BASE_HIT_POINTS}, actual #1 +${ACTUAL_PODIUM_POINTS[1]}, Podium Call +${PODIUM_CALL_BONUS} (precision suppressed)`,
     },
     {
       label: "Your #2 → actual #4",
@@ -120,7 +144,7 @@ export function getEyeqWorkedExample(): {
       label: "Your #5 → actual #5",
       predictedRank: 5,
       actualRank: 5,
-      note: `Top-N +${BASE_HIT_POINTS}, exact precision +${PRECISION_EXACT}`,
+      note: `Top 10 Hit +${BASE_HIT_POINTS}, exact precision +${PRECISION_EXACT}`,
     },
     {
       label: "Your #8 → actual #18",

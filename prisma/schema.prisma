@@ -401,7 +401,7 @@ model Season {
   /// Default RankEyeQ ranking formula for newly created contests in this season.
   activeRankingScoringVersionId String?
   /// Default FantasyTrack fantasy scoring ruleset for new weeks in this season.
-  fantasyScoringVersion         String   @default("FANTASYTRACK_NFL_FULL_PPR_V1")
+  fantasyScoringVersion         String   @default("FANTASYTRACK_NFL_HALF_PPR_V2")
   /// Last NFL roster bootstrap source label (e.g. nfl.com 2026 roster pages).
   rosterSyncSource              String?
   rosterSyncedAt                DateTime?
@@ -426,7 +426,7 @@ model Week {
   endsAt                DateTime
   status                WeekStatus @default(UPCOMING)
   /// Official RankIQ fantasy scoring ruleset used for this week’s results.
-  fantasyScoringVersion String     @default("FANTASYTRACK_NFL_FULL_PPR_V1")
+  fantasyScoringVersion String     @default("FANTASYTRACK_NFL_HALF_PPR_V2")
   /// Sport-agnostic contest timing (NFL defaults: Tue open / Sun 10am lock / noon public).
   rankingsOpenAt        DateTime?
   fullLockAt            DateTime?

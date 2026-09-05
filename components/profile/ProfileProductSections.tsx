@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FantasyTrackScoringRules } from "@/components/fantasy/FantasyTrackScoringRules";
 import { RankIQStatsGrid } from "./RankIQStatsGrid";
 import { ProfileOverview } from "./ProfileOverview";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -95,6 +96,8 @@ export function ProfileProductSections({
           ) : (
             <EmptyProduct label="RankEyeQ" />
           )
+        ) : active === "fantasytrack" ? (
+          <FantasyTrackTab />
         ) : (
           <EmptyProduct
             label={TABS.find((tab) => tab.key === active)?.label ?? "Product"}
@@ -237,6 +240,32 @@ function RankEyeQTab({
         </div>
       )}
     </>
+  );
+}
+
+function FantasyTrackTab() {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-display text-xl font-semibold text-ink">
+          FantasyTrack scoring
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          FantasyTrack and RankEyeQ share this NFL scoring engine for weekly
+          player and D/ST fantasy points. Contest history for FantasyTrack will
+          appear here when that product module connects to your profile.
+        </p>
+      </div>
+      <FantasyTrackScoringRules />
+      <p className="text-sm">
+        <Link
+          href="/how-it-works#fantasy-scoring"
+          className="font-medium text-accent hover:underline"
+        >
+          Full scoring rules on How It Works
+        </Link>
+      </p>
+    </div>
   );
 }
 

@@ -15,7 +15,7 @@ export function ScoreSummary({ summary }: { summary: ContestScoreSummary }) {
         <Stat label="Raw Points" value={String(summary.rawPoints)} />
         <Stat label="Theoretical Max" value={String(summary.maxPoints)} />
         <Stat
-          label="Top-N Hits"
+          label={summary.fieldSize === 15 ? "Top 15 Hits" : "Top 10 Hits"}
           value={`${summary.topNHits} / ${summary.fieldSize}`}
         />
         <Stat

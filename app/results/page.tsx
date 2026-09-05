@@ -242,7 +242,11 @@ export default async function ResultsPage({
                   <div className="rounded-lg border border-border bg-surface-elevated">
                     <ol>
                       {view.userScore.players.map((row) => (
-                        <ScoredPlayerRow key={row.playerId} row={row} />
+                        <ScoredPlayerRow
+                          key={row.playerId}
+                          row={row}
+                          fieldSize={view.userScore?.fieldSize ?? 10}
+                        />
                       ))}
                     </ol>
                   </div>

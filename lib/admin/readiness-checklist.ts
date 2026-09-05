@@ -6,7 +6,7 @@ import { getBotCoverage } from "@/lib/admin/bot-coverage";
 import { getWeeklyEligibilitySyncStatus } from "@/lib/nfl/weekly-auto-sync";
 import { getWeeklyExceptionReview } from "@/lib/nfl/weekly-exceptions";
 import { getFinalizeWeekReadiness } from "@/lib/nfl/finalize-week";
-import { FANTASYTRACK_NFL_FULL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import { FANTASYTRACK_NFL_HALF_PPR_V2 } from "@/lib/fantasy/scoring-config";
 import { RANKEYEQ_V1_SLUG } from "@/lib/ranking-scoring-version";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
@@ -92,7 +92,7 @@ export async function buildWeeklyReadinessChecklist(
     (week.season.activeRankingScoringVersion?.slug === RANKEYEQ_V1_SLUG ||
       openReadiness.blockers.every((b) => !b.includes("RankEyeQ scoring"))) &&
     (week.fantasyScoringVersion || week.season.fantasyScoringVersion) ===
-      FANTASYTRACK_NFL_FULL_PPR_V1;
+      FANTASYTRACK_NFL_HALF_PPR_V2;
 
   const timingOk =
     Boolean(week.rankingsOpenAt && week.fullLockAt && week.publicReleaseAt) &&
@@ -160,7 +160,7 @@ export async function buildWeeklyReadinessChecklist(
       label: "Scoring versions confirmed",
       status: scoringOk ? "Complete" : "Needs Attention",
       summary: scoringOk
-        ? `${RANKEYEQ_V1_SLUG} · ${FANTASYTRACK_NFL_FULL_PPR_V1}`
+        ? `${RANKEYEQ_V1_SLUG} · ${FANTASYTRACK_NFL_HALF_PPR_V2}`
         : "Confirm RankEyeQ + FantasyTrack versions",
       href: "/admin/scoring",
     },

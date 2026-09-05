@@ -35,7 +35,9 @@ describe("AI prompt generator", () => {
     expect(prompt).toContain("2026 NFL");
     expect(prompt).toContain("Week 1");
     expect(prompt).toContain("Top 15");
-    expect(prompt).toContain("FantasyTrack Full PPR");
+    expect(prompt).toContain("FantasyTrack Half PPR");
+    expect(prompt).toContain("300+ pass");
+    expect(prompt).toContain("0.5 / reception");
     expect(prompt).toContain("Justin Jefferson");
     expect(prompt).toContain("CeeDee Lamb");
     expect(prompt).toContain("1 through 15");

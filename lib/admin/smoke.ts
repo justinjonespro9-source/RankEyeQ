@@ -4,7 +4,13 @@ import { countActiveAiCompetitors } from "@/lib/ai-competitors-sync";
 import { EXPECTED_OFFICIAL_PUBLISHER_SHELL_COUNT } from "@/lib/benchmark-sources";
 import { countOfficialPublisherShells } from "@/lib/benchmark-sources-sync";
 import { validateEnv } from "@/lib/env";
-import { DEFAULT_FANTASY_SCORING_VERSION, RANKIQ_NFL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import {
+  DEFAULT_FANTASY_SCORING_VERSION,
+  FANTASYTRACK_NFL_FULL_PPR_V1,
+  FANTASYTRACK_NFL_HALF_PPR_V1,
+  FANTASYTRACK_NFL_HALF_PPR_V2,
+  RANKIQ_NFL_PPR_V1,
+} from "@/lib/fantasy/scoring-config";
 import { resolveNflProviderName } from "@/lib/providers/nfl";
 
 export type SmokeCheck = {
@@ -136,10 +142,18 @@ export async function getSmokeDiagnostics(): Promise<{
     key: "fantasy_scoring_version",
     ok:
       !week ||
-      week.fantasyScoringVersion === DEFAULT_FANTASY_SCORING_VERSION ||
+      week.fantasyScoringVersion === FANTASYTRACK_NFL_HALF_PPR_V2 ||
+      week.fantasyScoringVersion === FANTASYTRACK_NFL_HALF_PPR_V1 ||
+      week.fantasyScoringVersion === FANTASYTRACK_NFL_FULL_PPR_V1 ||
       week.fantasyScoringVersion === RANKIQ_NFL_PPR_V1,
     detail: week
-      ? `Week fantasy version: ${week.fantasyScoringVersion}`
+      ? `Week fantasy version: ${week.fantasyScoringVersion}${
+          week.fantasyScoringVersion === FANTASYTRACK_NFL_HALF_PPR_V2
+            ? " (canonical Half PPR + milestones)"
+            : week.fantasyScoringVersion === FANTASYTRACK_NFL_HALF_PPR_V1
+              ? " (Half PPR without milestones)"
+              : " (historical Full PPR — ok for past weeks)"
+        }`
       : `Default ${DEFAULT_FANTASY_SCORING_VERSION}`,
   });
 

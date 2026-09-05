@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getFantasyScoringReferenceTables } from "@/lib/fantasy/scoring-reference";
-import { PLAYER_FANTASY_RULES_V1, DEFENSE_FANTASY_RULES_V1 } from "@/lib/fantasy/scoring-config";
+import {
+  PLAYER_FANTASY_RULES_HALF_PPR_V2,
+  DEFENSE_FANTASY_RULES_HALF_PPR_V2,
+  FANTASYTRACK_NFL_HALF_PPR_V1,
+  getFantasyRules,
+} from "@/lib/fantasy/scoring-config";
 import { scorePlayerFantasy } from "@/lib/fantasy/player-scoring";
 import {
   getEyeqWorkedExample,
@@ -15,28 +20,62 @@ import {
 } from "@/lib/scoring";
 
 describe("public scoring copy stays tied to engines", () => {
-  it("fantasy reference tables match PLAYER/DEFENSE rules (no yardage bonuses)", () => {
+  it("fantasy reference tables match Half PPR V2 PLAYER/DEFENSE rules with milestones", () => {
     const { offenseRows, defenseRows } = getFantasyScoringReferenceTables();
     expect(offenseRows.find((r) => r.category === "Passing yards")?.value).toBe(
-      `${PLAYER_FANTASY_RULES_V1.passingYardsPerPoint} yards = 1 pt`,
+      `${PLAYER_FANTASY_RULES_HALF_PPR_V2.passingYardsPerPoint} yards = 1 pt`,
     );
     expect(offenseRows.find((r) => r.category === "Passing TD")?.value).toBe(
-      `${PLAYER_FANTASY_RULES_V1.passingTd} pts`,
+      `${PLAYER_FANTASY_RULES_HALF_PPR_V2.passingTd} pts`,
     );
-    expect(offenseRows.some((r) => /100.?yard|300.?yard|bonus/i.test(r.category))).toBe(
-      false,
-    );
+    expect(
+      offenseRows.find((r) => r.category === "Reception (Half PPR)")?.value,
+    ).toBe("0.5 pt each");
+    expect(
+      offenseRows.find((r) => r.category === "Punt/kick return TD (player)")
+        ?.value,
+    ).toBe(`${PLAYER_FANTASY_RULES_HALF_PPR_V2.returnTd} pts`);
+    expect(
+      offenseRows.find((r) => r.category === "300+ passing yards (bonus)")?.value,
+    ).toBe("+5 (once)");
+    expect(
+      offenseRows.find((r) => r.category === "100+ rushing yards (bonus)")?.value,
+    ).toBe("+5 (once)");
+    expect(
+      offenseRows.find((r) => r.category === "100+ receiving yards (bonus)")
+        ?.value,
+    ).toBe("+5 (once)");
+    expect(
+      defenseRows.find((r) => r.category === "Punt/kick return TD (D/ST)")?.value,
+    ).toBe(`${DEFENSE_FANTASY_RULES_HALF_PPR_V2.defensiveOrStTd} pts`);
+    expect(
+      defenseRows.find((r) => r.category === "INT/fumble-return TD (D/ST)")
+        ?.value,
+    ).toBe(`${DEFENSE_FANTASY_RULES_HALF_PPR_V2.defensiveOrStTd} pts`);
     expect(defenseRows.find((r) => r.category === "Sack")?.value).toBe(
-      `${DEFENSE_FANTASY_RULES_V1.sack} pt`,
+      `${DEFENSE_FANTASY_RULES_HALF_PPR_V2.sack} pt`,
     );
-    // 100 rush yards = 10 pts only (no bonus)
-    expect(scorePlayerFantasy({ rushingYards: 100 }).fantasyPoints).toBe(10);
-    expect(scorePlayerFantasy({ passingYards: 300 }).fantasyPoints).toBe(12);
+    expect(scorePlayerFantasy({ rushingYards: 100 }).fantasyPoints).toBe(15);
+    expect(scorePlayerFantasy({ passingYards: 300 }).fantasyPoints).toBe(17);
   });
 
-  it("EYEQ table rows match scoring.ts constants", () => {
+  it("Half PPR V1 reference tables still show no milestone bonuses", () => {
+    const { offenseRows } = getFantasyScoringReferenceTables(
+      FANTASYTRACK_NFL_HALF_PPR_V1,
+    );
+    expect(
+      offenseRows.find((r) => r.category === "Yardage milestone bonuses")?.value,
+    ).toBe("None");
+    const { player } = getFantasyRules(FANTASYTRACK_NFL_HALF_PPR_V1);
+    expect(scorePlayerFantasy({ rushingYards: 100 }, player).fantasyPoints).toBe(
+      10,
+    );
+  });
+
+  it("EYEQ table rows use Top 10 / Top 15 Hit labels", () => {
     expect(SCORING_TABLE_ROWS).toEqual([
-      { label: "Top-N Hit", value: `+${BASE_HIT_POINTS}` },
+      { label: "Top 10 Hit (QB/RB/TE/DEF)", value: `+${BASE_HIT_POINTS}` },
+      { label: "Top 15 Hit (WR)", value: `+${BASE_HIT_POINTS}` },
       { label: "Precision — exact", value: "+5" },
       { label: "Precision — off by 1", value: "+3" },
       { label: "Precision — off by 2", value: "+1" },

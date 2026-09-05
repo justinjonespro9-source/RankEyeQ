@@ -2,7 +2,7 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { ensureFivePositionContests } from "@/lib/admin/weeks";
-import { FANTASYTRACK_NFL_FULL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import { FANTASYTRACK_NFL_HALF_PPR_V2 } from "@/lib/fantasy/scoring-config";
 import {
   getOpenWeekRankingsReadiness,
   openWeekRankings,
@@ -40,7 +40,7 @@ describe("open week rankings workflow", () => {
         year: 2094,
         sport: `OPEN-${suffix}`,
         active: false,
-        fantasyScoringVersion: FANTASYTRACK_NFL_FULL_PPR_V1,
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
         activeRankingScoringVersionId: scoringVersion?.id,
       },
     });
@@ -59,7 +59,7 @@ describe("open week rankings workflow", () => {
         fullLockAt: new Date("2026-09-14T15:00:00Z"),
         revealStartsAt: new Date("2026-09-14T16:00:00Z"),
         publicReleaseAt: new Date("2026-09-14T18:00:00Z"),
-        fantasyScoringVersion: FANTASYTRACK_NFL_FULL_PPR_V1,
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
       },
     });
     weekId = week.id;

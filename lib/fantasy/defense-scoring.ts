@@ -1,5 +1,5 @@
 import {
-  DEFENSE_FANTASY_RULES_V1,
+  DEFENSE_FANTASY_RULES_HALF_PPR_V2,
   type DefenseFantasyScoringRules,
 } from "@/lib/fantasy/scoring-config";
 
@@ -34,7 +34,7 @@ function n(value: number | undefined) {
 
 export function pointsAllowedFantasyPoints(
   pointsAllowed: number,
-  rules: DefenseFantasyScoringRules = DEFENSE_FANTASY_RULES_V1,
+  rules: DefenseFantasyScoringRules = DEFENSE_FANTASY_RULES_HALF_PPR_V2,
 ) {
   const pts = Math.max(0, Math.floor(pointsAllowed));
   for (const tier of rules.pointsAllowedTiers) {
@@ -43,10 +43,10 @@ export function pointsAllowedFantasyPoints(
   return -4;
 }
 
-/** Standard D/ST fantasy points (FantasyTrack standard). */
+/** Standard D/ST fantasy points (versioned FantasyTrack rules). */
 export function scoreDefenseFantasy(
   stats: DefenseStatLine,
-  rules: DefenseFantasyScoringRules = DEFENSE_FANTASY_RULES_V1,
+  rules: DefenseFantasyScoringRules = DEFENSE_FANTASY_RULES_HALF_PPR_V2,
 ): DefenseFantasyBreakdown {
   const pointsAllowedPts = pointsAllowedFantasyPoints(
     n(stats.pointsAllowed),

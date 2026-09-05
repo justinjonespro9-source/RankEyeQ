@@ -26,7 +26,7 @@ export function ScoringRulesDetails({
         <span className="inline-flex items-center gap-2">
           Scoring &amp; Rules
           <span className="font-normal text-muted">
-            · Full PPR finishes · {positionLabel} {field} EYEQ
+            · Half PPR finishes · {positionLabel} {field} EYEQ
           </span>
         </span>
       </summary>
@@ -39,7 +39,17 @@ export function ScoringRulesDetails({
             {fantasy.formatLabel}
           </p>
           <ul className="mt-2 space-y-1 text-muted">
-            {fantasy.offenseRows.slice(0, 6).map((row) => (
+            {[
+              ...fantasy.offenseRows.slice(0, 6),
+              ...fantasy.offenseRows.filter((row) =>
+                /bonus|milestone/i.test(row.category),
+              ),
+            ]
+              .filter(
+                (row, index, all) =>
+                  all.findIndex((r) => r.category === row.category) === index,
+              )
+              .map((row) => (
               <li key={row.category} className="flex justify-between gap-3">
                 <span>{row.category}</span>
                 <span className="shrink-0 tabular-nums text-ink">{row.value}</span>
@@ -47,8 +57,10 @@ export function ScoringRulesDetails({
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted">
-            No 100-yard rushing/receiving or 300-yard passing bonuses. Fumbles =
-            fumbles lost only. Full offense + D/ST table on How It Works.
+            Punt/kick return TDs: +6 for the returner and +6 for team D/ST (separate
+            entities). INT/fumble-return TDs: +6 for D/ST. Milestone bonuses: +5 at
+            300+ pass / 100+ rush / 100+ receiving (once each, stackable). Full table
+            on How It Works.
           </p>
         </div>
 

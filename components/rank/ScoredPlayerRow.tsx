@@ -11,12 +11,6 @@ function rowTone(row: PlayerScoreBreakdown) {
   return "border-border bg-surface";
 }
 
-function differenceLabel(row: PlayerScoreBreakdown) {
-  if (!row.topNHit) return "Outside Top N";
-  if (row.exactHit) return "Exact";
-  return `Off by ${Math.abs(row.rankDifference)}`;
-}
-
 function precisionLabel(row: PlayerScoreBreakdown) {
   const diff = Math.abs(row.rankDifference);
   if (diff === 0) return "Exact Rank";
@@ -25,12 +19,16 @@ function precisionLabel(row: PlayerScoreBreakdown) {
   return "Off by 3+";
 }
 
-export function formatPlayerScoreLines(row: PlayerScoreBreakdown): string[] {
+export function formatPlayerScoreLines(
+  row: PlayerScoreBreakdown,
+  fieldSize = 10,
+): string[] {
+  const hitLabel = fieldSize === 15 ? "Top 15 Hit" : "Top 10 Hit";
   if (!row.topNHit) {
-    return ["Outside Top N", "0"];
+    return [`Outside ${fieldSize === 15 ? "Top 15" : "Top 10"}`, "0"];
   }
 
-  const lines: string[] = [`Top-N Hit +${row.basePoints}`];
+  const lines: string[] = [`${hitLabel} +${row.basePoints}`];
 
   if (row.actualPodiumPoints > 0) {
     lines.push(`Actual #${row.actualRank} +${row.actualPodiumPoints}`);
@@ -48,10 +46,17 @@ export function formatPlayerScoreLines(row: PlayerScoreBreakdown): string[] {
   return lines;
 }
 
-export function ScoredPlayerRow({ row }: { row: PlayerScoreBreakdown }) {
+export function ScoredPlayerRow({
+  row,
+  fieldSize = 10,
+}: {
+  row: PlayerScoreBreakdown;
+  fieldSize?: number;
+}) {
   const [open, setOpen] = useState(false);
-  const scoreLines = formatPlayerScoreLines(row);
+  const scoreLines = formatPlayerScoreLines(row, fieldSize);
   const breakdownParts = scoreLines.slice(0, -1);
+  const fieldLabel = fieldSize === 15 ? "Top 15" : "Top 10";
 
   return (
     <li className={`border-b border-border last:border-0 ${rowTone(row)}`}>
@@ -74,7 +79,7 @@ export function ScoredPlayerRow({ row }: { row: PlayerScoreBreakdown }) {
             ) : null}
           </p>
           <p className="mt-0.5 text-xs text-muted">
-            Actual: {row.actualRank} · {differenceLabel(row)}
+            Actual: {row.actualRank} · {differenceLabel(row, fieldSize)}
           </p>
           <p className="mt-1 text-xs text-muted sm:hidden">
             {breakdownParts.join(" · ")} ·{" "}
@@ -125,7 +130,7 @@ export function ScoredPlayerRow({ row }: { row: PlayerScoreBreakdown }) {
               </dt>
               <dd className="font-medium text-ink">
                 {[
-                  row.topNHit ? "Top-N" : null,
+                  row.topNHit ? fieldLabel : null,
                   row.exactHit ? "Exact" : null,
                   row.podiumCallHit ? "Podium Call" : null,
                   row.actualPodiumPoints > 0 && !row.podiumCallHit
@@ -146,4 +151,10 @@ export function ScoredPlayerRow({ row }: { row: PlayerScoreBreakdown }) {
       ) : null}
     </li>
   );
+}
+
+function differenceLabel(row: PlayerScoreBreakdown, fieldSize: number) {
+  if (!row.topNHit) return `Outside ${fieldSize === 15 ? "Top 15" : "Top 10"}`;
+  if (row.exactHit) return "Exact";
+  return `Off by ${Math.abs(row.rankDifference)}`;
 }

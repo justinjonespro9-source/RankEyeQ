@@ -69,7 +69,7 @@ Season: ${contest.seasonYear} ${contest.sport}
 Week: ${contest.weekLabel} (Week ${contest.weekNumber})
 Position: ${contest.position}
 Required ranking depth: Top ${depth}
-Scoring format: FantasyTrack Full PPR (1.0 point per reception)
+Scoring format: FantasyTrack Half PPR (0.5 / reception) + one-time +5 bonuses at 300+ pass / 100+ rush / 100+ receiving yards
 
 Rank ONLY from this eligible ${contest.position} field. Do not invent names. No outside rankings or other bot boards. No projection columns are included.
 

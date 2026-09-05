@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prisma } from "@/lib/db";
-import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
-import { scoreDefenseFantasy } from "@/lib/fantasy/defense-scoring";
-import { scorePlayerFantasy } from "@/lib/fantasy/player-scoring";
-import { FANTASYTRACK_NFL_FULL_PPR_V1, RANKIQ_NFL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import {
+  FANTASYTRACK_NFL_FULL_PPR_V1,
+  FANTASYTRACK_NFL_HALF_PPR_V1,
+  FANTASYTRACK_NFL_HALF_PPR_V2,
+  getFantasyRules,
+} from "@/lib/fantasy/scoring-config";
 import { calculateActualFinishesForContest } from "@/lib/nfl/actual-finishes";
 import { getFinalizeWeekReadiness } from "@/lib/nfl/finalize-week";
 import { commitWeekResults } from "@/lib/nfl/results-import";
@@ -11,9 +11,14 @@ import { commitWeeklyImport } from "@/lib/nfl/import";
 import { buildRankIqPositionPools } from "@/lib/nfl/pool-builder";
 import { MockNflProvider } from "@/lib/providers/nfl/mock/provider";
 import { scorePlayerPick } from "@/lib/scoring";
+import { scorePlayerFantasy } from "@/lib/fantasy/player-scoring";
+import { scoreDefenseFantasy } from "@/lib/fantasy/defense-scoring";
+import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
+import { prisma } from "@/lib/db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-describe("player fantasy scoring (FantasyTrack Full PPR V1)", () => {
-  it("scores QB passing yards/TDs/INTs", () => {
+describe("player fantasy scoring (FantasyTrack Half PPR V2 default)", () => {
+  it("scores QB passing yards/TDs/INTs without milestone under 300", () => {
     const result = scorePlayerFantasy({
       passingYards: 250,
       passingTds: 2,
@@ -21,27 +26,30 @@ describe("player fantasy scoring (FantasyTrack Full PPR V1)", () => {
     });
     // 250/25=10, 2*4=8, -2 = 16
     expect(result.fantasyPoints).toBe(16);
+    expect(result.components.passingYardsBonus).toBe(0);
   });
 
-  it("scores RB rush + rec PPR", () => {
+  it("scores RB rush + half-PPR receptions with 100-yard rush bonus", () => {
     const result = scorePlayerFantasy({
       rushingYards: 100,
       rushingTds: 1,
       receptions: 4,
       receivingYards: 30,
     });
-    // 10 + 6 + 4 + 3 = 23
-    expect(result.fantasyPoints).toBe(23);
+    // 10 + 6 + 2 + 3 + 5 rush bonus = 26
+    expect(result.fantasyPoints).toBe(26);
+    expect(result.components.rushingYardsBonus).toBe(5);
   });
 
-  it("scores WR receiving PPR", () => {
+  it("scores WR receiving Half PPR with 100-yard receiving bonus", () => {
     const result = scorePlayerFantasy({
       receptions: 8,
       receivingYards: 120,
       receivingTds: 1,
     });
-    // 8 + 12 + 6 = 26
-    expect(result.fantasyPoints).toBe(26);
+    // 4 + 12 + 6 + 5 receiving bonus = 27
+    expect(result.fantasyPoints).toBe(27);
+    expect(result.components.receivingYardsBonus).toBe(5);
   });
 
   it("scores TE similarly and applies fumbles / 2PT", () => {
@@ -51,8 +59,77 @@ describe("player fantasy scoring (FantasyTrack Full PPR V1)", () => {
       twoPointConversions: 1,
       fumblesLost: 1,
     });
-    // 5 + 5 + 2 - 2 = 10
-    expect(result.fantasyPoints).toBe(10);
+    // 2.5 + 5 + 2 - 2 = 7.5
+    expect(result.fantasyPoints).toBe(7.5);
+  });
+
+  it("applies one-time 300+ passing yard bonus", () => {
+    const at299 = scorePlayerFantasy({ passingYards: 299 });
+    const at300 = scorePlayerFantasy({ passingYards: 300 });
+    const at400 = scorePlayerFantasy({ passingYards: 400 });
+    expect(at299.components.passingYardsBonus).toBe(0);
+    expect(at300.components.passingYardsBonus).toBe(5);
+    expect(at400.components.passingYardsBonus).toBe(5);
+    expect(at300.fantasyPoints - at299.fantasyPoints).toBeCloseTo(
+      300 / 25 - 299 / 25 + 5,
+      5,
+    );
+  });
+
+  it("applies one-time rush and receiving bonuses that stack", () => {
+    const result = scorePlayerFantasy({
+      rushingYards: 100,
+      receivingYards: 100,
+      receptions: 2,
+    });
+    // 10 + 10 + 1 + 5 + 5 = 31
+    expect(result.fantasyPoints).toBe(31);
+    expect(result.components.rushingYardsBonus).toBe(5);
+    expect(result.components.receivingYardsBonus).toBe(5);
+  });
+
+  it("stacks all three milestone bonuses when thresholds are met", () => {
+    const result = scorePlayerFantasy({
+      passingYards: 300,
+      rushingYards: 100,
+      receivingYards: 100,
+    });
+    expect(result.components.passingYardsBonus).toBe(5);
+    expect(result.components.rushingYardsBonus).toBe(5);
+    expect(result.components.receivingYardsBonus).toBe(5);
+    // 12 + 10 + 10 + 15 bonuses = 47
+    expect(result.fantasyPoints).toBe(47);
+  });
+});
+
+describe("historical Half PPR V1 and Full PPR remain reproducible", () => {
+  it("Half PPR V1 does not award yardage milestones", () => {
+    const { player } = getFantasyRules(FANTASYTRACK_NFL_HALF_PPR_V1);
+    const result = scorePlayerFantasy(
+      {
+        rushingYards: 100,
+        rushingTds: 1,
+        receptions: 4,
+        receivingYards: 30,
+      },
+      player,
+    );
+    expect(result.fantasyPoints).toBe(21);
+    expect(result.components.rushingYardsBonus).toBe(0);
+  });
+
+  it("still scores 1.0 per reception when Full PPR rules are passed", () => {
+    const { player } = getFantasyRules(FANTASYTRACK_NFL_FULL_PPR_V1);
+    const result = scorePlayerFantasy(
+      {
+        receptions: 8,
+        receivingYards: 120,
+        receivingTds: 1,
+      },
+      player,
+    );
+    expect(result.fantasyPoints).toBe(26);
+    expect(result.components.receivingYardsBonus).toBe(0);
   });
 });
 
@@ -153,7 +230,7 @@ describe("results import + finishes + finalize readiness", () => {
         startsAt: new Date("2026-09-03T00:00:00Z"),
         endsAt: new Date("2026-09-09T00:00:00Z"),
         status: "LOCKED",
-        fantasyScoringVersion: FANTASYTRACK_NFL_FULL_PPR_V1,
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
       },
     });
     weekId = week.id;

@@ -6,7 +6,7 @@ import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
 import { getContestConsensus } from "@/lib/consensus";
 import { getConsensusAllMode } from "@/lib/consensus-config";
 import { prisma } from "@/lib/db";
-import { FANTASYTRACK_NFL_FULL_PPR_V1 } from "@/lib/fantasy/scoring-config";
+import { FANTASYTRACK_NFL_HALF_PPR_V2 } from "@/lib/fantasy/scoring-config";
 import {
   getSeasonLeaderboard,
   getWeeklyLeaderboard,
@@ -83,7 +83,7 @@ describe("Week 1 lifecycle simulation", () => {
         year: 2095,
         sport: `W1-${suffix}`,
         active: false,
-        fantasyScoringVersion: FANTASYTRACK_NFL_FULL_PPR_V1,
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
       },
     });
     seasonId = season.id;
@@ -557,7 +557,7 @@ describe("Week 1 lifecycle simulation", () => {
         rankableEntryId: omitted.id,
         externalPlayerId: omitted.externalId,
         fantasyPoints: 29,
-        scoringVersion: FANTASYTRACK_NFL_FULL_PPR_V1,
+        scoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
         isProvisional: false,
       },
     });
