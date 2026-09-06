@@ -48,6 +48,7 @@ export function BenchmarkImportForm({
     toChicagoDateTimeLocal(new Date()),
   );
   const [sourceUrl, setSourceUrl] = useState("");
+  const [sourcePublishedAt, setSourcePublishedAt] = useState("");
   const [notes, setNotes] = useState("");
   const [publicBoardAllowed, setPublicBoardAllowed] = useState(true);
   const [correctionReason, setCorrectionReason] = useState("");
@@ -127,6 +128,7 @@ export function BenchmarkImportForm({
         captureType,
         capturedAt,
         sourceUrl,
+        sourcePublishedAt: sourcePublishedAt || null,
         notes,
         rawText: raw,
         publicBoardAllowed,
@@ -196,6 +198,17 @@ export function BenchmarkImportForm({
             onChange={(event) => setSourceUrl(event.target.value)}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
             placeholder="https://"
+          />
+        </label>
+        <label className="block text-sm sm:col-span-2">
+          <span className="text-muted">
+            Source published at (America/Chicago, optional)
+          </span>
+          <input
+            type="datetime-local"
+            value={sourcePublishedAt}
+            onChange={(event) => setSourcePublishedAt(event.target.value)}
+            className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
         <label className="block text-sm sm:col-span-2">

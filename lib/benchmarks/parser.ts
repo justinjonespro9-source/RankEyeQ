@@ -224,9 +224,11 @@ export function extractTopNFromPastedText(input: {
   universe?: EligibleParserEntry[];
   otherPositions?: EligibleParserEntry[];
   confirmedExclusions?: Array<{ sourceRank: number; reason?: string }>;
+  /** When provided, caller already resolved paste lines (e.g. ordered tiers). */
+  lines?: ParsedRankLine[];
 }) {
   return extractTopNFromSourceOrder({
-    lines: parseRankingPaste(input.text),
+    lines: input.lines ?? parseRankingPaste(input.text),
     eligible: input.eligible,
     rankingDepth: input.rankingDepth,
     universe: input.universe,

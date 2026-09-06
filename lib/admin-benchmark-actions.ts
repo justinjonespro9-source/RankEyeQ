@@ -9,6 +9,7 @@ import {
   markBenchmarkNotAvailable,
 } from "@/lib/benchmarks/snapshots";
 import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
+import { parseCreatorRankingPaste } from "@/lib/creators/ranking-paste";
 import { assertAdmin } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import type { BenchmarkCaptureType } from "@/lib/generated/prisma/client";
@@ -19,11 +20,16 @@ import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
 function revalidateBenchmark(weekId?: string, profileId?: string, contestId?: string) {
   revalidatePath("/admin");
   revalidatePath("/admin/benchmarks");
+  revalidatePath("/admin/creators");
   revalidatePath("/leaderboards");
   revalidatePath("/consensus");
-  if (weekId) revalidatePath(`/admin/benchmarks?weekId=${weekId}`);
+  if (weekId) {
+    revalidatePath(`/admin/benchmarks?weekId=${weekId}`);
+    revalidatePath(`/admin/creators?weekId=${weekId}`);
+  }
   if (profileId && contestId) {
     revalidatePath(`/admin/benchmarks/${profileId}/${contestId}`);
+    revalidatePath(`/admin/creators/board/${profileId}/${contestId}`);
   }
 }
 
@@ -94,14 +100,28 @@ export async function adminCaptureBenchmarkAction(input: {
     }),
   ]);
 
+  const tiered = parseCreatorRankingPaste(input.rawText);
+  if (!tiered.ok) {
+    return { ok: false as const, error: tiered.error };
+  }
+
   const extracted = extractTopNFromPastedText({
     text: input.rawText,
+    lines: tiered.lines,
     eligible,
     rankingDepth: contest.rankingDepth,
     universe,
     otherPositions,
     confirmedExclusions: input.confirmedExclusions,
   });
+
+  if (!extracted.ready) {
+    return {
+      ok: false as const,
+      error: extracted.blockingIssues[0] ?? "Ranking failed validation",
+      extracted,
+    };
+  }
 
   const now = new Date();
   try {

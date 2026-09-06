@@ -120,12 +120,74 @@ export function parseTabDelimitedRankingLines(text: string): ParsedRankLine[] {
   return lines;
 }
 
-/** Numbered lists plus tab-delimited rank/player columns. First rank wins. */
+export function parseCommaCsvRankingLines(text: string): ParsedRankLine[] {
+  const lines: ParsedRankLine[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || !line.includes(",")) continue;
+    const cols = line.split(",").map((col) => col.trim().replace(/^"|"$/g, ""));
+    if (cols.length < 2) continue;
+    const headerish = cols.every((col) => HEADER_TOKENS.has(col.toLowerCase()));
+    if (headerish) continue;
+
+    const rankCol = cols.findIndex((col) => /^\d+$/.test(col));
+    if (rankCol < 0) continue;
+    const rank = Number(cols[rankCol]);
+    if (!Number.isInteger(rank) || rank < 1) continue;
+
+    const nameCol = cols.find((col, index) => {
+      if (index === rankCol) return false;
+      if (/^\d+$/.test(col)) return false;
+      if (HEADER_TOKENS.has(col.toLowerCase())) return false;
+      if (col.length < 2) return false;
+      return /[a-zA-Z]/.test(col);
+    });
+    if (!nameCol) continue;
+    const rawName = cleanParsedName(nameCol);
+    if (!rawName) continue;
+    lines.push({ rank, rawName });
+  }
+  return lines;
+}
+
+/**
+ * Unnumbered ordered list — document order becomes rank 1..N.
+ * Skips when numbered/CSV/tab rows already dominate the paste.
+ */
+export function parsePlainOrderedRankingLines(text: string): ParsedRankLine[] {
+  const lines: ParsedRankLine[] = [];
+  let rank = 1;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^(?:#{1,6}\s*)?\d+\s*(?:[\.\)\:\-\]]\s+|\s+)/.test(line)) continue;
+    if (line.includes("\t")) continue;
+    if (/^\d+\s*,/.test(line)) continue;
+    if (/^(rank|player|name)\b/i.test(line)) continue;
+    if (/^tier\s*\d+/i.test(line)) continue;
+    if (/^(qb|rb|wr|te|def)\s*$/i.test(line)) continue;
+    // Reject bare section headers / bullets that are not names
+    if (/^[-*•]\s*$/.test(line)) continue;
+
+    const cleaned = cleanParsedName(line.replace(/^[-*•]\s+/, ""));
+    if (!cleaned || cleaned.length < 2) continue;
+    if (!/[a-zA-Z]/.test(cleaned)) continue;
+    lines.push({ rank, rawName: cleaned });
+    rank += 1;
+  }
+  return lines;
+}
+
+/** Numbered lists, CSV, tab-delimited, then plain ordered names. First rank wins. */
 export function parseRankingPaste(text: string): ParsedRankLine[] {
   const numbered = parseNumberedRankingLines(text);
   const tabulated = parseTabDelimitedRankingLines(text);
+  const csv = parseCommaCsvRankingLines(text);
+  const structured = [...numbered, ...tabulated, ...csv];
+  const plain =
+    structured.length === 0 ? parsePlainOrderedRankingLines(text) : [];
   const byRank = new Map<number, ParsedRankLine>();
-  for (const row of [...numbered, ...tabulated]) {
+  for (const row of [...structured, ...plain]) {
     if (!byRank.has(row.rank)) byRank.set(row.rank, row);
   }
   return [...byRank.values()].sort((a, b) => a.rank - b.rank);

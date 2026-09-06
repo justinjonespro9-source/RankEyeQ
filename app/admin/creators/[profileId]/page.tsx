@@ -42,7 +42,7 @@ export default async function AdminCreatorDetailPage({
         description={`${detail.displayName} · qualification is derived. Performance stats cannot be edited here.`}
         action={
           <Link
-            href="/admin/creators"
+            href="/admin/creators/entitlements"
             className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to list
