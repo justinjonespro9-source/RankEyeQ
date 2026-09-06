@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import {
+  buildAiPromptBundle,
   buildAiRankingPrompt,
   buildAllPositionPrompts,
+  type AiPromptBundle,
   type AiPromptContest,
 } from "@/lib/admin/ai-prompt";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
@@ -47,7 +49,11 @@ export async function loadAiPromptContest(
   };
 }
 
-export async function loadWeekAiPrompts(weekId: string, botDisplayName?: string) {
+export async function loadWeekAiPrompts(
+  weekId: string,
+  botDisplayName?: string,
+  generatedAt: Date = new Date(),
+) {
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId },
     select: { id: true, position: true },
@@ -60,13 +66,35 @@ export async function loadWeekAiPrompts(weekId: string, botDisplayName?: string)
     const contest = await loadAiPromptContest(id);
     if (contest) promptContests.push(contest);
   }
+
+  const bundles: AiPromptBundle[] = promptContests.map((contest) =>
+    buildAiPromptBundle(contest, { aiDisplayName: botDisplayName, generatedAt }),
+  );
+
   return {
     contests: promptContests,
     combined: buildAllPositionPrompts(promptContests, botDisplayName),
-    prompts: promptContests.map((contest) => ({
-      position: contest.position,
-      prompt: buildAiRankingPrompt(contest),
-      pool: contest.players,
+    generatedAt,
+    prompts: bundles.map((bundle) => ({
+      position: bundle.meta.position,
+      prompt: bundle.prompt,
+      pool: promptContests.find((c) => c.position === bundle.meta.position)
+        ?.players ?? [],
+      poolText: bundle.poolText,
+      meta: bundle.meta,
+      version: bundle.version,
     })),
   };
 }
+
+export async function loadAiPromptBundleForContest(
+  contestId: string,
+  options?: { aiDisplayName?: string | null; generatedAt?: Date },
+) {
+  const contest = await loadAiPromptContest(contestId);
+  if (!contest) return null;
+  return buildAiPromptBundle(contest, options);
+}
+
+/** @deprecated Prefer buildAiPromptBundle — kept for call-site clarity. */
+export { buildAiRankingPrompt };

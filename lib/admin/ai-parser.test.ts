@@ -118,4 +118,75 @@ describe("AI response parser", () => {
     expect(preview.find((row) => row.rank === 5)?.issue).toBe("too_many");
     expect(previewIsReadyToSubmit(preview, 4)).toBe(false);
   });
+
+  it("requires exact player count before submit is ready", () => {
+    const complete = matchParsedRankings({
+      lines: [
+        { rank: 1, rawName: "Jahmyr Gibbs" },
+        { rank: 2, rawName: "Bijan Robinson" },
+        { rank: 3, rawName: "Jonathan Taylor" },
+        { rank: 4, rawName: "De'Von Achane" },
+      ],
+      eligible,
+      rankingDepth: 4,
+    });
+    expect(previewIsReadyToSubmit(complete, 4)).toBe(true);
+
+    const short = matchParsedRankings({
+      lines: [
+        { rank: 1, rawName: "Jahmyr Gibbs" },
+        { rank: 2, rawName: "Bijan Robinson" },
+      ],
+      eligible,
+      rankingDepth: 4,
+    });
+    expect(previewIsReadyToSubmit(short, 4)).toBe(false);
+  });
+
+  it("rejects wrong-position players when otherPositions is provided", () => {
+    const preview = matchParsedRankings({
+      lines: [{ rank: 1, rawName: "Justin Jefferson" }],
+      eligible,
+      rankingDepth: 4,
+      universe,
+      otherPositions: [
+        {
+          id: "jj",
+          name: "Justin Jefferson",
+          team: "MIN",
+          shortName: "Jefferson",
+        },
+      ],
+    });
+    expect(preview.find((row) => row.rank === 1)?.issue).toBe("wrong_position");
+  });
+
+  it("supports WR Top 15 depth validation", () => {
+    const wrEligible = Array.from({ length: 15 }, (_, index) => ({
+      id: `wr-${index + 1}`,
+      name: `Receiver ${index + 1}`,
+      team: "XX",
+      shortName: `R${index + 1}`,
+    }));
+    const lines = wrEligible.map((entry, index) => ({
+      rank: index + 1,
+      rawName: entry.name,
+    }));
+    const preview = matchParsedRankings({
+      lines,
+      eligible: wrEligible,
+      rankingDepth: 15,
+    });
+    expect(previewIsReadyToSubmit(preview, 15)).toBe(true);
+    expect(
+      previewIsReadyToSubmit(
+        matchParsedRankings({
+          lines: lines.slice(0, 10),
+          eligible: wrEligible,
+          rankingDepth: 15,
+        }),
+        15,
+      ),
+    ).toBe(false);
+  });
 });

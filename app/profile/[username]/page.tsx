@@ -8,6 +8,7 @@ import {
   isAdminTestPreviewRequested,
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
+import { getCompetitorBadgesForProfile } from "@/lib/badges";
 import { PUBLIC_INDEX } from "@/lib/seo";
 import { getRankIQProfileView } from "@/lib/profile-stats";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
@@ -73,7 +74,7 @@ export default async function ProfilePage(
   }
 
   trackEvent("ranker_profile_viewed", { contestsPlayed: view.contestsPlayed });
-  const [followCounts, viewerIsFollowing, qualification, weekBoards] =
+  const [followCounts, viewerIsFollowing, qualification, weekBoards, badges] =
     await Promise.all([
       getFollowCounts(view.profileId),
       viewerProfile
@@ -86,6 +87,13 @@ export default async function ProfilePage(
           profileId: viewerProfile?.id ?? null,
           isAdmin: authCtx?.user.role === "ADMIN",
         },
+      }),
+      getCompetitorBadgesForProfile({
+        profileId: view.profileId,
+        profileType: view.profileType,
+        stats: view.stats,
+        history: view.history,
+        includeTest,
       }),
     ]);
 
@@ -152,6 +160,7 @@ export default async function ProfilePage(
             qualification.status === "ELIGIBLE" ||
             qualification.status === "ENABLED",
         }}
+        badges={badges}
       />
 
       <CurrentWeekBoardsSection

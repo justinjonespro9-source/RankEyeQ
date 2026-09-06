@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
+import { BadgeRack } from "@/components/badges/BadgeRack";
 import { benchmarkAffiliationDisclaimer } from "@/lib/benchmark-sources";
 import {
   formatCreatorAffiliationBadge,
@@ -12,6 +13,7 @@ import {
   formatExpertAffiliationBadge,
   formatExpertPrimaryName,
 } from "@/lib/expert-identity";
+import type { EarnedBadge } from "@/lib/badges/types";
 import type { UniversalProfile } from "@/types/user";
 
 export function ProfileHeader({
@@ -21,6 +23,7 @@ export function ProfileHeader({
   followingCount = 0,
   follow,
   creator,
+  badges = [],
 }: {
   profile: UniversalProfile;
   isOwner?: boolean;
@@ -36,6 +39,7 @@ export function ProfileHeader({
     enabled: boolean;
     qualified: boolean;
   };
+  badges?: EarnedBadge[];
 }) {
   const expertPrimary = profile.isBenchmark
     ? formatExpertPrimaryName({
@@ -167,6 +171,12 @@ export function ProfileHeader({
           ) : null}
         </div>
       </div>
+
+      <BadgeRack
+        badges={badges}
+        title="RankEyeQ badges"
+        emptyLabel="Badges unlock with qualified season EYEQ, Exact Hits, Podium Calls, and hot streaks."
+      />
     </header>
   );
 }

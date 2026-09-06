@@ -4,10 +4,12 @@ import type { Metadata } from "next";
 import { Container } from "@/components/layout/Container";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { BadgeRack } from "@/components/badges/BadgeRack";
 import {
   PlayerWeeklyHistoryTable,
   WhoSawItComing,
 } from "@/components/players/PlayerWeeklyHistory";
+import { evaluateAthleteBadges } from "@/lib/badges";
 import { getPlayerDetailById } from "@/lib/player-detail-queries";
 import { formatFinishTrend } from "@/lib/player-profile";
 import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
@@ -59,6 +61,10 @@ export default async function PlayerDetailPage({
 
   const displayTeam = seasonPlayer?.team ?? entry.team;
   const hasGraded = Boolean(summary && summary.weeksRecorded > 0);
+  const athleteBadges = evaluateAthleteBadges({
+    summary,
+    weeklyHistory,
+  });
 
   return (
     <Container className="py-12 sm:py-16">
@@ -83,6 +89,18 @@ export default async function PlayerDetailPage({
         {season ? (
           <span className="text-sm text-muted">{season.year} season</span>
         ) : null}
+      </div>
+
+      <div className="mb-8">
+        <BadgeRack
+          badges={athleteBadges}
+          title="Athlete badges"
+          emptyLabel={
+            hasGraded
+              ? "Finish badges unlock with #1, Top 3, Top 10 weeks, and multi-week heaters."
+              : "Athlete badges appear after graded weekly finishes."
+          }
+        />
       </div>
 
       {entry.headshotUrl ? (
