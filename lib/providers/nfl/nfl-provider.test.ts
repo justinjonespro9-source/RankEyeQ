@@ -143,11 +143,12 @@ describe("provider mapping", () => {
     );
   });
 
-  it("detects Thursday-through-Monday eligibility", () => {
-    // 2026-09-03 Thu, 2026-09-07 Mon (ET afternoon)
+  it("detects Wednesday-through-Monday eligibility", () => {
+    // 2026-09-03 Thu, 2026-09-07 Mon, 2026-09-09 Wed (ET afternoon)
     expect(isThursdayThroughMonday(new Date("2026-09-03T20:00:00Z"))).toBe(true);
     expect(isThursdayThroughMonday(new Date("2026-09-07T20:00:00Z"))).toBe(true);
-    expect(isThursdayThroughMonday(new Date("2026-09-09T20:00:00Z"))).toBe(false); // Wed
+    expect(isThursdayThroughMonday(new Date("2026-09-09T20:00:00Z"))).toBe(true); // Wed opener
+    expect(isThursdayThroughMonday(new Date("2026-09-08T20:00:00Z"))).toBe(false); // Tue
     expect(formatOpponentLabel("KC", "BUF", "KC")).toBe("@ BUF");
     expect(formatOpponentLabel("BUF", "BUF", "KC")).toBe("vs KC");
   });

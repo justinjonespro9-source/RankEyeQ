@@ -93,7 +93,7 @@ export async function updateWeekTiming(input: {
   const week = await prisma.week.findUnique({ where: { id: input.weekId } });
   if (!week) throw new WeekSetupError("Week not found");
 
-  return prisma.week.update({
+  const updated = await prisma.week.update({
     where: { id: input.weekId },
     data: {
       ...(input.label != null ? { label: input.label } : {}),
@@ -111,6 +111,60 @@ export async function updateWeekTiming(input: {
         ? { publicReleaseAt: input.publicReleaseAt }
         : {}),
     },
+  });
+
+  // Keep DRAFT/OPEN contest clock fields aligned with week timing.
+  if (
+    input.fullLockAt !== undefined ||
+    input.rankingsOpenAt !== undefined
+  ) {
+    await prisma.rankIQContest.updateMany({
+      where: {
+        weekId: input.weekId,
+        status: { in: ["DRAFT", "OPEN"] },
+      },
+      data: {
+        ...(input.rankingsOpenAt !== undefined
+          ? { opensAt: input.rankingsOpenAt }
+          : {}),
+        ...(input.fullLockAt !== undefined
+          ? { locksAt: input.fullLockAt }
+          : {}),
+      },
+    });
+  }
+
+  return updated;
+}
+
+/**
+ * Recompute week ranking windows from stored NflGame kickoffs.
+ * Source of truth for Sunday lock is the slate — not a hardcoded calendar week.
+ */
+export async function applyWeekTimingFromSchedule(weekId: string) {
+  const games = await prisma.nflGame.findMany({
+    where: { weekId },
+    select: { startsAt: true },
+    orderBy: { startsAt: "asc" },
+  });
+  if (games.length === 0) {
+    throw new WeekSetupError("No games on this week — import a schedule first");
+  }
+
+  const startsAt = games[0]!.startsAt;
+  const endsAt = new Date(
+    games[games.length - 1]!.startsAt.getTime() + 5 * 60 * 60 * 1000,
+  );
+  const timing = computeNflTimingWindows(startsAt, endsAt);
+
+  return updateWeekTiming({
+    weekId,
+    startsAt,
+    endsAt,
+    rankingsOpenAt: timing.rankingsOpenAt,
+    fullLockAt: timing.fullLockAt,
+    revealStartsAt: timing.revealStartsAt,
+    publicReleaseAt: timing.publicReleaseAt,
   });
 }
 

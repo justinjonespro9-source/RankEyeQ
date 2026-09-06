@@ -1,13 +1,13 @@
 /**
- * RankIQ weeks cover Thursday–Monday NFL games (ET).
- * Bye teams / missing kickoffs are not eligible.
+ * RankIQ weekly slates cover Wednesday–Monday NFL games (ET).
+ * 2026 Week 1 opens Wednesday; bye teams / missing kickoffs are not eligible.
  */
 import {
   normalizeTeamAbbr,
   teamCodesMatch,
 } from "@/lib/nfl/manual/parse-common";
 
-const ELIGIBLE_WEEKDAYS = new Set([4, 5, 6, 0, 1]); // Thu Fri Sat Sun Mon in JS getDay() for ET
+const ELIGIBLE_WEEKDAYS = new Set([3, 4, 5, 6, 0, 1]); // Wed–Mon in JS getDay() for ET
 
 export function isThursdayThroughMonday(startsAt: Date): boolean {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -16,6 +16,7 @@ export function isThursdayThroughMonday(startsAt: Date): boolean {
   }).format(startsAt);
 
   return (
+    weekday === "Wed" ||
     weekday === "Thu" ||
     weekday === "Fri" ||
     weekday === "Sat" ||

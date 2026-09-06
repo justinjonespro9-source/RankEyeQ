@@ -180,8 +180,11 @@ async function main() {
     data: { active: false },
   });
 
-  const weekStart = new Date("2026-09-03T00:00:00.000Z");
-  const weekEnd = new Date("2026-09-08T23:59:59.000Z");
+  // 2026 Week 1: Wed Sept 9 opener through Monday Night Football (Sept 14).
+  // Timing windows are derived from these bounds — do not use the prior-week Sept 3–8 mock anchor.
+  const { zonedLocalToUtc } = await import("../lib/timing/chicago");
+  const weekStart = zonedLocalToUtc(2026, 9, 9, 19, 20); // Wed 7:20 PM CT ≈ 8:20 PM ET
+  const weekEnd = zonedLocalToUtc(2026, 9, 14, 22, 15); // Mon MNF
   const { computeNflTimingWindows } = await import("../lib/timing/week-windows");
   const timing = computeNflTimingWindows(weekStart, weekEnd);
 

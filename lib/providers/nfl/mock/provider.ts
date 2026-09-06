@@ -16,8 +16,9 @@ import type {
 } from "@/lib/providers/nfl/types";
 
 function defaultWeekStart(seasonYear: number, weekNumber: number) {
-  // Approximate Week 1 kickoff Thursday early September.
-  const date = new Date(Date.UTC(seasonYear, 8, 3 + (weekNumber - 1) * 7));
+  // 2026 Week 1 Thursday slate day is Sept 10 (UTC date used as Thu=0 mock offset).
+  // Earlier Sept 3 anchor produced Sunday lock Sept 6 — one week early.
+  const date = new Date(Date.UTC(seasonYear, 8, 10 + (weekNumber - 1) * 7));
   return date;
 }
 

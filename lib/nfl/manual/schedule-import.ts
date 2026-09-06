@@ -43,6 +43,8 @@ export async function commitManualSchedule(input: {
   weekId: string;
   text: string;
   adminUserId: string;
+  /** Default true — keep Week.fullLockAt aligned with imported kickoffs. */
+  recomputeWeekTiming?: boolean;
 }) {
   const week = await prisma.week.findUniqueOrThrow({
     where: { id: input.weekId },
@@ -144,6 +146,11 @@ export async function commitManualSchedule(input: {
     createdCount: created,
     updatedCount: updated,
   });
+
+  if (input.recomputeWeekTiming !== false) {
+    const { applyWeekTimingFromSchedule } = await import("@/lib/admin/weeks");
+    await applyWeekTimingFromSchedule(week.id);
+  }
 
   return { created, updated, games: parsed.rows.length };
 }

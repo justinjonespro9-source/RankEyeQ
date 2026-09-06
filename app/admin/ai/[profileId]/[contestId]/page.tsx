@@ -10,7 +10,10 @@ import { Container } from "@/components/layout/Container";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
 import { loadAiPromptBundleForContest } from "@/lib/admin/ai-prompt-data";
+import { contestAllowsEdits } from "@/lib/contest-lifecycle";
 import { prisma } from "@/lib/db";
+import { getWeekTimingState } from "@/lib/timing/week-windows";
+import { RANKIQ_TIMEZONE } from "@/lib/timing/chicago";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +85,16 @@ export default async function AdminAiContestPage(
     take: 500,
   });
   const submission = contest.submissions[0] ?? null;
+  const timing = getWeekTimingState({
+    rankingsOpenAt: contest.week.rankingsOpenAt,
+    fullLockAt: contest.week.fullLockAt,
+    revealStartsAt: contest.week.revealStartsAt,
+    publicReleaseAt: contest.week.publicReleaseAt,
+    weekStatus: contest.week.status,
+    now: generatedAt,
+  });
+  const contestOpen = contestAllowsEdits(contest.status);
+  const canImport = contestOpen && timing.canEditUnlocked;
 
   return (
     <Container className="py-12 sm:py-16">
@@ -90,7 +103,7 @@ export default async function AdminAiContestPage(
       <SectionHeading
         eyebrow={`${profile.displayName} · ${contest.position}`}
         title={`AI board · ${contest.title}`}
-        description={`${contest.week.label} Top ${contest.rankingDepth}. Same RankingSubmission path as humans. Kickoff and Sunday locks apply.`}
+        description={`${contest.week.label} Top ${contest.rankingDepth}. Same RankingSubmission path as humans — Contest OPEN, rankings open, before Sunday full lock, with kickoff locks.`}
         action={
           <Link
             href={`/admin/ai?weekId=${contest.weekId}&profileId=${profile.id}&position=${contest.position}`}
@@ -101,6 +114,19 @@ export default async function AdminAiContestPage(
         }
       />
 
+      {!canImport ? (
+        <div
+          className="mb-6 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
+          role="alert"
+        >
+          {!contestOpen
+            ? `Contest is ${contest.status}. Reopen to OPEN before importing a competing AI board.`
+            : timing.fullBoardLocked
+              ? "Sunday full lock has passed — competing AI boards can no longer be submitted."
+              : "Weekly rankings have not opened yet."}
+        </div>
+      ) : null}
+
       <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <MetaItem label="AI identity" value={profile.displayName} />
         <MetaItem
@@ -110,6 +136,29 @@ export default async function AdminAiContestPage(
         <MetaItem
           label="Position / field size"
           value={`${contest.position} · Top ${contest.rankingDepth}`}
+        />
+        <MetaItem label="Contest status" value={contest.status} />
+        <MetaItem
+          label="Week full lock"
+          value={
+            contest.week.fullLockAt
+              ? `${contest.week.fullLockAt.toLocaleString("en-US", {
+                  timeZone: RANKIQ_TIMEZONE,
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })} ${RANKIQ_TIMEZONE}`
+              : "—"
+          }
+        />
+        <MetaItem
+          label="Edit window"
+          value={
+            timing.canEditUnlocked
+              ? "Open"
+              : timing.fullBoardLocked
+                ? "Closed (Sunday lock)"
+                : "Not open yet"
+          }
         />
         <MetaItem
           label="Eligible pool"

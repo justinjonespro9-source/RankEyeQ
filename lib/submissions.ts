@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
 import {
-  contestAllowsEdits,
   submissionAllowsEdits,
   submissionIsEligible,
 } from "@/lib/contest-lifecycle";
 import type { SubmissionStatus } from "@/lib/generated/prisma/client";
 import { applyKickoffLocksToSubmission } from "@/lib/timing/apply-locks";
 import { validatePartialLockEdit } from "@/lib/timing/partial-lock";
+import { rankingEditWindowError } from "@/lib/timing/submission-window";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 
 export class SubmissionError extends Error {
@@ -85,25 +85,17 @@ export async function getOrCreateDraftSubmission(
   });
   if (!contest) throw new SubmissionError("Contest not found");
 
-  const timing = getWeekTimingState({
+  const windowError = rankingEditWindowError({
+    contestStatus: contest.status,
+    weekStatus: contest.week.status,
     rankingsOpenAt: contest.week.rankingsOpenAt,
     fullLockAt: contest.week.fullLockAt,
     revealStartsAt: contest.week.revealStartsAt,
     publicReleaseAt: contest.week.publicReleaseAt,
-    weekStatus: contest.week.status,
     now,
+    action: "draft",
   });
-
-  if (!timing.canEditUnlocked) {
-    throw new SubmissionError(
-      timing.fullBoardLocked
-        ? "Contest is not open for new drafts"
-        : "Weekly contests are not open yet",
-    );
-  }
-  if (!contestAllowsEdits(contest.status)) {
-    throw new SubmissionError("Contest is not open for new drafts");
-  }
+  if (windowError) throw new SubmissionError(windowError);
 
   const { resolveRevealPreferenceForNewSubmission } = await import(
     "@/lib/social/creator"
@@ -204,13 +196,17 @@ export async function saveSubmissionPicks(input: {
     weekStatus: contest.week.status,
     now,
   });
-  if (!timing.canEditUnlocked) {
-    throw new SubmissionError(
-      timing.fullBoardLocked
-        ? "This ranking can no longer be edited"
-        : "Weekly contests are not open yet",
-    );
-  }
+  const windowError = rankingEditWindowError({
+    contestStatus: contest.status,
+    weekStatus: contest.week.status,
+    rankingsOpenAt: contest.week.rankingsOpenAt,
+    fullLockAt: contest.week.fullLockAt,
+    revealStartsAt: contest.week.revealStartsAt,
+    publicReleaseAt: contest.week.publicReleaseAt,
+    now,
+    action: "edit",
+  });
+  if (windowError) throw new SubmissionError(windowError);
 
   const submission = await getOrCreateDraftSubmission(
     input.contestId,
@@ -340,17 +336,17 @@ export async function submitRanking(input: {
   });
   if (!contest) throw new SubmissionError("Contest not found");
 
-  const timing = getWeekTimingState({
+  const windowError = rankingEditWindowError({
+    contestStatus: contest.status,
+    weekStatus: contest.week.status,
     rankingsOpenAt: contest.week.rankingsOpenAt,
     fullLockAt: contest.week.fullLockAt,
     revealStartsAt: contest.week.revealStartsAt,
     publicReleaseAt: contest.week.publicReleaseAt,
-    weekStatus: contest.week.status,
     now,
+    action: "submit",
   });
-  if (!timing.canEditUnlocked || !contestAllowsEdits(contest.status)) {
-    throw new SubmissionError("Contest is not open for submissions");
-  }
+  if (windowError) throw new SubmissionError(windowError);
 
   const filled = input.rankedEntryIds.filter(
     (id): id is string => typeof id === "string" && id.length > 0,

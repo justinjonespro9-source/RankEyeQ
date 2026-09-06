@@ -110,7 +110,13 @@ describe("Week 1 lifecycle simulation", () => {
     });
     weekId = week.id;
 
-    await commitManualSchedule({ weekId, text: SCHEDULE, adminUserId });
+    await commitManualSchedule({
+      weekId,
+      text: SCHEDULE,
+      adminUserId,
+      // Preserve explicit test lock/reveal windows (schedule-derived timing differs).
+      recomputeWeekTiming: false,
+    });
     await ensureFivePositionContests(weekId);
 
     const rbNames = [

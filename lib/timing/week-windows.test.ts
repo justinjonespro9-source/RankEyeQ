@@ -8,6 +8,20 @@ import {
 describe("NFL week timing windows", () => {
   const thursdayKickoff = zonedLocalToUtc(2026, 9, 10, 19, 15);
 
+  it("uses Sunday Sept 13 lock when first kickoff is Wed Sept 9", () => {
+    const wedOpener = zonedLocalToUtc(2026, 9, 9, 19, 20);
+    const windows = computeNflTimingWindows(wedOpener);
+    expect(windows.rankingsOpenAt.toISOString()).toBe(
+      zonedLocalToUtc(2026, 9, 8, 0, 0).toISOString(),
+    );
+    expect(windows.fullLockAt.toISOString()).toBe(
+      zonedLocalToUtc(2026, 9, 13, 10, 0).toISOString(),
+    );
+    expect(windows.publicReleaseAt.toISOString()).toBe(
+      zonedLocalToUtc(2026, 9, 13, 12, 0).toISOString(),
+    );
+  });
+
   it("uses America/Chicago Tuesday open and Sunday 10am lock / noon public", () => {
     const windows = computeNflTimingWindows(thursdayKickoff);
     expect(windows.timeZone).toBe(RANKIQ_TIMEZONE);
