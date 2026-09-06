@@ -27,7 +27,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.id = user.id;
       session.user.email = user.email ?? null;
       session.user.name = user.name ?? null;
-      session.user.image = user.image ?? null;
+      // Prefer UniversalProfile avatar (upload or seeded Google) over raw OAuth image.
+      session.user.image =
+        dbUser?.universalProfile?.avatarUrl?.trim() ||
+        user.image ||
+        null;
       session.user.role = dbUser?.role ?? "USER";
       session.user.universalProfileId = dbUser?.universalProfileId ?? null;
       session.user.username = dbUser?.universalProfile?.username ?? null;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
+import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { benchmarkAffiliationDisclaimer } from "@/lib/benchmark-sources";
@@ -71,54 +72,61 @@ export function ProfileHeader({
   return (
     <header className="rounded-lg border border-border bg-surface-elevated px-5 py-6 sm:px-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-            Universal profile
-          </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-            {expertPrimary}
-          </h1>
-          <p className="mt-1 text-muted">@{profile.username}</p>
-          {profile.isBenchmark &&
-          profile.expertPublicationName &&
-          profile.expertAnalystName ? (
-            <p className="mt-1 text-sm text-muted">
-              {profile.expertPublicationName}
+        <div className="flex min-w-0 items-start gap-4">
+          <ProfileAvatar
+            name={expertPrimary}
+            src={profile.avatarUrl}
+            size="lg"
+          />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+              Universal profile
             </p>
-          ) : null}
-          {profile.isCreator && profile.creatorBrandName ? (
-            <p className="mt-1 text-sm text-muted">{profile.creatorBrandName}</p>
-          ) : null}
-          {profile.isBenchmark ? (
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-              {benchmarkAffiliationDisclaimer(disclaimerSource)}
-            </p>
-          ) : profile.isCreator ? (
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-              Independent RankEyeQ Creator. Brand affiliation is shown for
-              context and is not an endorsement.
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-muted">
-              <strong className="font-display text-ink">{followerCount}</strong>{" "}
-              followers ·{" "}
-              <strong className="font-display text-ink">{followingCount}</strong>{" "}
-              following
-            </p>
-          )}
-          {profile.bio && !isAuthFree ? (
-            <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
-              {profile.bio}
-            </p>
-          ) : null}
-          {isOwner ? (
-            <Link
-              href="/account"
-              className="mt-4 inline-block text-sm font-medium text-accent hover:underline"
-            >
-              Edit profile
-            </Link>
-          ) : null}
+            <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
+              {expertPrimary}
+            </h1>
+            <p className="mt-1 text-muted">@{profile.username}</p>
+            {profile.isBenchmark &&
+            profile.expertPublicationName &&
+            profile.expertAnalystName ? (
+              <p className="mt-1 text-sm text-muted">
+                {profile.expertPublicationName}
+              </p>
+            ) : null}
+            {profile.isCreator && profile.creatorBrandName ? (
+              <p className="mt-1 text-sm text-muted">{profile.creatorBrandName}</p>
+            ) : null}
+            {profile.isBenchmark ? (
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+                {benchmarkAffiliationDisclaimer(disclaimerSource)}
+              </p>
+            ) : profile.isCreator ? (
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+                Independent RankEyeQ Creator. Brand affiliation is shown for
+                context and is not an endorsement.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-muted">
+                <strong className="font-display text-ink">{followerCount}</strong>{" "}
+                followers ·{" "}
+                <strong className="font-display text-ink">{followingCount}</strong>{" "}
+                following
+              </p>
+            )}
+            {profile.bio && !isAuthFree ? (
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
+                {profile.bio}
+              </p>
+            ) : null}
+            {isOwner ? (
+              <Link
+                href="/account"
+                className="mt-4 inline-block text-sm font-medium text-accent hover:underline"
+              >
+                Edit profile
+              </Link>
+            ) : null}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex flex-wrap justify-end gap-2">

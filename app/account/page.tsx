@@ -5,6 +5,7 @@ import { Container } from "@/components/layout/Container";
 import { AccountProfileForm } from "@/components/auth/AccountProfileForm";
 import { CreatorAccountSection } from "@/components/social/CreatorAccountSection";
 import { requireAuthContext } from "@/lib/auth/session";
+import { getAvatarUploadAvailability } from "@/lib/account-actions";
 import { getActiveSeasonAndWeek } from "@/lib/leaderboards";
 import { evaluateProfileQualification } from "@/lib/social/creator";
 import { prisma } from "@/lib/db";
@@ -23,9 +24,10 @@ export default async function AccountPage() {
   }
 
   const profile = ctx.universalProfile;
-  const [qualification, context] = await Promise.all([
+  const [qualification, context, uploadEnabled] = await Promise.all([
     evaluateProfileQualification(profile.id),
     getActiveSeasonAndWeek(),
+    getAvatarUploadAvailability(),
   ]);
 
   const currentWeekBoards = context?.week
@@ -63,7 +65,9 @@ export default async function AccountPage() {
           <AccountProfileForm
             username={profile.username}
             displayName={profile.displayName}
-            avatarUrl={profile.avatarUrl ?? ""}
+            avatarUrl={profile.avatarUrl ?? null}
+            oauthImageUrl={ctx.user.image ?? null}
+            uploadEnabled={uploadEnabled}
           />
         </div>
         <CreatorAccountSection

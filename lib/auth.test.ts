@@ -86,6 +86,7 @@ describe("UniversalProfile first-login linking", () => {
         email: `${suffix}@example.com`,
         emailVerified: new Date(),
         name: "Auth Tester",
+        image: "https://lh3.googleusercontent.com/a/seed-photo",
         role: "USER",
       },
     });
@@ -116,6 +117,9 @@ describe("UniversalProfile first-login linking", () => {
     });
     expect(first.username).toBe(username);
     expect(first.profileType).toBe("HUMAN");
+    expect(first.displayName).toBe("Auth Tester");
+    // Google image seeds UniversalProfile.avatarUrl when no upload is provided.
+    expect(first.avatarUrl).toBe("https://lh3.googleusercontent.com/a/seed-photo");
 
     const linked = await prisma.user.findUnique({ where: { id: userId } });
     expect(linked?.universalProfileId).toBe(first.id);
@@ -132,6 +136,50 @@ describe("UniversalProfile first-login linking", () => {
       where: { username },
     });
     expect(count).toBe(1);
+  });
+
+  it("prefers an uploaded avatar URL over the Google seed on setup", async () => {
+    const uploadUser = await prisma.user.create({
+      data: {
+        email: `up_${suffix}@example.com`,
+        name: "Upload Tester",
+        image: "https://lh3.googleusercontent.com/a/google-only",
+        role: "USER",
+      },
+    });
+    const username = `up_${suffix}`.slice(0, 24);
+    const profile = await createOrResolveUniversalProfile({
+      userId: uploadUser.id,
+      username,
+      displayName: "Upload Tester",
+      avatarUrl: "https://example.public.blob.vercel-storage.com/avatars/me.jpg",
+    });
+    expect(profile.avatarUrl).toBe(
+      "https://example.public.blob.vercel-storage.com/avatars/me.jpg",
+    );
+
+    await prisma.user.update({
+      where: { id: uploadUser.id },
+      data: { universalProfileId: null },
+    });
+    await prisma.universalProfile.delete({ where: { id: profile.id } });
+    await prisma.user.delete({ where: { id: uploadUser.id } });
+  });
+
+  it("updates username/display name without clearing avatar when avatar omitted", async () => {
+    const { updateOwnedUniversalProfile } = await import(
+      "@/lib/auth/profile-link"
+    );
+    const username = `u_${suffix}`.slice(0, 24);
+    const updated = await updateOwnedUniversalProfile({
+      userId,
+      username,
+      displayName: "Auth Tester Updated",
+    });
+    expect(updated.displayName).toBe("Auth Tester Updated");
+    expect(updated.avatarUrl).toBe(
+      "https://lh3.googleusercontent.com/a/seed-photo",
+    );
   });
 
   it("enforces username uniqueness against existing profiles", async () => {

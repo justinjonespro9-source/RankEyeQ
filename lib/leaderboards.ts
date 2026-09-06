@@ -15,6 +15,7 @@ export type LeaderboardRow = {
   universalProfileId: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
   profileType: ProfileType;
   expertPublisher: string | null;
   creatorBrand: string | null;
@@ -43,6 +44,7 @@ type GradedAgg = {
   universalProfileId: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
   profileType: ProfileType;
   expertPublisher: string | null;
   creatorBrand: string | null;
@@ -64,6 +66,7 @@ function toRows(aggs: GradedAgg[]): LeaderboardRow[] {
         universalProfileId: agg.universalProfileId,
         username: agg.username,
         displayName: agg.displayName,
+        avatarUrl: agg.avatarUrl,
         profileType: agg.profileType,
         expertPublisher: agg.expertPublisher,
         creatorBrand: agg.creatorBrand,
@@ -100,6 +103,7 @@ function emptyAgg(profile: {
   id: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
   profileType: ProfileType;
   expertSource?: { publicationName: string | null; analystName: string | null } | null;
   creatorCompetitor?: { personName: string | null; brandName: string | null } | null;
@@ -112,6 +116,7 @@ function emptyAgg(profile: {
       creatorPerson ||
       profile.expertSource?.analystName?.trim() ||
       profile.displayName,
+    avatarUrl: profile.avatarUrl,
     profileType: profile.profileType,
     expertPublisher: profile.expertSource?.publicationName ?? null,
     creatorBrand: profile.creatorCompetitor?.brandName ?? null,

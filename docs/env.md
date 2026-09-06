@@ -12,6 +12,7 @@ Validation lives in `lib/env.ts`.
   - `AUTH_URL`
   - Email: `AUTH_RESEND_KEY` or `EMAIL_SERVER`, plus `EMAIL_FROM`
 - **Optional Google:** `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` together
+- **Optional profile photos:** `BLOB_READ_WRITE_TOKEN` (Vercel Blob) — enables Upload Profile Photo for humans. Without it, Google OAuth image / initials still work; upload shows a “not configured” message.
 - **All consensus:** `RANKEYEQ_CONSENSUS_ALL_MODE=group_weighted` | `ballot_union` (legacy alias: `RANKEQ_CONSENSUS_ALL_MODE`)
 - **NFL provider:** `NFL_DATA_PROVIDER=manual` | `mock` | `sportsdataio`
   - **`manual`** — recommended for production without a paid sports-data API. Operator pastes schedule, pools, and fantasy points. SportsDataIO credentials are **not** required and are not flagged as missing.

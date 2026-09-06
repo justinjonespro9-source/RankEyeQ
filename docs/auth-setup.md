@@ -12,10 +12,15 @@ RankEYEQ uses **Auth.js (NextAuth v5)** with the Prisma adapter.
 - `User` / `Account` / `Session` — Auth.js account records
 - `UniversalProfile` — sports identity used by rankings, leaderboards, and results
 - `User.universalProfileId` links an account to exactly one UniversalProfile
+- `User.image` — Google OAuth photo (Auth.js)
+- `UniversalProfile.avatarUrl` — public avatar (uploaded photo, or Google image seeded at setup)
 - `RankingSubmission` continues to reference `UniversalProfile` only
 
 AI bots (GPT, Claude, DeepSeek, Gemini, Llama, Mistral, Perplexity, Grok) are UniversalProfiles with `profileType = AI` and **no** Auth.js users. See `lib/ai-competitors.ts`.
 
+## Profile photos
+
+Humans upload via Vercel Blob (`BLOB_READ_WRITE_TOKEN`). No raw URL paste in the human UI. Without the token, Google photo / initials still work; upload is disabled with a short message.
 ## Local development
 
 1. Set `AUTH_SECRET` and `AUTH_URL=http://localhost:3000` in `.env`

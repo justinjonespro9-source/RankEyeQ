@@ -1,16 +1,11 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
-
-function initials(name: string) {
-  const parts = name.replace(/[^a-zA-Z0-9 ]/g, "").split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
+import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 
 export function ProfileLink({
   username,
   displayName,
+  avatarUrl = null,
   isAi = false,
   isExpert = false,
   isCreator = false,
@@ -21,6 +16,8 @@ export function ProfileLink({
 }: {
   username: string;
   displayName: string;
+  /** Resolved public avatar URL (uploaded or Google-seeded). */
+  avatarUrl?: string | null;
   isAi?: boolean;
   isExpert?: boolean;
   isCreator?: boolean;
@@ -50,12 +47,7 @@ export function ProfileLink({
       className={`inline-flex min-w-0 items-center gap-2 hover:text-accent ${className}`}
     >
       {showAvatar ? (
-        <span
-          aria-hidden
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent"
-        >
-          {initials(displayName)}
-        </span>
+        <ProfileAvatar name={displayName} src={avatarUrl} size="md" />
       ) : null}
       <span className="min-w-0">
         <span className="block truncate font-medium text-ink">{displayName}</span>

@@ -31,6 +31,8 @@ export type UniversalProfile = {
   universalUserId: string | null;
   username: string;
   displayName: string;
+  /** Resolved public avatar (uploaded or Google-seeded). */
+  avatarUrl?: string | null;
   isBot: boolean;
   isBenchmark?: boolean;
   isCreator?: boolean;
@@ -51,6 +53,7 @@ export type LeaderboardEntry = {
   rank: number;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
   isBot: boolean;
   score: number;
   universalUserId: string | null;

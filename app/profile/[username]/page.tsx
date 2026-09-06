@@ -94,6 +94,7 @@ export default async function ProfilePage(
     universalUserId: view.universalUserId,
     username: view.username,
     displayName: view.displayName,
+    avatarUrl: view.avatarUrl,
     isBot: view.profileType === "AI",
     isBenchmark: view.profileType === "BENCHMARK",
     isCreator: view.profileType === "CREATOR",

@@ -8,6 +8,7 @@ export type LiveRankerRow = {
   universalProfileId: string;
   username: string;
   displayName: string;
+  avatarUrl: string | null;
   profileType: ProfileType;
   liveRankIqScore: number;
   topNHits: number;
@@ -121,6 +122,7 @@ export async function getLiveContestRankerBoard(contestId: string) {
       universalProfileId: submission.universalProfileId,
       username: submission.universalProfile.username,
       displayName: submission.universalProfile.displayName,
+      avatarUrl: submission.universalProfile.avatarUrl,
       profileType: submission.universalProfile.profileType,
       liveRankIqScore: summary.rankIqScore,
       topNHits: summary.topNHits,
@@ -154,6 +156,7 @@ export async function getLiveWeekRankerBoard(weekId: string, position?: ContestP
           universalProfileId: row.universalProfileId,
           username: row.username,
           displayName: row.displayName,
+          avatarUrl: row.avatarUrl,
           profileType: row.profileType,
           topNHits: row.topNHits,
           numberOneHit: row.numberOneHit,

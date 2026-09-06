@@ -40,6 +40,7 @@ Optional:
 
 - [ ] `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` (both or neither)
 - [ ] `AUTH_TRUST_HOST=true` on Vercel
+- [ ] `BLOB_READ_WRITE_TOKEN` (Vercel Blob) for human profile photo uploads
 - [ ] `SEED_ADMIN_EMAIL` for first admin (seed only)
 
 Never set `RANKIQ_DEV_PROFILE_SWITCHER=1` in production.

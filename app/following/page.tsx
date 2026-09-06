@@ -133,26 +133,12 @@ export default async function FollowingPage({
               className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex min-w-0 items-center gap-3">
-                <span
-                  aria-hidden
-                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-soft text-xs font-semibold text-accent"
-                >
-                  {item.avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.avatarUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    item.displayName.slice(0, 2).toUpperCase()
-                  )}
-                </span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <ProfileLink
                       username={item.username}
                       displayName={item.displayName}
+                      avatarUrl={item.avatarUrl}
                       isAi={item.profileType === "AI"}
                     />
                     <Badge tone={item.profileType === "AI" ? "warning" : "success"}>

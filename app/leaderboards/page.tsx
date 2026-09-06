@@ -95,6 +95,7 @@ function BoardTable({
               <ProfileLink
                 username={entry.username}
                 displayName={entry.displayName}
+                avatarUrl={entry.avatarUrl}
                 isAi={entry.profileType === "AI"}
                 isExpert={entry.profileType === "BENCHMARK"}
                 isCreator={entry.profileType === "CREATOR"}

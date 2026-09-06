@@ -210,6 +210,7 @@ export default async function ResultsPage({
                         <ProfileLink
                           username={row.username}
                           displayName={row.displayName}
+                          avatarUrl={row.avatarUrl}
                           isAi={row.profileType === "AI"}
                         />
                       </div>

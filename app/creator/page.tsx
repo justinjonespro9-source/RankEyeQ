@@ -121,6 +121,7 @@ export default async function CreatorDashboardPage() {
                   <ProfileLink
                     username={row.follower.username}
                     displayName={row.follower.displayName}
+                    avatarUrl={row.follower.avatarUrl}
                     isAi={row.follower.profileType === "AI"}
                   />
                   <span className="text-xs text-muted">

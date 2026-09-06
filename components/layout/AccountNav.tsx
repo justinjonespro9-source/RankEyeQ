@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 import { signOutAction } from "@/lib/auth-actions";
 
 export type AccountNavUser = {
@@ -12,13 +13,6 @@ export type AccountNavUser = {
   image: string | null;
   isAdmin: boolean;
 };
-
-function initials(name: string) {
-  const parts = name.replace(/[^a-zA-Z0-9 ]/g, "").split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
 
 export function AccountNav({ user }: { user: AccountNavUser | null }) {
   const pathname = usePathname();
@@ -46,17 +40,7 @@ export function AccountNav({ user }: { user: AccountNavUser | null }) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span
-          aria-hidden
-          className="inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-accent-soft text-[10px] font-semibold text-accent"
-        >
-          {user.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={user.image} alt="" className="h-full w-full object-cover" />
-          ) : (
-            initials(label)
-          )}
-        </span>
+        <ProfileAvatar name={label} src={user.image} size="sm" />
         <span className="hidden max-w-[8rem] truncate font-medium text-ink sm:inline">
           {user.username ? `@${user.username}` : label}
         </span>

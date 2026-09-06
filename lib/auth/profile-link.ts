@@ -70,6 +70,7 @@ export async function createOrResolveUniversalProfile(
       });
     }
 
+    // avatarUrl: explicit upload, else seed Google User.image for public surfaces.
     const profile = await tx.universalProfile.create({
       data: {
         username,

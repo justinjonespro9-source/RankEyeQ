@@ -179,6 +179,7 @@ export default async function LiveLeaderboardPage({
                 <ProfileLink
                   username={row.username}
                   displayName={row.displayName}
+                  avatarUrl={row.avatarUrl}
                   isAi={row.profileType === "AI"}
                   isExpert={row.profileType === "BENCHMARK"}
                 />

@@ -151,7 +151,7 @@ export const POLICY_DEFINITIONS_CONTENT: Omit<
       {
         heading: "Information you provide",
         body:
-          "We collect information you submit, including email address for authentication, profile fields (such as username, display name, and optional avatar URL), and ranking submissions.",
+          "We collect information you submit, including email address for authentication, profile fields (such as username, display name, and optional profile photo), and ranking submissions.",
       },
       {
         heading: "Account and profile information",

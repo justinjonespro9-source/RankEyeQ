@@ -145,6 +145,7 @@ export default async function RankersPage({
                     <ProfileLink
                       username={row.username}
                       displayName={row.displayName}
+                      avatarUrl={row.avatarUrl}
                       isAi={row.profileType === "AI"}
                       isExpert={row.profileType === "BENCHMARK"}
                       isCreator={row.profileType === "CREATOR"}

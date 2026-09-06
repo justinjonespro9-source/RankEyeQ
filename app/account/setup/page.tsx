@@ -4,6 +4,7 @@ import { Container } from "@/components/layout/Container";
 import { ProfileSetupForm } from "@/components/auth/ProfileSetupForm";
 import { requireAuthContext } from "@/lib/auth/session";
 import { suggestedUsernameFromEmail } from "@/lib/auth/profile-link";
+import { getAvatarUploadAvailability } from "@/lib/account-actions";
 import { getSignupPolicyMetadata } from "@/lib/legal/policy-acceptance";
 import { ELIGIBILITY_SUMMARY } from "@/lib/legal/eligibility";
 import { NO_WAGERING_DISCLAIMER } from "@/lib/company";
@@ -24,6 +25,7 @@ export default async function AccountSetupPage() {
   }
 
   const signupPolicies = await getSignupPolicyMetadata();
+  const uploadEnabled = await getAvatarUploadAvailability();
 
   return (
     <Container className="py-12 sm:py-16">
@@ -50,7 +52,8 @@ export default async function AccountSetupPage() {
           <ProfileSetupForm
             defaultUsername={suggestedUsernameFromEmail(ctx.user.email)}
             defaultDisplayName={ctx.user.name ?? ""}
-            defaultAvatarUrl={ctx.user.image ?? ""}
+            oauthImageUrl={ctx.user.image ?? null}
+            uploadEnabled={uploadEnabled}
             signupPolicies={signupPolicies}
           />
         </div>

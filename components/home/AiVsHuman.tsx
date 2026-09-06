@@ -84,6 +84,7 @@ function AverageCard({
           <ProfileLink
             username={top.username}
             displayName={top.displayName}
+            avatarUrl={top.avatarUrl}
             isAi={isAi}
             isExpert={isExpert}
           />

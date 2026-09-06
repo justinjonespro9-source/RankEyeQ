@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { resolveAvatarUrl } from "@/lib/avatar";
 import {
   getSeasonLeaderboard,
   getWeeklyLeaderboard,
@@ -44,7 +45,11 @@ export async function getRankIQProfileView(
 ): Promise<RankIQProfileView | null> {
   const profile = await prisma.universalProfile.findUnique({
     where: { username },
-    include: { expertSource: true, creatorCompetitor: true },
+    include: {
+      expertSource: true,
+      creatorCompetitor: true,
+      authUser: { select: { image: true } },
+    },
   });
   if (!profile) return null;
   if (!profile.publicVisible && profile.status === "SUSPENDED") return null;
@@ -225,7 +230,11 @@ export async function getRankIQProfileView(
     profileType: profile.profileType,
     status: profile.status,
     universalUserId: profile.universalUserId,
-    avatarUrl: profile.avatarUrl,
+    // Public identity: uploaded/seeded avatarUrl → Google User.image → null (initials).
+    avatarUrl: resolveAvatarUrl({
+      avatarUrl: profile.avatarUrl,
+      oauthImageUrl: profile.authUser?.image,
+    }),
     expertAnalystName: profile.expertSource?.analystName ?? null,
     expertPublicationName: profile.expertSource?.publicationName ?? null,
     creatorPersonName: profile.creatorCompetitor?.personName ?? null,
