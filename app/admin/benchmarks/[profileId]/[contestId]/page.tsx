@@ -98,7 +98,7 @@ export default async function AdminBenchmarkContestPage(
         action={
           <Link
             href={`/admin/benchmarks?weekId=${contest.weekId}`}
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to benchmark grid
           </Link>

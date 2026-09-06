@@ -5,7 +5,7 @@ import type { ContestScoreSummary } from "@/types/scoring";
 export function ScoreSummary({ summary }: { summary: ContestScoreSummary }) {
   return (
     <div className="rounded-lg border border-accent/25 bg-accent-soft/40 p-4 sm:p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
         Contest grade
       </p>
       <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">

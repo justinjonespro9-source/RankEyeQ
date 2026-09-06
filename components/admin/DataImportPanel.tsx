@@ -90,7 +90,7 @@ export function DataImportPanel({
               href={`/admin/data?weekId=${week.id}`}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 selectedWeekId === week.id
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-ink"
                   : "border border-border bg-surface text-ink"
               }`}
             >
@@ -200,7 +200,7 @@ export function DataImportPanel({
           </div>
 
           {message ? (
-            <p className="mt-3 text-sm text-accent" role="status">
+            <p className="mt-3 text-sm text-accent-ink" role="status">
               {message}
             </p>
           ) : null}
@@ -334,7 +334,7 @@ export function DataImportPanel({
               </h2>
               <Link
                 href={`/admin/contests/${contest.id}`}
-                className="text-sm text-accent hover:underline"
+                className="text-sm text-accent-ink hover:underline"
               >
                 Contest admin
               </Link>
@@ -354,7 +354,7 @@ export function DataImportPanel({
                   </span>
                   <button
                     type="button"
-                    className="text-xs font-medium text-accent hover:underline"
+                    className="text-xs font-medium text-accent-ink hover:underline"
                     disabled={pending}
                     onClick={() =>
                       run(async () => {

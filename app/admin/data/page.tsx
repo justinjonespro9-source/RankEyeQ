@@ -116,7 +116,7 @@ export default async function AdminDataPage({
           {manualMode
             ? ", then paste the weekly schedule in Manual weekly ops."
             : ", or sync a week from the provider schedule."}{" "}
-          <Link href="/admin/seasons" className="text-accent hover:underline">
+          <Link href="/admin/seasons" className="text-accent-ink hover:underline">
             Seasons & Weeks
           </Link>
         </p>
@@ -186,7 +186,7 @@ export default async function AdminDataPage({
             <p className="text-sm text-muted">
               Provider fetch panels are hidden in manual mode. Use Manual weekly
               ops above, or open the{" "}
-              <Link href="/admin/players" className="text-accent hover:underline">
+              <Link href="/admin/players" className="text-accent-ink hover:underline">
                 master player directory
               </Link>
               .

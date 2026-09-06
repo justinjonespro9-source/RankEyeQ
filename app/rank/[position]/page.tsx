@@ -215,7 +215,7 @@ export default async function PositionRankPage(
                   href={href}
                   className={`rounded-md px-2 py-1 ${
                     active
-                      ? "bg-accent/15 font-medium text-accent"
+                      ? "bg-accent/15 font-medium text-accent-ink"
                       : "text-muted hover:text-ink"
                   }`}
                 >

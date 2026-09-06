@@ -52,7 +52,7 @@ export function MobileNav() {
                     onClick={() => setOpen(false)}
                     className={`rounded-md px-3 py-2.5 text-sm font-medium ${
                       active
-                        ? "bg-accent-soft text-accent"
+                        ? "bg-accent-soft text-ink"
                         : "text-ink hover:bg-surface"
                     }`}
                   >
@@ -69,7 +69,7 @@ export function MobileNav() {
                             onClick={() => setOpen(false)}
                             className={`rounded-md px-3 py-2.5 text-sm ${
                               subActive
-                                ? "font-medium text-accent"
+                                ? "font-medium text-accent-ink"
                                 : "text-muted hover:text-ink"
                             }`}
                           >
@@ -94,7 +94,7 @@ export function MobileNav() {
                             onClick={() => setOpen(false)}
                             className={`rounded-md px-3 py-2.5 text-sm ${
                               subActive
-                                ? "font-medium text-accent"
+                                ? "font-medium text-accent-ink"
                                 : "text-muted hover:text-ink"
                             }`}
                           >

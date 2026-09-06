@@ -139,7 +139,7 @@ export function PlayerPerformanceTable({
                 <td className="px-3 py-3 font-medium text-ink">
                   <Link
                     href={`/players/${encodeURIComponent(row.externalId?.trim() || row.rankableEntryId)}?seasonId=${seasonId}`}
-                    className="hover:text-accent hover:underline"
+                    className="hover:text-accent-ink hover:underline"
                   >
                     {row.name}
                   </Link>

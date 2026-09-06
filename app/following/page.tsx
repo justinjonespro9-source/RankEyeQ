@@ -109,7 +109,7 @@ export default async function FollowingPage({
             href={`/following?filter=${item.key}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               filter === item.key
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >

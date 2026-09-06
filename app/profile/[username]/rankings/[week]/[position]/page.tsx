@@ -76,7 +76,7 @@ export default async function PublicRankingBoardPage(
         action={
           <Link
             href={`/profile/${board.username}`}
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to profile
           </Link>
@@ -173,7 +173,7 @@ export default async function PublicRankingBoardPage(
                     className="flex items-center justify-between gap-3 px-4 py-3"
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="font-display w-6 font-semibold text-accent">
+                      <span className="font-display w-6 font-semibold text-accent-ink">
                         {index + 1}
                       </span>
                       <div className="min-w-0">

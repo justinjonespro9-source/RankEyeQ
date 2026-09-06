@@ -78,7 +78,7 @@ export default async function AdminAiContestPage(
         action={
           <Link
             href={`/admin/ai?weekId=${contest.weekId}`}
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to AI grid
           </Link>

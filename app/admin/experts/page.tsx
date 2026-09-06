@@ -52,12 +52,12 @@ export default async function AdminExpertsPage({
         </p>
       ) : null}
       {created ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           Expert analyst created. Activate them in the table if needed, then import Week rankings from Benchmarks.
         </p>
       ) : null}
       {updated ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           Expert updated.
         </p>
       ) : null}
@@ -65,7 +65,7 @@ export default async function AdminExpertsPage({
       <div className="mb-4 flex flex-wrap gap-4 text-sm">
         <Link
           href="/admin/benchmarks"
-          className="font-medium text-accent hover:underline"
+          className="font-medium text-accent-ink hover:underline"
         >
           Open weekly expert import grid →
         </Link>
@@ -170,7 +170,7 @@ export default async function AdminExpertsPage({
                   <p className="font-medium text-ink">{expert.primaryName}</p>
                   <Link
                     href={`/profile/${expert.username}`}
-                    className="text-xs text-accent hover:underline"
+                    className="text-xs text-accent-ink hover:underline"
                   >
                     @{expert.username}
                   </Link>
@@ -220,7 +220,7 @@ export default async function AdminExpertsPage({
                 <td className="px-3 py-3">
                   <Link
                     href={`/admin/benchmarks?profileId=${expert.universalProfileId}`}
-                    className="text-accent hover:underline"
+                    className="text-accent-ink hover:underline"
                   >
                     Import status →
                   </Link>

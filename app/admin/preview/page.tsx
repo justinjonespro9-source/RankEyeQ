@@ -50,7 +50,7 @@ export default async function AdminTestPreviewPage({
             href={`/admin/preview?weekId=${item.id}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               item.id === week?.id
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >
@@ -73,7 +73,7 @@ export default async function AdminTestPreviewPage({
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  className="block rounded-md border border-border px-3 py-2 text-sm font-medium text-accent hover:underline"
+                  className="block rounded-md border border-border px-3 py-2 text-sm font-medium text-accent-ink hover:underline"
                 >
                   {link.label} →
                 </Link>

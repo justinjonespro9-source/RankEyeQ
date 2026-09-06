@@ -79,7 +79,7 @@ export function ProfileHeader({
             size="lg"
           />
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
               Universal profile
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
@@ -121,7 +121,7 @@ export function ProfileHeader({
             {isOwner ? (
               <Link
                 href="/account"
-                className="mt-4 inline-block text-sm font-medium text-accent hover:underline"
+                className="mt-4 inline-block text-sm font-medium text-accent-ink hover:underline"
               >
                 Edit profile
               </Link>

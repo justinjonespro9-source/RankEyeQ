@@ -23,7 +23,7 @@ export function ThursdayReceiptsPreview({
           action={
             <Link
               href="/receipts"
-              className="text-sm font-medium text-accent hover:underline"
+              className="text-sm font-medium text-accent-ink hover:underline"
             >
               Full receipts
             </Link>

@@ -43,7 +43,7 @@ export default async function AdminCreatorDetailPage({
         action={
           <Link
             href="/admin/creators"
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to list
           </Link>
@@ -51,7 +51,7 @@ export default async function AdminCreatorDetailPage({
       />
 
       {query.notice ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {query.notice}
         </p>
       ) : null}

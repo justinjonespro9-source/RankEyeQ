@@ -133,14 +133,14 @@ export default async function AdminContestDetailPage(
       <div className="mb-8 flex flex-wrap gap-3 text-sm">
         <Link
           href={`/rank/${toUiPosition(contest.position)}`}
-          className="text-accent hover:underline"
+          className="text-accent-ink hover:underline"
         >
           Public ranking board →
         </Link>
-        <Link href="/leaderboards" className="text-accent hover:underline">
+        <Link href="/leaderboards" className="text-accent-ink hover:underline">
           Leaderboards →
         </Link>
-        <Link href="/results" className="text-accent hover:underline">
+        <Link href="/results" className="text-accent-ink hover:underline">
           Results →
         </Link>
       </div>

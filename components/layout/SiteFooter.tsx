@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Container } from "./Container";
-import { BrandName } from "@/components/ui/BrandName";
+import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import {
   COMPANY_PRODUCT_TAGLINE,
   COPYRIGHT_NOTICE,
@@ -38,7 +38,7 @@ function FooterLinkRow({
             href={link.href}
             className={
               link.href === "/how-it-works"
-                ? "font-medium text-ink hover:text-accent"
+                ? "font-medium text-ink hover:text-accent-ink"
                 : "text-muted hover:text-ink"
             }
           >
@@ -65,9 +65,7 @@ export async function SiteFooter() {
       <Container className="flex flex-col gap-5 py-8">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="font-display text-lg font-semibold text-ink">
-              <BrandName />
-            </p>
+            <BrandWordmark size="sm" variant="light" />
             <p className="mt-1 text-sm text-muted">
               {companyUrl ? (
                 <a

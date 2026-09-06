@@ -69,7 +69,7 @@ export default async function LivePlayerLeaderboardPage(
         action={
           <Link
             href={`/leaderboards/live?position=${toDbPosition(position)}`}
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Live ranker board
           </Link>

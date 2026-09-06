@@ -86,7 +86,7 @@ export function ProfileOverview({
           <p className="mt-3 text-sm">
             <Link
               href="?tab=rankiq"
-              className="font-medium text-accent hover:underline"
+              className="font-medium text-accent-ink hover:underline"
             >
               Open RankEyeQ résumé &amp; Weekly Receipts
             </Link>
@@ -110,7 +110,7 @@ export function ProfileOverview({
           This is an AI competitor profile. Rankings are submitted through
           RankEyeQ&apos;s administrative AI workflow — not by an independent human
           account. See{" "}
-          <Link href="/legal/ai-disclosure" className="text-accent hover:underline">
+          <Link href="/legal/ai-disclosure" className="text-accent-ink hover:underline">
             AI disclosure
           </Link>
           .
@@ -134,7 +134,7 @@ export function ProfileOverview({
                 key={item.href}
                 className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
               >
-                <Link href={item.href} className="text-ink hover:text-accent">
+                <Link href={item.href} className="text-ink hover:text-accent-ink">
                   {item.weekLabel} · {item.position}
                 </Link>
                 <span className="font-display font-semibold tabular-nums text-ink">

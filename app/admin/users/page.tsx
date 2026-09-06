@@ -64,7 +64,7 @@ export default async function AdminUsersPage({
       />
 
       {params.notice ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {params.notice}
         </p>
       ) : null}
@@ -175,7 +175,7 @@ export default async function AdminUsersPage({
                 {row.role ? <StatusPill status={row.role} /> : null}
                 <Link
                   href={`/profile/${row.username}`}
-                  className="text-sm font-medium text-accent hover:underline"
+                  className="text-sm font-medium text-accent-ink hover:underline"
                 >
                   Public profile
                 </Link>

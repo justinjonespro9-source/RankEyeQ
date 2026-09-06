@@ -52,7 +52,7 @@ export function PlayerWeeklyHistoryTable({
                 <td className="px-3 py-3 text-ink">
                   <Link
                     href={consensusHref}
-                    className="font-medium text-accent hover:underline"
+                    className="font-medium text-accent-ink hover:underline"
                   >
                     {row.weekLabel}
                   </Link>
@@ -150,7 +150,7 @@ export function WhoSawItComing({ weeks }: { weeks: PlayerWeeklyProfileRow[] }) {
                 ) : null}
               </p>
               {highest ? (
-                <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+                <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
                   Highest selected: {highest.label} (
                   {formatSelectionPct(highest.rate)})
                 </p>

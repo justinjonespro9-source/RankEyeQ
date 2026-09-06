@@ -101,7 +101,7 @@ export function PlayerPoolToolbar({
             onClick={() => onSortKeyChange(key)}
             className={`rounded px-2 py-0.5 ${
               sortKey === key
-                ? "bg-accent/15 font-medium text-accent"
+                ? "bg-accent/15 font-medium text-accent-ink"
                 : "text-muted hover:text-ink"
             }`}
           >

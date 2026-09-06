@@ -73,7 +73,7 @@ export default async function AdminScoringVersionsPage() {
                 <td className="px-3 py-3 text-ink">{version.label}</td>
                 <td className="px-3 py-3 text-ink">{version.status}</td>
                 <td className="px-3 py-3">
-                  <Link href={`/admin/contests`} className="text-accent hover:underline">
+                  <Link href={`/admin/contests`} className="text-accent-ink hover:underline">
                     Inspect
                   </Link>
                 </td>

@@ -415,7 +415,7 @@ export function ManualOpsPanel({
       </div>
 
       {message ? (
-        <p className="text-sm text-accent" role="status">
+        <p className="text-sm text-accent-ink" role="status">
           {message}
         </p>
       ) : null}

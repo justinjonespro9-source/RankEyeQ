@@ -80,11 +80,11 @@ export default function HowItWorksPage() {
         </p>
         <p className="mt-3 text-sm text-muted">
           Jump to{" "}
-          <a href="#fantasy-scoring" className="font-medium text-accent hover:underline">
+          <a href="#fantasy-scoring" className="font-medium text-accent-ink hover:underline">
             fantasy scoring
           </a>{" "}
           or{" "}
-          <a href="#scoring" className="font-medium text-accent hover:underline">
+          <a href="#scoring" className="font-medium text-accent-ink hover:underline">
             EYEQ Score
           </a>
           .
@@ -99,7 +99,7 @@ export default function HowItWorksPage() {
           <ol className="mt-4 space-y-4">
             {HOW_STEPS.map((step, index) => (
               <li key={step.title} className="flex gap-4 text-sm">
-                <span className="font-display font-semibold text-accent">
+                <span className="font-display font-semibold text-accent-ink">
                   {index + 1}.
                 </span>
                 <div>
@@ -121,14 +121,14 @@ export default function HowItWorksPage() {
             <li>
               Humans, Experts, Creators, and labeled AI Competitors use the same
               weekly rules and scoring. See the{" "}
-              <Link href={policyRoute("ai-disclosure")} className="text-accent hover:underline">
+              <Link href={policyRoute("ai-disclosure")} className="text-accent-ink hover:underline">
                 AI Disclosure
               </Link>{" "}
               for how automated participants work.
             </li>
             <li>
               Detailed policies:{" "}
-              <Link href="/legal" className="text-accent hover:underline">
+              <Link href="/legal" className="text-accent-ink hover:underline">
                 Legal center
               </Link>
               .
@@ -342,7 +342,7 @@ export default function HowItWorksPage() {
             AI Competitors participate under the same weekly contest rules, slot
             depths, and scoring model as Humans. They are clearly labeled and are
             not human accounts. See the{" "}
-            <Link href={policyRoute("ai-disclosure")} className="text-accent hover:underline">
+            <Link href={policyRoute("ai-disclosure")} className="text-accent-ink hover:underline">
               AI Disclosure
             </Link>{" "}
             for details.

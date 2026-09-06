@@ -68,12 +68,12 @@ export function ScoredPlayerRow({
       >
         <div className="min-w-0">
           <p className="font-medium text-ink">
-            <span className="font-display tabular-nums text-accent">
+            <span className="font-display tabular-nums text-accent-ink">
               {row.predictedRank}.
             </span>{" "}
             {row.playerName}
             {row.podiumCallHit ? (
-              <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-accent">
+              <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-accent-ink">
                 Podium Call
               </span>
             ) : null}

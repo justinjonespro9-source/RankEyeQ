@@ -214,7 +214,7 @@ export function ScoringLab() {
                 key={`manual-${index}`}
                 className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-3 py-2"
               >
-                <span className="font-display w-6 text-sm font-semibold text-accent">
+                <span className="font-display w-6 text-sm font-semibold text-accent-ink">
                   {index + 1}
                 </span>
                 <label className="min-w-0 flex-1">
@@ -261,7 +261,7 @@ export function ScoringLab() {
           </ol>
 
           <aside className="h-fit rounded-lg border border-accent/25 bg-accent-soft/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
               Live grade
             </p>
             <p className="mt-2 font-display text-3xl font-semibold text-ink">

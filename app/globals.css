@@ -1,19 +1,37 @@
 @import "tailwindcss";
 
+/*
+  RankEyeQ brand tokens
+  Deep Navy #071B2E · Midnight #0B2238 · Teal #19C7D4 · Bright #29D6DF
+  Off White #F7F9FA · Cool Surface #EDF2F5 · Slate #66798B · Ink #0A1C2D
+  Iris brown is logo-only — never a UI accent.
+*/
 :root {
-  --background: #eef1f4;
-  --foreground: #0b1f33;
-  --surface: #f7f9fb;
+  --background: #f7f9fa;
+  --foreground: #0a1c2d;
+  --surface: #edf2f5;
   --surface-elevated: #ffffff;
-  --muted: #5a6b7d;
-  --border: #d5dde6;
-  --accent: #0b6e4f;
-  --accent-hover: #095a41;
-  --accent-soft: #d8f0e6;
-  --ink: #0b1f33;
+  --muted: #66798b;
+  --border: #d3dde6;
+  --accent: #19c7d4;
+  --accent-hover: #12b0bd;
+  --accent-bright: #29d6df;
+  --accent-soft: #d9f5f8;
+  /* Readable teal for text/links on light surfaces (WCAG) */
+  --accent-ink: #0c7a84;
+  --ink: #0a1c2d;
+  --navy: #071b2e;
+  --midnight: #0b2238;
+  --off-white: #f7f9fa;
   --warning: #9a6b16;
   --warning-soft: #f7edd6;
-  --field-line: rgba(11, 31, 51, 0.06);
+  --success: #0f6b5c;
+  --success-soft: #d7efe9;
+  --danger: #c23b2e;
+  --danger-soft: #f8e3e0;
+  --field-line: rgba(7, 27, 46, 0.055);
+  --logo-iris: #6b4423;
+  --logo-pupil: #1a1208;
 }
 
 @theme inline {
@@ -25,27 +43,37 @@
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-accent-bright: var(--accent-bright);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
   --color-ink: var(--ink);
+  --color-navy: var(--navy);
+  --color-midnight: var(--midnight);
+  --color-off-white: var(--off-white);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
-  --font-sans: var(--font-ibm-plex);
-  --font-display: var(--font-sora);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display-face);
 }
 
 body {
   background-color: var(--background);
   background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, transparent 40%),
     linear-gradient(var(--field-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--field-line) 1px, transparent 1px);
-  background-size: auto, 28px 28px, 28px 28px;
+  background-size: auto, 32px 32px, 32px 32px;
   color: var(--foreground);
-  font-family: var(--font-ibm-plex), "IBM Plex Sans", sans-serif;
+  font-family: var(--font-body), "IBM Plex Sans", sans-serif;
 }
 
 .font-display {
-  font-family: var(--font-sora), Sora, sans-serif;
+  font-family: var(--font-display-face), "Space Grotesk", sans-serif;
+  letter-spacing: -0.02em;
 }
 
 :focus-visible {
@@ -56,4 +84,24 @@ body {
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* Marketing navy plane with faint calibration grid */
+.brand-navy-surface {
+  background-color: var(--navy);
+  background-image:
+    radial-gradient(
+      ellipse at 78% 18%,
+      rgba(25, 199, 212, 0.16),
+      transparent 52%
+    ),
+    linear-gradient(
+      160deg,
+      var(--navy) 0%,
+      var(--midnight) 58%,
+      #0a2f44 100%
+    ),
+    linear-gradient(rgba(247, 249, 250, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(247, 249, 250, 0.06) 1px, transparent 1px);
+  background-size: auto, auto, 40px 40px, 40px 40px;
 }

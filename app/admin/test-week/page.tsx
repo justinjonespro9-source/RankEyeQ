@@ -54,7 +54,7 @@ export default async function HistoricalTestWeekPage({
       </div>
 
       {params.notice ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {params.notice}
         </p>
       ) : null}
@@ -105,7 +105,7 @@ export default async function HistoricalTestWeekPage({
               href={`/admin/test-week?weekId=${week.id}`}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 selected?.id === week.id
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
               }`}
             >
@@ -143,17 +143,17 @@ export default async function HistoricalTestWeekPage({
           <div className="mt-4 flex flex-wrap gap-3 text-sm">
             <Link
               href={`/consensus?test=1&weekId=${selected.id}`}
-              className="font-medium text-accent hover:underline"
+              className="font-medium text-accent-ink hover:underline"
             >
               Review test consensus
             </Link>
             <Link
               href={`/leaderboards?test=1&weekId=${selected.id}`}
-              className="font-medium text-accent hover:underline"
+              className="font-medium text-accent-ink hover:underline"
             >
               Review test leaderboard
             </Link>
-            <Link href="/admin/ai" className="font-medium text-accent hover:underline">
+            <Link href="/admin/ai" className="font-medium text-accent-ink hover:underline">
               Enter more AI boards
             </Link>
           </div>

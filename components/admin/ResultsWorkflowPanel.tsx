@@ -216,7 +216,7 @@ export function ResultsWorkflowPanel({
       </div>
 
       {message ? (
-        <p className="mt-3 text-sm text-accent" role="status">
+        <p className="mt-3 text-sm text-accent-ink" role="status">
           {message}
         </p>
       ) : null}
@@ -231,7 +231,7 @@ export function ResultsWorkflowPanel({
           </ul>
         </div>
       ) : (
-        <p className="mt-3 text-sm text-accent">
+        <p className="mt-3 text-sm text-accent-ink">
           {manualMode
             ? "Week is ready to finalize (pools ready, final points + ranks present). Confirm verified results above."
             : "Week is ready to finalize (all games final, stats + ranks present)."}

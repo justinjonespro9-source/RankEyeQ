@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
 
-type BadgeTone = "neutral" | "success" | "warning";
+type BadgeTone = "neutral" | "success" | "warning" | "accent" | "danger";
 
 const toneClasses: Record<BadgeTone, string> = {
   neutral: "bg-surface text-muted border-border",
-  success: "bg-accent-soft text-accent border-accent/20",
+  /** Semantic status — distinct from brand teal */
+  success: "bg-success-soft text-success border-success/25",
   warning: "bg-warning-soft text-warning border-warning/20",
+  accent: "bg-accent-soft text-ink border-accent/30",
+  danger: "bg-danger-soft text-danger border-danger/25",
 };
 
 export function Badge({

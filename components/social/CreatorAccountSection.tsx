@@ -190,7 +190,7 @@ export function CreatorAccountSection({
       ) : null}
 
       {error ? <p className="mt-3 text-sm text-warning">{error}</p> : null}
-      {message ? <p className="mt-3 text-sm text-accent">{message}</p> : null}
+      {message ? <p className="mt-3 text-sm text-accent-ink">{message}</p> : null}
     </section>
   );
 }

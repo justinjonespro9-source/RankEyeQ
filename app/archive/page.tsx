@@ -58,7 +58,7 @@ export default async function ArchivePage({
             href={`/archive?seasonId=${item.id}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               season?.id === item.id
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >

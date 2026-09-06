@@ -22,7 +22,7 @@ export function AccountNav({ user }: { user: AccountNavUser | null }) {
     return (
       <Link
         href="/signin"
-        className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink hover:bg-accent-hover"
       >
         Sign In
       </Link>
@@ -51,7 +51,7 @@ export function AccountNav({ user }: { user: AccountNavUser | null }) {
           <Link
             href={profileHref}
             className={`block rounded-md px-2 py-2 text-sm hover:bg-surface ${
-              pathname === profileHref ? "bg-accent-soft text-accent" : "text-ink"
+              pathname === profileHref ? "bg-accent-soft text-ink" : "text-ink"
             }`}
             onClick={() => setOpen(false)}
           >
@@ -60,7 +60,7 @@ export function AccountNav({ user }: { user: AccountNavUser | null }) {
           <Link
             href="/following"
             className={`block rounded-md px-2 py-2 text-sm hover:bg-surface ${
-              pathname === "/following" ? "bg-accent-soft text-accent" : "text-ink"
+              pathname === "/following" ? "bg-accent-soft text-ink" : "text-ink"
             }`}
             onClick={() => setOpen(false)}
           >
@@ -69,7 +69,7 @@ export function AccountNav({ user }: { user: AccountNavUser | null }) {
           <Link
             href="/account"
             className={`block rounded-md px-2 py-2 text-sm hover:bg-surface ${
-              pathname === "/account" ? "bg-accent-soft text-accent" : "text-ink"
+              pathname === "/account" ? "bg-accent-soft text-ink" : "text-ink"
             }`}
             onClick={() => setOpen(false)}
           >

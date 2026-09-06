@@ -218,7 +218,7 @@ export default async function PlayerDetailPage({
               ? `/players?seasonId=${season.id}&position=${entry.position}`
               : "/players"
           }
-          className="text-accent hover:underline"
+          className="text-accent-ink hover:underline"
         >
           ← Back to Player Performance
         </Link>

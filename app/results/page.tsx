@@ -86,7 +86,7 @@ export default async function ResultsPage({
                 href={`/results?contestId=${contest.id}`}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   selectedId === contest.id
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -117,13 +117,13 @@ export default async function ResultsPage({
                 </Badge>
                 <Link
                   href={`/rank/${toUiPosition(view.contest.position)}`}
-                  className="text-sm text-accent hover:underline"
+                  className="text-sm text-accent-ink hover:underline"
                 >
                   Ranking board
                 </Link>
                 <Link
                   href={`/consensus?weekId=${view.contest.weekId}&position=${view.contest.position}&view=actual`}
-                  className="text-sm text-accent hover:underline"
+                  className="text-sm text-accent-ink hover:underline"
                 >
                   Consensus
                 </Link>

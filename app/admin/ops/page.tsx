@@ -62,7 +62,7 @@ export default async function AdminOpsPage({
                 href={`/admin/ops?weekId=${week.id}`}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   week.id === weekId
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >

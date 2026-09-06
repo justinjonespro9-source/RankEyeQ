@@ -36,7 +36,7 @@ export default async function CreatorDashboardPage() {
         action={
           <Link
             href="/account"
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Account settings
           </Link>

@@ -31,7 +31,7 @@ export function LegalPolicyLayout({
           {children}
         </article>
         <p className="mt-10 text-sm text-muted">
-          <Link href="/legal" className="text-accent hover:underline">
+          <Link href="/legal" className="text-accent-ink hover:underline">
             All policies
           </Link>
         </p>

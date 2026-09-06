@@ -179,7 +179,7 @@ export default async function ConsensusPage({
                 href={href({ weekId: week.id })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   weekId === week.id
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -194,7 +194,7 @@ export default async function ConsensusPage({
                 href={href({ position: pos })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   position === pos
-                    ? "bg-accent-soft text-accent"
+                    ? "bg-accent-soft text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -209,7 +209,7 @@ export default async function ConsensusPage({
                 href={href({ filter: item.key })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   filter === item.key
-                    ? "bg-ink text-white"
+                    ? "bg-ink text-off-white"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -222,7 +222,7 @@ export default async function ConsensusPage({
               href={href({ view: "consensus" })}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 view === "consensus"
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
               }`}
             >
@@ -232,7 +232,7 @@ export default async function ConsensusPage({
               href={href({ view: "actual" })}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 view === "actual"
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
               }`}
             >
@@ -470,7 +470,7 @@ export default async function ConsensusPage({
 function Callout({ label, body }: { label: string; body: string }) {
   return (
     <div className="rounded-lg border border-border bg-surface px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+      <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
         {label}
       </p>
       <p className="mt-1 text-sm text-ink">{body}</p>

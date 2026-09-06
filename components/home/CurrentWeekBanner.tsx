@@ -27,7 +27,7 @@ export function CurrentWeekBanner({ week }: { week: HomepageWeek | null }) {
     <section className="border-b border-border bg-surface py-6">
       <Container className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
             Current week
           </p>
           <p className="mt-1 font-display text-2xl font-semibold text-ink">

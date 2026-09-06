@@ -52,12 +52,12 @@ export default async function AccountPage() {
         <p className="mt-3 text-sm">
           <Link
             href={`/profile/${profile.username}`}
-            className="font-medium text-accent hover:underline"
+            className="font-medium text-accent-ink hover:underline"
           >
             View public profile
           </Link>
           {" · "}
-          <Link href="/creator" className="font-medium text-accent hover:underline">
+          <Link href="/creator" className="font-medium text-accent-ink hover:underline">
             Creator dashboard
           </Link>
         </p>

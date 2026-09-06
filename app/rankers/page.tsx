@@ -97,7 +97,7 @@ export default async function RankersPage({
             href={href({ position: item.key })}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               (position ?? "ALL") === item.key
-                ? "bg-accent-soft text-accent"
+                ? "bg-accent-soft text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >
@@ -113,7 +113,7 @@ export default async function RankersPage({
             href={href({ filter: item.key })}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               filter === item.key
-                ? "bg-ink text-white"
+                ? "bg-ink text-off-white"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >

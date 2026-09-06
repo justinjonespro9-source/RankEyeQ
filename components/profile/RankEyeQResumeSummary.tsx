@@ -47,7 +47,7 @@ export function RankEyeQResumeSummary({
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-accent/30 bg-accent-soft/40 px-5 py-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+        <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
           Season résumé
         </p>
         <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

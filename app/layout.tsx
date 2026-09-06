@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, Sora } from "next/font/google";
+import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
 import { DevProfileChrome } from "@/components/layout/DevProfileChrome";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { SiteHeader } from "@/components/layout/SiteHeader";
@@ -10,14 +10,14 @@ import {
 } from "@/lib/brand";
 import "./globals.css";
 
-const sora = Sora({
-  variable: "--font-sora",
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-display-face",
   subsets: ["latin"],
   weight: ["500", "600", "700"],
 });
 
 const ibmPlexSans = IBM_Plex_Sans({
-  variable: "--font-ibm-plex",
+  variable: "--font-body",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
 });
@@ -45,7 +45,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${sora.variable} ${ibmPlexSans.variable} h-full antialiased`}
+      className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col font-sans">
         <SiteHeader />

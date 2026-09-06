@@ -40,7 +40,7 @@ export function HowItWorksBrief() {
         <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((step, index) => (
             <li key={step.title} className="relative">
-              <span className="font-display text-sm font-semibold text-accent">
+              <span className="font-display text-sm font-semibold text-accent-ink">
                 0{index + 1}
               </span>
               <h3 className="mt-2 font-display text-lg font-semibold text-ink">

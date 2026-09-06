@@ -62,7 +62,7 @@ export default async function AdminCommandCenterPage({
       />
 
       {params.notice ? (
-        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent">
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {params.notice}
         </p>
       ) : null}
@@ -79,7 +79,7 @@ export default async function AdminCommandCenterPage({
             href={`/admin?weekId=${item.id}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               item.id === snapshot.selectedWeekId
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >
@@ -120,7 +120,7 @@ export default async function AdminCommandCenterPage({
               {step.href ? (
                 <Link
                   href={step.href}
-                  className="mt-2 inline-block text-xs font-medium text-accent hover:underline"
+                  className="mt-2 inline-block text-xs font-medium text-accent-ink hover:underline"
                 >
                   Open →
                 </Link>
@@ -385,7 +385,7 @@ export default async function AdminCommandCenterPage({
                     <td className="px-3 py-2">
                       <Link
                         href={`/admin/contests/${row.contestId}`}
-                        className="font-medium text-accent hover:underline"
+                        className="font-medium text-accent-ink hover:underline"
                       >
                         {row.position}
                       </Link>
@@ -510,7 +510,7 @@ export default async function AdminCommandCenterPage({
                 ))}
               </ul>
             ) : (
-              <p className="mb-3 text-sm text-accent">Ready to finalize.</p>
+              <p className="mb-3 text-sm text-accent-ink">Ready to finalize.</p>
             )}
             <ResultsWorkflowPanel
               weekId={week.id}

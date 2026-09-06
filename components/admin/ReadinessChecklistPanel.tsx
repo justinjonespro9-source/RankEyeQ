@@ -31,7 +31,7 @@ export function ReadinessChecklistPanel({
               </p>
               <p className="mt-0.5 text-muted">{item.summary}</p>
               {item.href ? (
-                <Link href={item.href} className="mt-1 inline-block text-xs text-accent hover:underline">
+                <Link href={item.href} className="mt-1 inline-block text-xs text-accent-ink hover:underline">
                   Open →
                 </Link>
               ) : null}

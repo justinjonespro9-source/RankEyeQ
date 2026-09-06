@@ -44,7 +44,7 @@ export function ProfileLink({
   return (
     <Link
       href={`/profile/${username}`}
-      className={`inline-flex min-w-0 items-center gap-2 hover:text-accent ${className}`}
+      className={`inline-flex min-w-0 items-center gap-2 hover:text-accent-ink ${className}`}
     >
       {showAvatar ? (
         <ProfileAvatar name={displayName} src={avatarUrl} size="md" />

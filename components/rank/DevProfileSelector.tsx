@@ -40,7 +40,7 @@ export function DevProfileSelector({
               <li key={profile.id}>
                 <Link
                   href={`/profile/${profile.username}`}
-                  className="block truncate text-xs text-accent hover:underline"
+                  className="block truncate text-xs text-accent-ink hover:underline"
                 >
                   {profile.displayName} · {profile.profileType}
                 </Link>

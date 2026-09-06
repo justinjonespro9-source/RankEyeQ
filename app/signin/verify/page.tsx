@@ -21,7 +21,7 @@ export default function VerifyRequestPage() {
         </p>
         <Link
           href="/signin"
-          className="mt-8 inline-block text-sm font-medium text-accent hover:underline"
+          className="mt-8 inline-block text-sm font-medium text-accent-ink hover:underline"
         >
           Back to sign in
         </Link>

@@ -115,7 +115,7 @@ export function AccountProfileForm({
           </p>
         ) : null}
         {message ? (
-          <p className="text-sm text-accent" role="status">
+          <p className="text-sm text-accent-ink" role="status">
             {message}
           </p>
         ) : null}

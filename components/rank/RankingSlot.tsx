@@ -60,7 +60,7 @@ export function RankingSlot({
     >
       <span
         className={`font-display w-6 shrink-0 text-center text-sm font-semibold tabular-nums sm:w-7 ${
-          podiumPick ? "text-accent" : "text-accent"
+          podiumPick ? "text-accent-ink" : "text-accent-ink"
         }`}
       >
         {rank}

@@ -310,7 +310,7 @@ export function RankingWorkspace({
         </div>
 
         {statusMessage ? (
-          <p className="text-sm text-accent" role="status">
+          <p className="text-sm text-accent-ink" role="status">
             {statusMessage}
           </p>
         ) : null}
@@ -325,7 +325,7 @@ export function RankingWorkspace({
           You can browse this contest.{" "}
           <Link
             href={`/signin?callbackUrl=/rank/${challenge.position}`}
-            className="font-medium text-accent hover:underline"
+            className="font-medium text-accent-ink hover:underline"
           >
             Sign in
           </Link>{" "}
@@ -337,7 +337,7 @@ export function RankingWorkspace({
           Finish creating your RankEyeQ profile before participating.{" "}
           <Link
             href="/account/setup"
-            className="font-medium text-accent hover:underline"
+            className="font-medium text-accent-ink hover:underline"
           >
             Complete profile setup
           </Link>

@@ -104,7 +104,7 @@ export default async function LiveLeaderboardPage({
         action={
           <Link
             href="/results"
-            className="text-sm font-medium text-accent hover:underline"
+            className="text-sm font-medium text-accent-ink hover:underline"
           >
             Graded results
           </Link>
@@ -119,7 +119,7 @@ export default async function LiveLeaderboardPage({
             href={href({ weekId: week.id })}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               week.id === weekId
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >
@@ -134,7 +134,7 @@ export default async function LiveLeaderboardPage({
             href={href({ position: item.key })}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               position === item.key
-                ? "bg-ink text-white"
+                ? "bg-ink text-off-white"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >
@@ -147,7 +147,7 @@ export default async function LiveLeaderboardPage({
         <p className="mb-4 text-sm">
           <Link
             href={`/leaderboards/live/${toUiPosition(position)}`}
-            className="font-medium text-accent hover:underline"
+            className="font-medium text-accent-ink hover:underline"
           >
             Player live board for {position} →
           </Link>

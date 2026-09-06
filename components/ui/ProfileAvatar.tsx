@@ -24,7 +24,7 @@ export function ProfileAvatar({
   return (
     <span
       aria-hidden
-      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-soft font-semibold text-accent ${SIZE_CLASS[size]} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-soft font-semibold text-accent-ink ${SIZE_CLASS[size]} ${className}`}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote OAuth + Blob URLs

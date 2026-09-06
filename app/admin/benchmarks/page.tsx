@@ -54,7 +54,7 @@ export default async function AdminBenchmarksPage({
             href={`/admin/benchmarks?weekId=${item.id}`}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               item.id === weekId
-                ? "bg-accent text-white"
+                ? "bg-accent text-ink"
                 : "border border-border bg-surface-elevated text-ink"
             }`}
           >

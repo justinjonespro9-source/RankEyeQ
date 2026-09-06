@@ -30,7 +30,7 @@ export function PlayerAvatar({
   return (
     <span
       aria-hidden
-      className={`${dim} inline-flex shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent ring-1 ring-accent/15`}
+      className={`${dim} inline-flex shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent-ink ring-1 ring-accent/15`}
     >
       {initials(player.name)}
     </span>

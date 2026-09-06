@@ -40,11 +40,11 @@ export default async function AccountSetupPage() {
         <p className="mt-3 text-sm text-muted">{ELIGIBILITY_SUMMARY}</p>
         <p className="mt-2 text-xs text-muted">{NO_WAGERING_DISCLAIMER}</p>
         <p className="mt-2 text-xs text-muted">
-          <Link href={policyRoute("eligibility")} className="text-accent hover:underline">
+          <Link href={policyRoute("eligibility")} className="text-accent-ink hover:underline">
             Eligibility
           </Link>
           {" · "}
-          <Link href={policyRoute("responsible-play")} className="text-accent hover:underline">
+          <Link href={policyRoute("responsible-play")} className="text-accent-ink hover:underline">
             Responsible Play
           </Link>
         </p>

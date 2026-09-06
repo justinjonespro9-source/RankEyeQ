@@ -103,7 +103,7 @@ function ReceiptCard({
         </button>
         <Link
           href={href}
-          className="shrink-0 text-sm font-medium text-accent hover:underline"
+          className="shrink-0 text-sm font-medium text-accent-ink hover:underline"
         >
           Full board
         </Link>

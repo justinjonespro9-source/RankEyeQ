@@ -114,7 +114,7 @@ export function ProfileSetupForm({
         <span>
           I agree to the{" "}
           {terms ? (
-            <Link href={terms.href} className="text-accent hover:underline">
+            <Link href={terms.href} className="text-accent-ink hover:underline">
               {terms.title}
             </Link>
           ) : (
@@ -122,7 +122,7 @@ export function ProfileSetupForm({
           )}{" "}
           and{" "}
           {privacy ? (
-            <Link href={privacy.href} className="text-accent hover:underline">
+            <Link href={privacy.href} className="text-accent-ink hover:underline">
               {privacy.title}
             </Link>
           ) : (

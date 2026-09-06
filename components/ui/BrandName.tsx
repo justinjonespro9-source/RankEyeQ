@@ -1,21 +1,20 @@
-import { PUBLIC_BRAND_NAME } from "@/lib/brand";
+import { BrandWordmark } from "@/components/brand/BrandWordmark";
 
 type BrandNameProps = {
   className?: string;
+  /** @deprecated Prefer BrandWordmark `variant`. Kept for call-site compatibility. */
   accentClassName?: string;
+  variant?: "light" | "dark";
+  size?: "sm" | "md" | "lg" | "hero";
 };
 
 /**
- * Accessible brand text: RankEyeQ with optional split styling for Rank / EyeQ.
+ * Public RankEyeQ wordmark. Prefer {@link BrandWordmark} for new call sites.
  */
 export function BrandName({
   className = "",
-  accentClassName = "text-accent",
+  variant = "light",
+  size = "md",
 }: BrandNameProps) {
-  return (
-    <span className={className} aria-label={PUBLIC_BRAND_NAME}>
-      <span>Rank</span>
-      <span className={accentClassName}>EyeQ</span>
-    </span>
-  );
+  return <BrandWordmark className={className} variant={variant} size={size} />;
 }

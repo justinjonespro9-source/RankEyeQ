@@ -170,7 +170,7 @@ export default async function AdminContestsPage() {
                 <td className="px-3 py-3 text-right">
                   <Link
                     href={`/admin/contests/${contest.id}`}
-                    className="font-medium text-accent hover:underline"
+                    className="font-medium text-accent-ink hover:underline"
                   >
                     Manage
                   </Link>

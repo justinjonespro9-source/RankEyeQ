@@ -148,7 +148,7 @@ export default async function PlayersPage({
                 href={href({ seasonId: season.id })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   seasonId === season.id
-                    ? "bg-accent text-white"
+                    ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -164,7 +164,7 @@ export default async function PlayersPage({
                 href={href({ position: pos })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   position === pos
-                    ? "bg-accent-soft text-accent"
+                    ? "bg-accent-soft text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
@@ -180,7 +180,7 @@ export default async function PlayersPage({
                 href={href({ qualification: item.key })}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                   qualification === item.key
-                    ? "bg-ink text-white"
+                    ? "bg-ink text-off-white"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >

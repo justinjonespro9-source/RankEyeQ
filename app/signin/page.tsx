@@ -53,7 +53,7 @@ export default async function SignInPage({
           />
         </div>
         <p className="mt-6 text-center text-sm text-muted">
-          <Link href="/" className="text-accent hover:underline">
+          <Link href="/" className="text-accent-ink hover:underline">
             Back to homepage
           </Link>
         </p>

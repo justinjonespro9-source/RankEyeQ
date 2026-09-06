@@ -77,7 +77,7 @@ export function ScoringRulesDetails({
       </div>
 
       <p className="mt-4 text-sm">
-        <Link href="/how-it-works#scoring" className="font-medium text-accent hover:underline">
+        <Link href="/how-it-works#scoring" className="font-medium text-accent-ink hover:underline">
           Full scoring rules &amp; worked example
         </Link>
       </p>

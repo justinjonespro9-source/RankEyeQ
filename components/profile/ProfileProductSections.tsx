@@ -66,7 +66,7 @@ export function ProfileProductSections({
               onClick={() => selectTab(tab.key)}
               className={`shrink-0 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                 selected
-                  ? "bg-accent text-white"
+                  ? "bg-accent text-ink"
                   : "text-muted hover:bg-surface hover:text-ink"
               }`}
             >
@@ -221,7 +221,7 @@ function FantasyTrackTab() {
       <p className="text-sm">
         <Link
           href="/how-it-works#fantasy-scoring"
-          className="font-medium text-accent hover:underline"
+          className="font-medium text-accent-ink hover:underline"
         >
           Full scoring rules on How It Works
         </Link>

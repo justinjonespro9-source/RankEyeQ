@@ -21,7 +21,7 @@ export function RecentResults({
           action={
             <Link
               href="/results"
-              className="text-sm font-medium text-accent hover:underline"
+              className="text-sm font-medium text-accent-ink hover:underline"
             >
               All results
             </Link>
@@ -45,7 +45,7 @@ export function RecentResults({
                   </p>
                   <Link
                     href={result.href}
-                    className="text-sm font-medium text-accent hover:underline"
+                    className="text-sm font-medium text-accent-ink hover:underline"
                   >
                     Results
                   </Link>

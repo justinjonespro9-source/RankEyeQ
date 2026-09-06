@@ -161,7 +161,7 @@ export function AiParserForm({
           </div>
         </div>
       ) : null}
-      {message ? <p className="text-sm text-accent">{message}</p> : null}
+      {message ? <p className="text-sm text-accent-ink">{message}</p> : null}
     </div>
   );
 }
