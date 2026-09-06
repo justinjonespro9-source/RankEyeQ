@@ -1,11 +1,7 @@
-import { Suspense } from "react";
-import type { Metadata } from "next";
-import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Container } from "@/components/layout/Container";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ProfileProductSections } from "@/components/profile/ProfileProductSections";
-import { Badge } from "@/components/ui/Badge";
+import { CurrentWeekBoardsSection } from "@/components/profile/CurrentWeekBoardsSection";
 import { trackEvent } from "@/lib/analytics";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
 import {
@@ -20,6 +16,9 @@ import { getFollowCounts, isFollowing } from "@/lib/social/follows";
 import { buildProfileOverview } from "@/lib/profile-modules";
 import { prisma } from "@/lib/db";
 import type { ProductKey, UniversalProfile } from "@/types/user";
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -155,32 +154,11 @@ export default async function ProfilePage(
         }}
       />
 
-      {weekBoards.length > 0 ? (
-        <section className="mt-6 rounded-lg border border-border bg-surface-elevated p-5">
-          <h2 className="font-display text-lg font-semibold text-ink">
-            Current week boards
-          </h2>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {weekBoards.map((board) => (
-              <li key={board.position}>
-                <Link
-                  href={`/profile/${view.username}/rankings/${board.weekNumber}/${board.position.toLowerCase()}`}
-                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:border-ink/30"
-                >
-                  <span className="font-medium text-ink">{board.position}</span>
-                  {board.gatedPremium ? (
-                    <Badge tone="warning">Premium before noon</Badge>
-                  ) : board.allowed ? (
-                    <Badge tone="success">View board</Badge>
-                  ) : (
-                    <Badge tone="neutral">Locked</Badge>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <CurrentWeekBoardsSection
+        username={view.username}
+        weekBoards={weekBoards}
+        isOwner={isOwner}
+      />
 
       <Suspense fallback={<div className="mt-8 text-sm text-muted">Loading profile…</div>}>
         <ProfileProductSections
@@ -188,6 +166,7 @@ export default async function ProfilePage(
           overview={overview}
           history={view.history}
           contestsPlayed={view.contestsPlayed}
+          weekBoards={weekBoards}
           initialTab={initialTab}
         />
       </Suspense>

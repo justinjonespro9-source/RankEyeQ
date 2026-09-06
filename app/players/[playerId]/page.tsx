@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { Container } from "@/components/layout/Container";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import {
+  PlayerWeeklyHistoryTable,
+  WhoSawItComing,
+} from "@/components/players/PlayerWeeklyHistory";
 import { getPlayerDetailById } from "@/lib/player-detail-queries";
+import { formatFinishTrend } from "@/lib/player-profile";
 import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
-import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +24,12 @@ export async function generateMetadata({
   if (!detail?.entry) {
     return { title: "Player not found" };
   }
+  const pathId = detail.profilePathId;
   return {
     title: `${detail.entry.name} · Player Performance`,
-    description: `Weekly positional finishes for ${detail.entry.name} in RankEyeQ contests.`,
+    description: `Week-by-week fantasy production and pregame market view for ${detail.entry.name} on RankEyeQ.`,
     ...PUBLIC_INDEX,
-    ...canonicalMetadata(`/players/${playerId}`),
+    ...canonicalMetadata(`/players/${pathId}`),
   };
 }
 
@@ -41,19 +47,33 @@ export default async function PlayerDetailPage({
   const detail = await getPlayerDetailById(playerId, seasonId);
   if (!detail?.entry) notFound();
 
-  const { entry, season, seasonPlayer, summary, weeklyHistory } = detail;
+  const {
+    entry,
+    season,
+    seasonPlayer,
+    summary,
+    recentForm,
+    weeklyHistory,
+    profilePathId,
+  } = detail;
+
+  const displayTeam = seasonPlayer?.team ?? entry.team;
+  const hasGraded = Boolean(summary && summary.weeksRecorded > 0);
 
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
-        eyebrow="Player performance"
+        eyebrow="Player Performance"
         title={entry.name}
-        description="Historical weekly positional finishes from RankEyeQ contests — separate from ranker leaderboards."
+        description="Actual weekly fantasy production and how Public, Experts, Creators, and AI ranked this player before kickoff."
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <Badge tone="neutral">{entry.position}</Badge>
-        <Badge tone="neutral">{seasonPlayer?.team ?? entry.team}</Badge>
+        <Badge tone="neutral">{displayTeam}</Badge>
+        {entry.type === "DEFENSE" ? (
+          <Badge tone="neutral">D/ST</Badge>
+        ) : null}
         {seasonPlayer ? (
           <Badge tone={seasonPlayer.activeOnNFLRoster ? "success" : "warning"}>
             {seasonPlayer.activeOnNFLRoster ? "On roster" : "Inactive"} ·{" "}
@@ -65,22 +85,52 @@ export default async function PlayerDetailPage({
         ) : null}
       </div>
 
-      {summary ? (
+      {entry.headshotUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={entry.headshotUrl}
+          alt=""
+          className="mb-6 h-20 w-20 rounded-full object-cover"
+        />
+      ) : null}
+
+      {hasGraded && summary ? (
         <dl className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Avg finish", summary.averageFinish?.toFixed(1) ?? "—"],
-            ["Median", summary.medianFinish?.toFixed(1) ?? "—"],
-            ["Top 10", String(summary.top10Finishes)],
+            [
+              "Fantasy PPG",
+              summary.fantasyPpg == null ? "—" : summary.fantasyPpg.toFixed(1),
+            ],
+            [
+              "Avg finish",
+              summary.averageFinish == null
+                ? "—"
+                : summary.averageFinish.toFixed(1),
+            ],
+            [
+              "Median finish",
+              summary.medianFinish == null
+                ? "—"
+                : summary.medianFinish.toFixed(1),
+            ],
             ["#1 finishes", String(summary.numberOneFinishes)],
-            ["Best", summary.bestFinish ?? "—"],
-            ["Worst", summary.worstFinish ?? "—"],
-            ["Weeks", `${summary.weeksRecorded} / ${summary.weeksEligible}`],
+            ["Top 3", String(summary.top3Finishes)],
+            ["Top 5", String(summary.top5Finishes)],
+            ["Top 10", String(summary.top10Finishes)],
+            ["Best finish", summary.bestFinish ?? "—"],
+            ["Worst finish", summary.worstFinish ?? "—"],
+            [
+              "Weeks graded",
+              `${summary.weeksRecorded} / ${summary.weeksEligible}`,
+            ],
           ].map(([label, value]) => (
             <div
               key={label}
               className="rounded-lg border border-border bg-surface-elevated px-4 py-3"
             >
-              <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                {label}
+              </dt>
               <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-ink">
                 {value}
               </dd>
@@ -88,57 +138,93 @@ export default async function PlayerDetailPage({
           ))}
         </dl>
       ) : (
-        <p className="mb-8 text-sm text-muted">
-          No graded weekly appearances recorded yet for this filter.
-        </p>
-      )}
-
-      <h2 className="font-display text-lg font-semibold text-ink">Weekly history</h2>
-      <p className="mt-1 text-sm text-muted">
-        Team reflects the NFL week at grading time. Consensus columns appear when
-        consensus data is available.
-      </p>
-
-      {weeklyHistory.length === 0 ? (
-        <p className="mt-4 text-sm text-muted">No recorded weeks yet.</p>
-      ) : (
-        <div className="mt-4 overflow-x-auto rounded-lg border border-border bg-surface-elevated">
-          <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-3 py-3">Week</th>
-                <th className="px-3 py-3">Team</th>
-                <th className="px-3 py-3">FP</th>
-                <th className="px-3 py-3">Finish</th>
-                <th className="px-3 py-3">Consensus</th>
-                <th className="px-3 py-3">Diff</th>
-              </tr>
-            </thead>
-            <tbody>
-              {weeklyHistory.map((row) => (
-                <tr
-                  key={`${row.weekNumber}-${row.weekLabel}`}
-                  className="border-b border-border last:border-0"
-                >
-                  <td className="px-3 py-3 text-ink">{row.weekLabel}</td>
-                  <td className="px-3 py-3 text-ink">{row.team}</td>
-                  <td className="px-3 py-3 tabular-nums text-ink">
-                    {row.fantasyPoints?.toFixed(1) ?? "—"}
-                  </td>
-                  <td className="px-3 py-3 tabular-nums text-ink">{row.actualRank}</td>
-                  <td className="px-3 py-3 tabular-nums text-muted">—</td>
-                  <td className="px-3 py-3 tabular-nums text-muted">—</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-8 rounded-lg border border-border bg-surface px-5 py-6">
+          <h2 className="font-display text-lg font-semibold text-ink">
+            Season résumé
+          </h2>
+          <p className="mt-2 text-sm text-muted">
+            Season performance will populate after Week 1 results are graded.
+          </p>
         </div>
       )}
 
-      <p className="mt-6 text-sm text-muted">
-        <Link href="/players" className="text-accent hover:underline">
-          ← Back to player performance leaderboard
+      {recentForm ? (
+        <section className="mb-8 rounded-lg border border-accent/30 bg-accent-soft/40 px-5 py-5">
+          <h2 className="font-display text-lg font-semibold text-ink">
+            {recentForm.label}
+          </h2>
+          <dl className="mt-3 grid gap-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Fantasy PPG
+              </dt>
+              <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">
+                {recentForm.fantasyPpg == null
+                  ? "—"
+                  : recentForm.fantasyPpg.toFixed(1)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Avg finish
+              </dt>
+              <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">
+                {recentForm.averageFinish == null
+                  ? "—"
+                  : recentForm.averageFinish.toFixed(1)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Finish trend
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-ink">
+                {formatFinishTrend(recentForm.finishTrend) ?? "—"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      <section className="mb-10">
+        <h2 className="font-display text-lg font-semibold text-ink">
+          Week-by-week performance
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Competition ranking (ties share ranks such as 1, 2, 2, 4). Team is the
+          week-specific franchise when available.
+        </p>
+        <PlayerWeeklyHistoryTable
+          weeks={weeklyHistory}
+          seasonId={season?.id}
+        />
+      </section>
+
+      <section className="mb-10">
+        <h2 className="font-display text-lg font-semibold text-ink">
+          Who saw it coming
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Pregame selected % by participant class vs actual positional finish —
+          from frozen Sunday-lock snapshots only.
+        </p>
+        <WhoSawItComing weeks={weeklyHistory} />
+      </section>
+
+      <p className="text-sm text-muted">
+        <Link
+          href={
+            season
+              ? `/players?seasonId=${season.id}&position=${entry.position}`
+              : "/players"
+          }
+          className="text-accent hover:underline"
+        >
+          ← Back to Player Performance
         </Link>
+        {profilePathId !== playerId ? (
+          <span className="ml-2 text-xs">· /players/{profilePathId}</span>
+        ) : null}
       </p>
     </Container>
   );

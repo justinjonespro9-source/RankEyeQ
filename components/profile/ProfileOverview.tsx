@@ -10,12 +10,14 @@ export function ProfileOverview({
   contestsPlayed,
   isBot,
   isBenchmark,
+  currentWeekSubmitted = false,
 }: {
   overview: ProfileOverviewData;
   stats: RankIQProfileStats | null;
   contestsPlayed: number;
   isBot: boolean;
   isBenchmark: boolean;
+  currentWeekSubmitted?: boolean;
 }) {
   return (
     <div className="space-y-8">
@@ -81,8 +83,27 @@ export function ProfileOverview({
               </dd>
             </div>
           </dl>
+          <p className="mt-3 text-sm">
+            <Link
+              href="?tab=rankiq"
+              className="font-medium text-accent hover:underline"
+            >
+              Open RankEyeQ résumé &amp; Weekly Receipts
+            </Link>
+          </p>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-lg border border-border bg-surface px-5 py-5">
+          <h3 className="font-display text-lg font-semibold text-ink">
+            RankEyeQ
+          </h3>
+          <p className="mt-2 text-sm text-muted">
+            {currentWeekSubmitted
+              ? "Week rankings submitted. Receipts unlock after results are graded."
+              : "Season performance begins after Week 1."}
+          </p>
+        </div>
+      )}
 
       {isBot ? (
         <p className="rounded-md border border-border bg-surface px-4 py-3 text-sm text-muted">

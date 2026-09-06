@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/db";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import {
+  buildReceiptPickLine,
+  formatActualFinishLabel,
+} from "@/lib/profile-receipt";
+import {
   getSeasonLeaderboard,
   getWeeklyLeaderboard,
   type LeaderboardRow,
@@ -66,7 +70,12 @@ export async function getRankIQProfileView(
     },
     include: {
       contest: { include: { week: true } },
-      picks: true,
+      picks: {
+        include: {
+          rankableEntry: { select: { name: true, team: true } },
+        },
+        orderBy: { predictedRank: "asc" },
+      },
     },
     orderBy: [
       { contest: { week: { weekNumber: "desc" } } },
@@ -208,18 +217,41 @@ export async function getRankIQProfileView(
       if (pick.actualRank === 1) numberOne = true;
     }
 
+    const receiptPicks = submission.picks.map((pick) => {
+      const line = buildReceiptPickLine({
+        pick: {
+          playerId: pick.rankableEntryId,
+          playerName: pick.rankableEntry.name,
+          predictedRank: pick.predictedRank,
+          actualRank: pick.actualRank ?? depth + 100,
+          team: pick.rankableEntry.team,
+        },
+        fieldSize: depth,
+        graded: pick.actualRank != null,
+      });
+      return {
+        ...line,
+        actualLabel: formatActualFinishLabel(
+          submission.contest.position,
+          pick.actualRank,
+        ),
+      };
+    });
+
     history.push({
       submissionId: submission.id,
       contestId: submission.contestId,
       weekLabel: submission.contest.week.label,
       weekNumber: submission.contest.week.weekNumber,
       position: submission.contest.position,
+      rankingDepth: depth,
       normalizedScore: submission.normalizedScore,
       rawScore: submission.rawScore,
       topNHits: topN,
       exactHits: exact,
       numberOneHit: numberOne,
       weeklyRank: rankOnBoard(weekly, profile.id),
+      receiptPicks,
     });
   }
 

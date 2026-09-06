@@ -73,6 +73,7 @@ export async function getPlayerPerformanceLeaderboard(input: {
   const source = mapContestEntriesToPerformanceSource(
     filteredEntries.map((entry) => ({
       rankableEntryId: entry.rankableEntryId,
+      externalId: entry.rankableEntry.externalId,
       name: entry.rankableEntry.name,
       team: entry.rankableEntry.team,
       position: entry.contest.position,

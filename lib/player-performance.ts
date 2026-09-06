@@ -30,6 +30,8 @@ export type PlayerWeeklyAppearance = {
 /** Raw row before aggregation — one per active weekly appearance with a graded finish. */
 export type PlayerPerformanceSourceRow = {
   rankableEntryId: string;
+  /** Prefer for public profile URLs when present (nflcom externalId). */
+  externalId?: string | null;
   name: string;
   team: string;
   position: ContestPosition;
@@ -47,6 +49,7 @@ export type PlayerPerformanceSourceRow = {
 
 export type PlayerPerformanceRow = {
   rankableEntryId: string;
+  externalId: string | null;
   name: string;
   team: string;
   position: ContestPosition;
@@ -134,6 +137,7 @@ export function aggregatePlayerPerformance(
 
     aggregated.push({
       rankableEntryId,
+      externalId: sample.externalId ?? null,
       name: sample.name,
       team: sample.team,
       position: sample.position,
@@ -218,6 +222,7 @@ export function aggregatePlayerPerformance(
 
 export function mapContestEntriesToPerformanceSource(rows: {
   rankableEntryId: string;
+  externalId?: string | null;
   name: string;
   team: string;
   position: ContestPosition;
@@ -234,6 +239,7 @@ export function mapContestEntriesToPerformanceSource(rows: {
 }[]): PlayerPerformanceSourceRow[] {
   return rows.map((row) => ({
     rankableEntryId: row.rankableEntryId,
+    externalId: row.externalId ?? null,
     name: row.name,
     team: row.weekTeam ?? row.team,
     position: row.position,
