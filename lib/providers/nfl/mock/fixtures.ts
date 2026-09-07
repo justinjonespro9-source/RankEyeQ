@@ -11,6 +11,8 @@ import type { ContestPosition } from "@/lib/generated/prisma/client";
 import type { Position } from "@/types/contest";
 
 const DAY_TO_OFFSET: Record<string, number> = {
+  // Week start anchor is Thursday UTC date; Wednesday kickoffs are day −1.
+  Wed: -1,
   Thu: 0,
   Fri: 1,
   Sat: 2,

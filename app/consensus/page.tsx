@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import {
   ConfidenceMetricCell,
   PlayerConfidenceMetricHeader,
@@ -239,6 +240,8 @@ export default async function ConsensusPage({
               Actual Results
             </Link>
           </div>
+
+          <AdPlacement placementKey="consensus_inline" className="mb-6" />
 
           {!contest ? (
             <EmptyState

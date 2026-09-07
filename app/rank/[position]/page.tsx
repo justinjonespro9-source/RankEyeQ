@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { RankingWorkspace } from "@/components/rank/RankingWorkspace";
 import { ScoringRulesDetails } from "@/components/rank/ScoringRulesDetails";
 import { Badge } from "@/components/ui/Badge";
@@ -267,6 +268,8 @@ export default async function PositionRankPage(
             : undefined
         }
       />
+
+      <AdPlacement placementKey="rank_sidebar" className="mt-8 sm:mt-10" />
     </Container>
   );
 }

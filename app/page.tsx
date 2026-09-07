@@ -8,6 +8,8 @@ import { PositionChallenges } from "@/components/home/PositionChallenges";
 import { RecentResults } from "@/components/home/RecentResults";
 import { ThursdayReceiptsPreview } from "@/components/home/ThursdayReceiptsPreview";
 import { WeeklyLeaderboardPreview } from "@/components/home/WeeklyLeaderboardPreview";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
+import { Container } from "@/components/layout/Container";
 import { getActiveProfile } from "@/lib/active-profile";
 import { DEFAULT_SITE_DESCRIPTION, DEFAULT_SITE_TITLE } from "@/lib/brand";
 import { getHomepageData } from "@/lib/homepage";
@@ -47,6 +49,11 @@ export default async function HomePage() {
       <RecentResults results={data.recentResults} />
       <ScoringBrief />
       <HowItWorksBrief />
+      <section className="pb-16 sm:pb-20">
+        <Container>
+          <AdPlacement placementKey="home_primary" />
+        </Container>
+      </section>
     </>
   );
 }

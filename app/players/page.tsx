@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { PlayerPerformanceMarketScaffold } from "@/components/players/PlayerPerformanceMarketScaffold";
 import { PlayerPerformanceTable } from "@/components/players/PlayerPerformanceTable";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -132,6 +133,11 @@ export default async function PlayersPage({
       />
 
       <PlayerPerformanceMarketScaffold />
+
+      <AdPlacement
+        placementKey="player_performance_inline"
+        className="mb-8 mt-6"
+      />
 
       <h2 className="mb-4 font-display text-xl font-semibold text-ink">
         Production finishes

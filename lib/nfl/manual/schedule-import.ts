@@ -45,6 +45,8 @@ export async function commitManualSchedule(input: {
   adminUserId: string;
   /** Default true — keep Week.fullLockAt aligned with imported kickoffs. */
   recomputeWeekTiming?: boolean;
+  /** Default true — delete manual games on this week not present in the paste. */
+  replaceOrphanGames?: boolean;
 }) {
   const week = await prisma.week.findUniqueOrThrow({
     where: { id: input.weekId },
@@ -150,6 +152,27 @@ export async function commitManualSchedule(input: {
   if (input.recomputeWeekTiming !== false) {
     const { applyWeekTimingFromSchedule } = await import("@/lib/admin/weeks");
     await applyWeekTimingFromSchedule(week.id);
+  }
+
+  // Drop leftover games whose away/home pair is not in this paste (mock → real replace).
+  if (input.replaceOrphanGames !== false) {
+    const keep = new Set(
+      parsed.rows.map(
+        (row) =>
+          `manual-${week.season.year}-w${week.weekNumber}-${row.awayTeam}-${row.homeTeam}`,
+      ),
+    );
+    await prisma.nflGame.deleteMany({
+      where: {
+        weekId: week.id,
+        provider: "manual",
+        externalId: { notIn: [...keep] },
+      },
+    });
+    if (input.recomputeWeekTiming !== false) {
+      const { applyWeekTimingFromSchedule } = await import("@/lib/admin/weeks");
+      await applyWeekTimingFromSchedule(week.id);
+    }
   }
 
   return { created, updated, games: parsed.rows.length };

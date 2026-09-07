@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { LeaderboardsSubnav } from "@/components/layout/LeaderboardsSubnav";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -309,6 +310,8 @@ export default async function LeaderboardsPage({
           </Link>
         ))}
       </div>
+
+      <AdPlacement placementKey="leaderboard_inline" className="mb-6" />
 
       <section className="rounded-lg border border-border bg-surface-elevated">
         <div className="border-b border-border px-5 py-4">

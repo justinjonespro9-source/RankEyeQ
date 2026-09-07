@@ -13,7 +13,9 @@ export type AnalyticsEventName =
   | "creator_enabled"
   | "thursday_receipt_viewed"
   | "leaderboard_shared"
-  | "share_clicked";
+  | "share_clicked"
+  | "sponsor_click"
+  | "sponsor_impression";
 
 export type AnalyticsProps = Record<string, string | number | boolean | null>;
 

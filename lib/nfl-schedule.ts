@@ -1,4 +1,4 @@
-/** Mock Week 1 slate used to attach opponent + kickoff metadata to players. */
+/** 2026 Week 1 slate used to attach opponent + kickoff metadata to players. */
 
 export type TeamMatchup = {
   opponent: string;
@@ -7,28 +7,29 @@ export type TeamMatchup = {
   home: boolean;
 };
 
+/** Official 2026 Week 1 matchups (NFL Football Operations / NFL.com). */
 const MATCHUPS: {
   away: string;
   home: string;
   gameDay: string;
   gameTime: string;
 }[] = [
-  { away: "GB", home: "PHI", gameDay: "Thu", gameTime: "8:20 PM ET" },
-  { away: "KC", home: "LAC", gameDay: "Fri", gameTime: "8:00 PM ET" },
-  { away: "ARI", home: "NO", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "NE", home: "SEA", gameDay: "Wed", gameTime: "8:20 PM ET" },
+  { away: "SF", home: "LAR", gameDay: "Thu", gameTime: "8:35 PM ET" },
+  { away: "CHI", home: "CAR", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "TB", home: "CIN", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "NO", home: "DET", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "BUF", home: "HOU", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "BAL", home: "IND", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "CLE", home: "JAX", gameDay: "Sun", gameTime: "1:00 PM ET" },
   { away: "ATL", home: "PIT", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "BAL", home: "BUF", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "CAR", home: "NYJ", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "CHI", home: "TEN", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "CIN", home: "NE", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "HOU", home: "IND", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "JAX", home: "MIA", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "MIN", home: "NYG", gameDay: "Sun", gameTime: "1:00 PM ET" },
-  { away: "CLE", home: "DAL", gameDay: "Sun", gameTime: "4:25 PM ET" },
-  { away: "DEN", home: "SEA", gameDay: "Sun", gameTime: "4:25 PM ET" },
-  { away: "LV", home: "WAS", gameDay: "Sun", gameTime: "4:25 PM ET" },
-  { away: "LAR", home: "DET", gameDay: "Sun", gameTime: "8:20 PM ET" },
-  { away: "TB", home: "SF", gameDay: "Mon", gameTime: "8:15 PM ET" },
+  { away: "NYJ", home: "TEN", gameDay: "Sun", gameTime: "1:00 PM ET" },
+  { away: "ARI", home: "LAC", gameDay: "Sun", gameTime: "4:25 PM ET" },
+  { away: "MIA", home: "LV", gameDay: "Sun", gameTime: "4:25 PM ET" },
+  { away: "GB", home: "MIN", gameDay: "Sun", gameTime: "4:25 PM ET" },
+  { away: "WAS", home: "PHI", gameDay: "Sun", gameTime: "4:25 PM ET" },
+  { away: "DAL", home: "NYG", gameDay: "Sun", gameTime: "8:20 PM ET" },
+  { away: "DEN", home: "KC", gameDay: "Mon", gameTime: "8:15 PM ET" },
 ];
 
 const byTeam = new Map<string, TeamMatchup>();

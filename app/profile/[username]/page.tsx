@@ -1,4 +1,5 @@
 import { Container } from "@/components/layout/Container";
+import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ProfileProductSections } from "@/components/profile/ProfileProductSections";
 import { CurrentWeekBoardsSection } from "@/components/profile/CurrentWeekBoardsSection";
@@ -179,6 +180,8 @@ export default async function ProfilePage(
           initialTab={initialTab}
         />
       </Suspense>
+
+      <AdPlacement placementKey="profile_footer" className="mt-10 sm:mt-12" />
     </Container>
   );
 }
