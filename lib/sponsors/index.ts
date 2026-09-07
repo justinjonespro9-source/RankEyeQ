@@ -1,4 +1,5 @@
 export type {
+  HouseCreativeTheme,
   PlacementKey,
   ResolvedPlacement,
   SponsorCampaign,
@@ -9,11 +10,13 @@ export { PLACEMENT_KEYS } from "@/lib/sponsors/types";
 export {
   buildHouseCampaigns,
   getCampaignById,
+  HOUSE_ASSET_PATHS,
   HOUSE_PLACEMENT_ROTATION,
   isCampaignActive,
   PAID_PLACEMENT_OVERRIDES,
   presentedByLabel,
   sponsorLabelText,
+  usesProductHouseTheme,
 } from "@/lib/sponsors/catalog";
 export {
   buildTrackedHref,

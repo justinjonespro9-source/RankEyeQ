@@ -5,9 +5,9 @@ import { getCompanyWebsiteUrl } from "@/lib/company";
  * Override with HANDICAP_HERO_URL / STADIUM_SLOP_URL / TEAM_M8TES_URL.
  */
 const DEFAULTS = {
-  handicapHero: "https://handicaphero.com",
-  stadiumSlop: "https://stadiumslop.com",
-  teamM8tes: "https://team-m8tes.com",
+  handicapHero: "https://www.handicap-hero.com/",
+  stadiumSlop: "https://www.stadiumslop.com/",
+  teamM8tes: "https://www.team-m8tes.com/",
 } as const;
 
 function envOr(key: string, fallback: string): string {
@@ -28,6 +28,10 @@ export function getTeamM8tesUrl(): string {
   return envOr("TEAM_M8TES_URL", DEFAULTS.teamM8tes);
 }
 
+function normalizeHost(host: string) {
+  return host.replace(/^www\./i, "").toLowerCase();
+}
+
 /** Allowed outbound destinations for /go redirect (open-redirect safe). */
 export function getAllowedSponsorDestinations(): string[] {
   const urls = [
@@ -42,10 +46,11 @@ export function getAllowedSponsorDestinations(): string[] {
 export function isAllowedSponsorDestination(url: string): boolean {
   try {
     const target = new URL(url);
+    const targetHost = normalizeHost(target.host);
     return getAllowedSponsorDestinations().some((allowed) => {
       try {
         const a = new URL(allowed);
-        return a.origin === target.origin;
+        return normalizeHost(a.host) === targetHost;
       } catch {
         return false;
       }
