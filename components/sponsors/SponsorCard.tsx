@@ -169,22 +169,35 @@ function HouseProductCard({
         </div>
       ) : null}
 
-      <div className="relative z-[1] flex min-h-[11.5rem] flex-col gap-4 p-4 sm:min-h-[12.5rem] sm:flex-row sm:items-center sm:gap-5 sm:p-5">
-        <div className="min-w-0 flex-1 sm:max-w-[58%]">
-          <div className="mb-2 flex items-center gap-3">
+      <div className="relative z-[1] flex min-h-[11.5rem] flex-col gap-4 p-4 sm:min-h-[13.5rem] sm:flex-row sm:items-center sm:gap-5 sm:p-5">
+        <div
+          className={
+            theme === "handicap-hero"
+              ? "min-w-0 flex-1 sm:max-w-[62%]"
+              : "min-w-0 flex-1 sm:max-w-[58%]"
+          }
+        >
+          <div
+            className={
+              theme === "handicap-hero" || theme === "team-m8tes"
+                ? "mb-3 flex flex-col items-start gap-2 sm:mb-2 sm:flex-row sm:items-center sm:gap-3"
+                : "mb-2 flex items-center gap-3"
+            }
+          >
             {campaign.logoUrl ? (
               <Image
                 src={campaign.logoUrl}
                 alt={campaign.logoAlt ?? campaign.sponsorName}
-                width={theme === "handicap-hero" ? 40 : 120}
-                height={theme === "handicap-hero" ? 44 : 36}
+                width={theme === "handicap-hero" ? 112 : theme === "team-m8tes" ? 360 : 140}
+                height={theme === "handicap-hero" ? 112 : theme === "team-m8tes" ? 108 : 40}
                 className={
                   theme === "handicap-hero"
-                    ? "h-10 w-auto sm:h-11"
+                    ? "h-[4.5rem] w-[4.5rem] object-contain sm:h-24 sm:w-24"
                     : theme === "stadium-slop"
                       ? "h-7 w-auto max-w-[9.5rem] object-contain object-left sm:h-8"
-                      : "h-8 w-auto max-w-[8.5rem] object-contain object-left sm:h-9"
+                      : "h-16 w-auto max-w-[min(100%,16rem)] object-contain object-left sm:h-[5.25rem] sm:max-w-[20rem]"
                 }
+                priority={false}
               />
             ) : null}
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
@@ -220,26 +233,15 @@ function HouseProductCard({
           </div>
         </div>
 
-        {campaign.imageUrl && theme === "stadium-slop" ? (
-          <div className="relative mx-auto hidden h-28 w-28 shrink-0 overflow-hidden rounded-lg border border-white/15 sm:mx-0 sm:block sm:h-32 sm:w-32">
-            <Image
-              src={campaign.imageUrl}
-              alt=""
-              fill
-              className="object-cover"
-              sizes="128px"
-            />
-          </div>
-        ) : null}
-
+        {/* Desktop-only HH wordmark — never used as the upper-left mark */}
         {campaign.imageUrl && theme === "handicap-hero" ? (
-          <div className="relative mx-auto hidden h-16 w-48 shrink-0 sm:mx-0 sm:block">
+          <div className="relative mx-auto hidden h-20 w-56 shrink-0 sm:mx-0 sm:block lg:h-24 lg:w-64">
             <Image
               src={campaign.imageUrl}
               alt=""
               fill
               className="object-contain object-right"
-              sizes="192px"
+              sizes="(min-width: 1024px) 256px, 224px"
             />
           </div>
         ) : null}

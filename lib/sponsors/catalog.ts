@@ -47,14 +47,16 @@ export const PAID_PLACEMENT_OVERRIDES: Partial<
 /** Public asset paths for HOUSE creatives (copied from SNG product repos). */
 export const HOUSE_ASSET_PATHS = {
   handicapHero: {
-    mark: "/sponsors/handicap-hero/hh-mark-gold.svg",
+    /** Official gold shield / crown badge (upper-left + mobile). */
+    badge: "/sponsors/handicap-hero/hh-badge-gold.png",
     wordmark: "/sponsors/handicap-hero/wordmark.png",
   },
   stadiumSlop: {
     wordmark: "/sponsors/stadium-slop/wordmark.png",
     icon: "/sponsors/stadium-slop/icon.png",
     heroBg: "/sponsors/stadium-slop/hero-bg.png",
-    foodCreative: "/sponsors/stadium-slop/food-creative.png",
+    /** Banner crop of stadium + burger / Bloody Mary / fries (full-bleed, no inset). */
+    heroBanner: "/sponsors/stadium-slop/hero-banner.png",
   },
   teamM8tes: {
     logo: "/sponsors/team-m8tes/logo.png",
@@ -79,7 +81,7 @@ export function buildHouseCampaigns(): SponsorCampaign[] {
       trackingSlug: "hh-house-v1",
       accessibilityLabel: "Handicap Hero — an SNG LABS product",
       houseAttribution: "sng_labs_product",
-      logoUrl: HOUSE_ASSET_PATHS.handicapHero.mark,
+      logoUrl: HOUSE_ASSET_PATHS.handicapHero.badge,
       logoAlt: "Handicap Hero",
       imageUrl: HOUSE_ASSET_PATHS.handicapHero.wordmark,
       accentColor: "#f8c94a",
@@ -102,12 +104,13 @@ export function buildHouseCampaigns(): SponsorCampaign[] {
       houseAttribution: "from_sng_labs",
       logoUrl: HOUSE_ASSET_PATHS.stadiumSlop.wordmark,
       logoAlt: "Stadium Slop",
-      backgroundImageUrl: HOUSE_ASSET_PATHS.stadiumSlop.heroBg,
-      imageUrl: HOUSE_ASSET_PATHS.stadiumSlop.foodCreative,
+      // Full-bleed stadium + food creative — no desktop inset.
+      backgroundImageUrl: HOUSE_ASSET_PATHS.stadiumSlop.heroBanner,
+      imageUrl: null,
       accentColor: "#ff6b1a",
       textTone: "light",
-      imageObjectPosition: "72% center",
-      imageObjectPositionMobile: "center 30%",
+      imageObjectPosition: "70% center",
+      imageObjectPositionMobile: "58% 40%",
       ctaClassName:
         "rounded-md border border-[#ff6b1a]/40 bg-[#ff6b1a] px-4 py-2 text-sm font-bold text-white hover:bg-[#ff8533] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff6b1a]",
     },

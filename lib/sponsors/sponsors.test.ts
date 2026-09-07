@@ -52,7 +52,8 @@ describe("sponsor catalog + placements", () => {
     expect(hh.ctaLabel).toBe("Play Handicap Hero");
     expect(hh.destinationUrl).toBe("https://www.handicap-hero.com/");
     expect(hh.theme).toBe("handicap-hero");
-    expect(hh.logoUrl).toBe(HOUSE_ASSET_PATHS.handicapHero.mark);
+    expect(hh.logoUrl).toBe(HOUSE_ASSET_PATHS.handicapHero.badge);
+    expect(hh.imageUrl).toBe(HOUSE_ASSET_PATHS.handicapHero.wordmark);
     expect(usesProductHouseTheme(hh)).toBe(true);
     expect(sponsorLabelText(hh)).toBe("An SNG LABS product");
     expect(hh.accessibilityLabel.toLowerCase()).not.toContain("sponsored");
@@ -64,7 +65,8 @@ describe("sponsor catalog + placements", () => {
     expect(ss.destinationUrl).toBe(getStadiumSlopUrl());
     expect(ss.destinationUrl).toBe("https://www.stadiumslop.com/");
     expect(ss.theme).toBe("stadium-slop");
-    expect(ss.backgroundImageUrl).toBe(HOUSE_ASSET_PATHS.stadiumSlop.heroBg);
+    expect(ss.backgroundImageUrl).toBe(HOUSE_ASSET_PATHS.stadiumSlop.heroBanner);
+    expect(ss.imageUrl).toBeNull();
     expect(sponsorLabelText(ss)).toBe("From SNG LABS");
 
     const tm = getCampaignById("team-m8tes")!;
@@ -74,6 +76,7 @@ describe("sponsor catalog + placements", () => {
     expect(tm.destinationUrl).toBe(getTeamM8tesUrl());
     expect(tm.destinationUrl).toBe("https://www.team-m8tes.com/");
     expect(tm.theme).toBe("team-m8tes");
+    expect(tm.logoUrl).toBe(HOUSE_ASSET_PATHS.teamM8tes.logo);
     expect(tm.backgroundImageUrl).toBe(
       HOUSE_ASSET_PATHS.teamM8tes.fandomFilter,
     );
@@ -83,17 +86,23 @@ describe("sponsor catalog + placements", () => {
   it("ships real HOUSE creative files under public/sponsors", () => {
     const root = process.cwd();
     const required = [
-      "public/sponsors/handicap-hero/hh-mark-gold.svg",
+      "public/sponsors/handicap-hero/hh-badge-gold.png",
       "public/sponsors/handicap-hero/wordmark.png",
       "public/sponsors/stadium-slop/wordmark.png",
       "public/sponsors/stadium-slop/hero-bg.png",
-      "public/sponsors/stadium-slop/food-creative.png",
+      "public/sponsors/stadium-slop/hero-banner.png",
       "public/sponsors/team-m8tes/fandom-filter.png",
       "public/sponsors/team-m8tes/logo.png",
     ];
     for (const relative of required) {
       expect(existsSync(join(root, relative))).toBe(true);
     }
+    expect(
+      existsSync(join(root, "public/sponsors/stadium-slop/food-creative.png")),
+    ).toBe(false);
+    expect(
+      existsSync(join(root, "public/sponsors/handicap-hero/hh-mark-gold.svg")),
+    ).toBe(false);
   });
 
   it("labels house ads as SNG LABS and paid as Sponsored / Presented by", () => {
@@ -191,7 +200,16 @@ describe("sponsor UI wiring + safety", () => {
     expect(card).toContain("data-sponsor-theme");
     expect(card).toContain("backgroundImageUrl");
     expect(card).toContain("ctaClassName");
-
+    // HH wordmark is desktop-right only; SS has no creative inset branch.
+    expect(card).toMatch(
+      /campaign\.imageUrl && theme === "handicap-hero"/,
+    );
+    expect(card).not.toContain('theme === "stadium-slop" ? (');
+    expect(card).not.toContain("food-creative");
+    expect(card).toContain("h-16 w-auto max-w-[min(100%,16rem)]");
+    expect(card).toContain("sm:h-[5.25rem] sm:max-w-[20rem]");
+    expect(card).toContain("h-[4.5rem] w-[4.5rem]");
+    expect(card).toContain("sm:h-24 sm:w-24");
     const globals = read("app/globals.css");
     expect(globals).toContain(".sponsor-theme-hh");
     expect(globals).toContain(".sponsor-theme-ss");

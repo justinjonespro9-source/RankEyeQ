@@ -144,11 +144,11 @@ body {
     linear-gradient(
       98deg,
       rgba(6, 10, 16, 0.94) 0%,
-      rgba(6, 10, 16, 0.82) 36%,
-      rgba(6, 10, 16, 0.45) 58%,
-      rgba(6, 10, 16, 0.2) 100%
+      rgba(6, 10, 16, 0.72) 30%,
+      rgba(6, 10, 16, 0.22) 50%,
+      rgba(6, 10, 16, 0.02) 100%
     ),
-    linear-gradient(180deg, rgba(6, 10, 16, 0.35) 0%, transparent 40%, rgba(6, 10, 16, 0.45) 100%);
+    linear-gradient(180deg, rgba(6, 10, 16, 0.2) 0%, transparent 45%, rgba(6, 10, 16, 0.25) 100%);
 }
 
 @media (max-width: 639px) {
