@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
 import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
@@ -43,11 +49,13 @@ function subscribeCreatorImportDraft(listener: () => void) {
 
 /**
  * Fast Creator ranking import — public attributable rankings only.
- * Persists via BenchmarkSnapshot (sourceUrl + sourcePublishedAt + capturedAt).
- * Never silently substitutes fuzzy matches.
  *
- * Draft lives in sessionStorage so remount / error-boundary Retry keeps paste,
- * parsed rows, source URL, and validation. Cleared only on official lock or Reset.
+ * Client preview validates against contest-eligible players only (keeps RSC
+ * payload small). Full universe / wrong-position catalogs are applied on the
+ * server action at submit time.
+ *
+ * Draft lives in sessionStorage so remount / error-boundary Retry keeps paste.
+ * Cleared only on official lock or Reset.
  */
 export function CreatorImportForm({
   contestId,
@@ -86,27 +94,29 @@ export function CreatorImportForm({
   hasOfficialBoard: boolean;
   nextHref: string | null;
 }) {
-  const fallbackDraft = useMemo(
+  // Stable SSR/client fallback — never stamp `new Date()` into the server snapshot
+  // or hydration will mismatch and trip admin error.tsx.
+  const emptyDraft = useMemo(
     () =>
       emptyCreatorImportDraft({
         sourceUrl: defaultSourceUrl ?? "",
-        capturedAt: toChicagoDateTimeLocal(new Date()),
+        capturedAt: "",
       }),
     [defaultSourceUrl],
   );
 
-  const readSnapshot = useCallback(() => {
-    if (typeof window === "undefined") return fallbackDraft;
+  const readSnapshot = useCallback((): CreatorImportDraft => {
+    if (typeof window === "undefined") return emptyDraft;
     return (
       readCreatorImportDraft(window.sessionStorage, profileId, contestId) ??
-      fallbackDraft
+      emptyDraft
     );
-  }, [profileId, contestId, fallbackDraft]);
+  }, [profileId, contestId, emptyDraft]);
 
   const draft = useSyncExternalStore(
     subscribeCreatorImportDraft,
     readSnapshot,
-    () => fallbackDraft,
+    () => emptyDraft,
   );
 
   const [bulkPreview, setBulkPreview] = useState<
@@ -115,8 +125,16 @@ export function CreatorImportForm({
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  function ensureCapturedAt(next: CreatorImportDraft): CreatorImportDraft {
+    if (next.capturedAt.trim()) return next;
+    return {
+      ...next,
+      capturedAt: toChicagoDateTimeLocal(new Date()),
+    };
+  }
+
   function patchDraft(partial: Partial<CreatorImportDraft>) {
-    const next: CreatorImportDraft = { ...draft, ...partial };
+    const next = ensureCapturedAt({ ...draft, ...partial });
     writeCreatorImportDraft(
       typeof window !== "undefined" ? window.sessionStorage : null,
       profileId,
@@ -126,17 +144,36 @@ export function CreatorImportForm({
     notifyCreatorImportDraftListeners();
   }
 
+  const displayCapturedAt =
+    draft.capturedAt ||
+    // Display-only fallback; do not write during render (hydration-safe).
+    "";
+
   const late = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
-    const captured =
-      parseChicagoDateTimeLocal(draft.capturedAt) ?? new Date(draft.capturedAt);
+    const raw = draft.capturedAt.trim();
+    if (!raw) return false;
+    const captured = parseChicagoDateTimeLocal(raw) ?? new Date(raw);
+    if (Number.isNaN(captured.getTime())) return false;
     return isLateCapture(captured, lock);
   }, [draft.capturedAt, fullLockAt]);
 
   function parse() {
-    const tiered = parseCreatorRankingPaste(draft.raw);
+    const withTime = ensureCapturedAt(draft);
+    if (withTime.capturedAt !== draft.capturedAt) {
+      writeCreatorImportDraft(
+        typeof window !== "undefined" ? window.sessionStorage : null,
+        profileId,
+        contestId,
+        withTime,
+      );
+      notifyCreatorImportDraftListeners();
+    }
+
+    const tiered = parseCreatorRankingPaste(withTime.raw);
     if (!tiered.ok) {
       patchDraft({
+        capturedAt: withTime.capturedAt,
         rows: null,
         ready: false,
         blocking: [tiered.error],
@@ -146,7 +183,7 @@ export function CreatorImportForm({
       return;
     }
 
-    const exclusions = (draft.rows ?? [])
+    const exclusions = (withTime.rows ?? [])
       .filter((row) => row.excluded)
       .map((row) => ({
         sourceRank: row.sourceRank,
@@ -154,7 +191,7 @@ export function CreatorImportForm({
       }));
 
     const extracted = extractTopNFromPastedText({
-      text: draft.raw,
+      text: withTime.raw,
       lines: tiered.lines,
       eligible,
       rankingDepth,
@@ -164,6 +201,7 @@ export function CreatorImportForm({
     });
 
     patchDraft({
+      capturedAt: withTime.capturedAt,
       rows: extracted.rows,
       blocking: extracted.blockingIssues,
       ready: extracted.ready,
@@ -235,7 +273,7 @@ export function CreatorImportForm({
       contestId,
       emptyCreatorImportDraft({
         sourceUrl: defaultSourceUrl ?? "",
-        capturedAt: toChicagoDateTimeLocal(new Date()),
+        capturedAt: "",
       }),
     );
     notifyCreatorImportDraftListeners();
@@ -255,19 +293,20 @@ export function CreatorImportForm({
       setMessage("Corrections require a reason.");
       return;
     }
+    const withTime = ensureCapturedAt(draft);
     startTransition(async () => {
       try {
         const result = await adminCaptureBenchmarkAction({
           contestId,
           profileId,
           weekId,
-          captureType: draft.captureType,
-          capturedAt: draft.capturedAt,
-          sourcePublishedAt: draft.sourcePublishedAt || null,
-          sourceUrl: draft.sourceUrl,
-          notes: draft.notes,
-          rawText: draft.raw,
-          publicBoardAllowed: draft.publicBoardAllowed,
+          captureType: withTime.captureType,
+          capturedAt: withTime.capturedAt,
+          sourcePublishedAt: withTime.sourcePublishedAt || null,
+          sourceUrl: withTime.sourceUrl,
+          notes: withTime.notes,
+          rawText: withTime.raw,
+          publicBoardAllowed: withTime.publicBoardAllowed,
           confirmedExclusions: rows
             .filter((row) => row.excluded)
             .map((row) => ({
@@ -275,7 +314,7 @@ export function CreatorImportForm({
               reason: row.exclusionReason ?? undefined,
             })),
           correctionOfId: asCorrection ? latestSnapshotId : null,
-          correctionReason: asCorrection ? draft.correctionReason : null,
+          correctionReason: asCorrection ? withTime.correctionReason : null,
           commitOfficial: !late,
         });
         setMessage(
@@ -313,8 +352,8 @@ export function CreatorImportForm({
           published before kickoff — not an endorsement or partnership.
         </p>
         <p className="mt-1 text-xs text-muted">
-          Field size: Top {rankingDepth} · Position {position} · Week preserved
-          via matrix navigation
+          Field size: Top {rankingDepth} · Position {position} · Eligible pool{" "}
+          {eligible.length} · Week preserved via matrix navigation
         </p>
       </div>
 
@@ -364,8 +403,13 @@ export function CreatorImportForm({
           <span className="text-muted">Import captured at (Chicago)</span>
           <input
             type="datetime-local"
-            value={draft.capturedAt}
+            value={displayCapturedAt}
             onChange={(event) => patchDraft({ capturedAt: event.target.value })}
+            onFocus={() => {
+              if (!draft.capturedAt.trim()) {
+                patchDraft({ capturedAt: toChicagoDateTimeLocal(new Date()) });
+              }
+            }}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
@@ -469,7 +513,7 @@ export function CreatorImportForm({
               <li>Source URL: {draft.sourceUrl.trim() || "—"}</li>
               <li>
                 Source published: {draft.sourcePublishedAt || "—"} · Import:{" "}
-                {draft.capturedAt}
+                {draft.capturedAt || "—"}
               </li>
               <li>
                 Lock: {late ? "LATE vs full lock" : "On-time for official board"}

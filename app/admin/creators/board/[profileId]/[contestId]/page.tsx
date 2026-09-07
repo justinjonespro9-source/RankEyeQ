@@ -4,21 +4,11 @@ import { notFound } from "next/navigation";
 import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { CreatorImportForm } from "@/components/admin/CreatorImportForm";
-import { toEligibleParserEntry } from "@/lib/admin/ai-parser";
 import { ConfirmSubmit } from "@/components/ui/ConfirmSubmit";
 import { Container } from "@/components/layout/Container";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { adminMarkBenchmarkNotAvailableAction } from "@/lib/admin-benchmark-actions";
-import {
-  findNextCreatorImportTarget,
-  getCreatorRankingCoverage,
-} from "@/lib/creators/coverage";
-import {
-  formatCreatorAffiliationBadge,
-  formatCreatorPrimaryName,
-} from "@/lib/creator-identity";
-import { prisma } from "@/lib/db";
-import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
+import { loadCreatorBoardPage } from "@/lib/admin/creator-board-page";
 import { formatInChicago } from "@/lib/timing/chicago";
 
 export const dynamic = "force-dynamic";
@@ -33,117 +23,27 @@ export default async function AdminCreatorBoardPage(props: {
 }) {
   const { profileId, contestId } = await props.params;
   const searchParams = await props.searchParams;
-  const [profile, contest] = await Promise.all([
-    prisma.universalProfile.findUnique({
-      where: { id: profileId },
-      include: { creatorCompetitor: true },
-    }),
-    prisma.rankIQContest.findUnique({
-      where: { id: contestId },
-      include: {
-        week: true,
-        entries: { include: { rankableEntry: true } },
-        submissions: {
-          where: { universalProfileId: profileId },
-          include: { picks: true },
-        },
-      },
-    }),
-  ]);
-  if (!profile || profile.profileType !== "CREATOR" || !contest) {
+  const model = await loadCreatorBoardPage({
+    profileId,
+    contestId,
+    weekId:
+      typeof searchParams?.weekId === "string" ? searchParams.weekId : undefined,
+  });
+  if ("notFound" in model) {
     notFound();
   }
-
-  const weekId =
-    typeof searchParams?.weekId === "string"
-      ? searchParams.weekId
-      : contest.weekId;
-
-  const [eligibleUniverse, otherPositions, snapshots, coverage, weekContests] =
-    await Promise.all([
-      prisma.rankableEntry.findMany({
-        where: { position: contest.position, active: true },
-        select: {
-          id: true,
-          name: true,
-          team: true,
-          shortName: true,
-          adminNotes: true,
-        },
-      }),
-      prisma.rankableEntry.findMany({
-        where: { position: { not: contest.position }, active: true },
-        select: {
-          id: true,
-          name: true,
-          team: true,
-          shortName: true,
-          adminNotes: true,
-        },
-      }),
-      prisma.benchmarkSnapshot.findMany({
-        where: { contestId, universalProfileId: profileId },
-        orderBy: { createdAt: "desc" },
-        include: { adminUser: { select: { email: true, name: true } } },
-      }),
-      getCreatorRankingCoverage(weekId),
-      prisma.rankIQContest.findMany({
-        where: { weekId },
-        select: { id: true, position: true },
-      }),
-    ]);
-
-  const eligible = contest.entries
-    .filter((entry) => !entry.excluded)
-    .map((entry) =>
-      toEligibleParserEntry({
-        id: entry.rankableEntryId,
-        name: entry.rankableEntry.name,
-        team: entry.rankableEntry.team,
-        shortName: entry.rankableEntry.shortName,
-        adminNotes: entry.rankableEntry.adminNotes,
-      }),
-    );
-  const submission = contest.submissions[0] ?? null;
-  const latest = snapshots[0] ?? null;
-  const personName = profile.creatorCompetitor?.personName ?? null;
-  const brandName = profile.creatorCompetitor?.brandName ?? null;
-  const primaryName = formatCreatorPrimaryName({
-    displayName: profile.displayName,
-    personName,
-    brandName,
-  });
-  const affiliationBadge =
-    formatCreatorAffiliationBadge({
-      displayName: profile.displayName,
-      personName,
-      brandName,
-    }) ?? "CREATOR";
-
-  const contestByPosition = new Map(
-    weekContests.map((row) => [row.position, row.id]),
-  );
-  const next = findNextCreatorImportTarget({
-    rows: coverage.rows,
-    contestByPosition,
-    afterProfileId: profileId,
-    afterPosition: contest.position,
-  });
-  const nextHref = next
-    ? `/admin/creators/board/${next.profileId}/${next.contestId}?weekId=${weekId}`
-    : null;
 
   return (
     <Container className="py-12 sm:py-16">
       <AdminBanner />
       <AdminNav current="/admin/creators" />
       <SectionHeading
-        eyebrow={`${primaryName} · ${contest.position}`}
-        title={`Creator import · ${contest.title}`}
-        description={`${contest.week.label} Top ${contest.rankingDepth}. Source evidence stored on BenchmarkSnapshot. Official boards use RankingSubmission (LOCKED).`}
+        eyebrow={`${model.primaryName} · ${model.position}`}
+        title={`Creator import · ${model.contestTitle}`}
+        description={`${model.weekLabel} Top ${model.rankingDepth}. Source evidence stored on BenchmarkSnapshot. Official boards use RankingSubmission (LOCKED).`}
         action={
           <Link
-            href={`/admin/creators?weekId=${weekId}`}
+            href={`/admin/creators?weekId=${model.weekId}`}
             className="text-sm font-medium text-accent-ink hover:underline"
           >
             Back to matrix
@@ -152,32 +52,28 @@ export default async function AdminCreatorBoardPage(props: {
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {CONTEST_POSITIONS.map((position) => {
-          const id = contestByPosition.get(position);
-          if (!id) return null;
-          return (
-            <Link
-              key={position}
-              href={`/admin/creators/board/${profileId}/${id}?weekId=${weekId}`}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                position === contest.position
-                  ? "bg-accent-soft text-ink"
-                  : "border border-border bg-surface-elevated text-ink"
-              }`}
-            >
-              {position}
-            </Link>
-          );
-        })}
+        {model.positionLinks.map((link) => (
+          <Link
+            key={link.position}
+            href={`/admin/creators/board/${model.profileId}/${link.contestId}?weekId=${model.weekId}`}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              link.position === model.position
+                ? "bg-accent-soft text-ink"
+                : "border border-border bg-surface-elevated text-ink"
+            }`}
+          >
+            {link.position}
+          </Link>
+        ))}
       </div>
 
       <p className="mb-4 text-sm text-muted">
-        Official board: {submission?.status ?? "Missing"}
-        {latest?.sourceUrl ? (
+        Official board: {model.submissionStatus ?? "Missing"}
+        {model.latestSourceUrl ? (
           <>
             {" · "}
             <a
-              href={latest.sourceUrl}
+              href={model.latestSourceUrl}
               className="text-accent-ink hover:underline"
               target="_blank"
               rel="noopener noreferrer"
@@ -186,16 +82,16 @@ export default async function AdminCreatorBoardPage(props: {
             </a>
           </>
         ) : null}
-        {latest?.sourcePublishedAt
-          ? ` · source published ${formatInChicago(latest.sourcePublishedAt, {
+        {model.latestSourcePublishedAt
+          ? ` · source published ${formatInChicago(model.latestSourcePublishedAt, {
               month: "short",
               day: "numeric",
               hour: "numeric",
               minute: "2-digit",
             })}`
           : null}
-        {latest?.capturedAt
-          ? ` · imported ${formatInChicago(latest.capturedAt, {
+        {model.latestCapturedAt
+          ? ` · imported ${formatInChicago(model.latestCapturedAt, {
               month: "short",
               day: "numeric",
               hour: "numeric",
@@ -204,29 +100,32 @@ export default async function AdminCreatorBoardPage(props: {
           : null}
       </p>
 
+      {model.timingNotice ? (
+        <p
+          className="mb-4 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning"
+          role="status"
+        >
+          {model.timingNotice.message}
+        </p>
+      ) : null}
+
       <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
         <CreatorImportForm
-          contestId={contest.id}
-          profileId={profile.id}
-          weekId={weekId}
-          position={contest.position}
-          rankingDepth={contest.rankingDepth}
-          eligible={eligible}
-          universe={eligibleUniverse.map(toEligibleParserEntry)}
-          otherPositions={otherPositions.map(toEligibleParserEntry)}
-          creatorName={primaryName}
-          brandName={brandName}
-          affiliationBadge={affiliationBadge}
-          defaultSourceUrl={
-            latest?.sourceUrl ?? profile.creatorCompetitor?.sourceUrl ?? null
-          }
-          competitorActive={profile.competitorActive}
-          fullLockAt={contest.week.fullLockAt}
-          latestSnapshotId={latest?.id ?? null}
-          hasOfficialBoard={
-            submission?.status === "LOCKED" || submission?.status === "GRADED"
-          }
-          nextHref={nextHref}
+          contestId={model.contestId}
+          profileId={model.profileId}
+          weekId={model.weekId}
+          position={model.position}
+          rankingDepth={model.rankingDepth}
+          eligible={model.eligible}
+          creatorName={model.primaryName}
+          brandName={model.brandName}
+          affiliationBadge={model.affiliationBadge}
+          defaultSourceUrl={model.defaultSourceUrl}
+          competitorActive={model.competitorActive}
+          fullLockAt={model.fullLockAt}
+          latestSnapshotId={model.latestSnapshotId}
+          hasOfficialBoard={model.hasOfficialBoard}
+          nextHref={model.nextHref}
         />
       </section>
 
@@ -234,11 +133,11 @@ export default async function AdminCreatorBoardPage(props: {
         <ConfirmSubmit
           action={adminMarkBenchmarkNotAvailableAction}
           submitLabel="Mark not available"
-          impact={`Mark ${primaryName} ${contest.position} as NOT_AVAILABLE for ${contest.week.label}. Does not invent a ranking.`}
+          impact={`Mark ${model.primaryName} ${model.position} as NOT_AVAILABLE for ${model.weekLabel}. Does not invent a ranking.`}
           confirmPhrase="NOT AVAILABLE"
         >
-          <input type="hidden" name="contestId" value={contest.id} />
-          <input type="hidden" name="profileId" value={profile.id} />
+          <input type="hidden" name="contestId" value={model.contestId} />
+          <input type="hidden" name="profileId" value={model.profileId} />
           <input
             type="hidden"
             name="notes"
@@ -247,13 +146,13 @@ export default async function AdminCreatorBoardPage(props: {
         </ConfirmSubmit>
       </div>
 
-      {snapshots.length > 0 ? (
+      {model.snapshots.length > 0 ? (
         <section className="rounded-lg border border-border bg-surface-elevated p-5">
           <h2 className="font-display text-lg font-semibold text-ink">
             Snapshot history
           </h2>
           <ul className="mt-3 space-y-2 text-sm text-muted">
-            {snapshots.map((snapshot) => (
+            {model.snapshots.map((snapshot) => (
               <li key={snapshot.id}>
                 {snapshot.captureType} · {snapshot.status}
                 {snapshot.late ? " · LATE" : ""}

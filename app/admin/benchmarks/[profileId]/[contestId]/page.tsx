@@ -45,33 +45,14 @@ export default async function AdminBenchmarkContestPage(
     notFound();
   }
 
-  const [eligibleUniverse, otherPositions, snapshots] = await Promise.all([
-    prisma.rankableEntry.findMany({
-      where: { position: contest.position, active: true },
-      select: {
-        id: true,
-        name: true,
-        team: true,
-        shortName: true,
-        adminNotes: true,
-      },
-    }),
-    prisma.rankableEntry.findMany({
-      where: { position: { not: contest.position }, active: true },
-      select: {
-        id: true,
-        name: true,
-        team: true,
-        shortName: true,
-        adminNotes: true,
-      },
-    }),
-    prisma.benchmarkSnapshot.findMany({
-      where: { contestId, universalProfileId: profileId },
-      orderBy: { createdAt: "desc" },
-      include: { adminUser: { select: { email: true, name: true } } },
-    }),
-  ]);
+  // Do not ship global RankableEntry catalogs into the Client Component —
+  // WR catalogs can exceed ~1MB and crash page load. Submit-time server
+  // validation still loads universe / other-position catalogs.
+  const snapshots = await prisma.benchmarkSnapshot.findMany({
+    where: { contestId, universalProfileId: profileId },
+    orderBy: { createdAt: "desc" },
+    include: { adminUser: { select: { email: true, name: true } } },
+  });
 
   const eligible = contest.entries
     .filter((entry) => !entry.excluded)
@@ -128,8 +109,6 @@ export default async function AdminBenchmarkContestPage(
         weekId={contest.weekId}
         rankingDepth={contest.rankingDepth}
         eligible={eligible}
-        universe={eligibleUniverse.map(toEligibleParserEntry)}
-        otherPositions={otherPositions.map(toEligibleParserEntry)}
         sourceName={profile.displayName}
         fullLockAt={contest.week.fullLockAt}
         latestSnapshotId={latest?.id ?? null}
