@@ -52,17 +52,15 @@ export function emptyCreatorImportDraft(
   };
 }
 
-export function readCreatorImportDraft(
-  storage: Pick<Storage, "getItem"> | null | undefined,
-  profileId: string,
-  contestId: string,
+export function serializeCreatorImportDraft(draft: CreatorImportDraft): string {
+  return JSON.stringify(draft);
+}
+
+export function parseCreatorImportDraft(
+  raw: string | null | undefined,
 ): CreatorImportDraft | null {
-  if (!storage) return null;
+  if (!raw) return null;
   try {
-    const raw = storage.getItem(
-      creatorImportDraftStorageKey(profileId, contestId),
-    );
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as CreatorImportDraft;
     if (typeof parsed?.raw !== "string") return null;
     return parsed;
@@ -71,32 +69,66 @@ export function readCreatorImportDraft(
   }
 }
 
+/**
+ * Stable primitive snapshot for useSyncExternalStore.
+ * MUST return the same string reference semantics (Object.is) when unchanged —
+ * never return a freshly parsed object from getSnapshot (React #185).
+ */
+export function readCreatorImportDraftRaw(
+  storage: Pick<Storage, "getItem"> | null | undefined,
+  profileId: string,
+  contestId: string,
+): string | null {
+  if (!storage) return null;
+  try {
+    return storage.getItem(creatorImportDraftStorageKey(profileId, contestId));
+  } catch {
+    return null;
+  }
+}
+
+export function readCreatorImportDraft(
+  storage: Pick<Storage, "getItem"> | null | undefined,
+  profileId: string,
+  contestId: string,
+): CreatorImportDraft | null {
+  return parseCreatorImportDraft(
+    readCreatorImportDraftRaw(storage, profileId, contestId),
+  );
+}
+
+/** @returns true when storage content changed */
 export function writeCreatorImportDraft(
-  storage: Pick<Storage, "setItem"> | null | undefined,
+  storage: Pick<Storage, "setItem" | "getItem"> | null | undefined,
   profileId: string,
   contestId: string,
   draft: CreatorImportDraft,
-) {
-  if (!storage) return;
+): boolean {
+  if (!storage) return false;
   try {
-    storage.setItem(
-      creatorImportDraftStorageKey(profileId, contestId),
-      JSON.stringify(draft),
-    );
+    const key = creatorImportDraftStorageKey(profileId, contestId);
+    const serialized = serializeCreatorImportDraft(draft);
+    if (storage.getItem(key) === serialized) return false;
+    storage.setItem(key, serialized);
+    return true;
   } catch {
-    // Quota / private mode — ignore; in-memory state still preserved for the session.
+    // Quota / private mode — ignore; caller may still keep in-memory state.
+    return false;
   }
 }
 
 export function clearCreatorImportDraft(
-  storage: Pick<Storage, "removeItem"> | null | undefined,
+  storage: Pick<Storage, "removeItem" | "getItem"> | null | undefined,
   profileId: string,
   contestId: string,
-) {
-  if (!storage) return;
+): boolean {
+  if (!storage) return false;
   try {
-    storage.removeItem(creatorImportDraftStorageKey(profileId, contestId));
+    const key = creatorImportDraftStorageKey(profileId, contestId);
+    if (storage.getItem(key) == null) return false;
+    storage.removeItem(key);
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }

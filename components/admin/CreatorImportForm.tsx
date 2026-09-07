@@ -16,7 +16,8 @@ import { adminCaptureBenchmarkAction } from "@/lib/admin-benchmark-actions";
 import {
   clearCreatorImportDraft,
   emptyCreatorImportDraft,
-  readCreatorImportDraft,
+  parseCreatorImportDraft,
+  readCreatorImportDraftRaw,
   shouldClearCreatorImportDraft,
   writeCreatorImportDraft,
   type CreatorImportDraft,
@@ -50,12 +51,9 @@ function subscribeCreatorImportDraft(listener: () => void) {
 /**
  * Fast Creator ranking import — public attributable rankings only.
  *
- * Client preview validates against contest-eligible players only (keeps RSC
- * payload small). Full universe / wrong-position catalogs are applied on the
- * server action at submit time.
- *
- * Draft lives in sessionStorage so remount / error-boundary Retry keeps paste.
- * Cleared only on official lock or Reset.
+ * Draft persistence uses useSyncExternalStore over the raw sessionStorage
+ * string (stable Object.is). JSON is parsed in useMemo only when that string
+ * changes — never from getSnapshot (avoids React #185 update loops).
  */
 export function CreatorImportForm({
   contestId,
@@ -94,8 +92,6 @@ export function CreatorImportForm({
   hasOfficialBoard: boolean;
   nextHref: string | null;
 }) {
-  // Stable SSR/client fallback — never stamp `new Date()` into the server snapshot
-  // or hydration will mismatch and trip admin error.tsx.
   const emptyDraft = useMemo(
     () =>
       emptyCreatorImportDraft({
@@ -105,19 +101,25 @@ export function CreatorImportForm({
     [defaultSourceUrl],
   );
 
-  const readSnapshot = useCallback((): CreatorImportDraft => {
-    if (typeof window === "undefined") return emptyDraft;
-    return (
-      readCreatorImportDraft(window.sessionStorage, profileId, contestId) ??
-      emptyDraft
+  const readRawSnapshot = useCallback((): string | null => {
+    if (typeof window === "undefined") return null;
+    return readCreatorImportDraftRaw(
+      window.sessionStorage,
+      profileId,
+      contestId,
     );
-  }, [profileId, contestId, emptyDraft]);
+  }, [profileId, contestId]);
 
-  const draft = useSyncExternalStore(
+  const rawSnapshot = useSyncExternalStore(
     subscribeCreatorImportDraft,
-    readSnapshot,
-    () => emptyDraft,
+    readRawSnapshot,
+    () => null,
   );
+
+  const draft = useMemo(() => {
+    const parsed = parseCreatorImportDraft(rawSnapshot);
+    return parsed ?? emptyDraft;
+  }, [rawSnapshot, emptyDraft]);
 
   const [bulkPreview, setBulkPreview] = useState<
     Array<{ position: ContestPosition; lineCount: number; depth: number }>
@@ -133,21 +135,21 @@ export function CreatorImportForm({
     };
   }
 
-  function patchDraft(partial: Partial<CreatorImportDraft>) {
-    const next = ensureCapturedAt({ ...draft, ...partial });
-    writeCreatorImportDraft(
+  function commitDraft(next: CreatorImportDraft) {
+    const changed = writeCreatorImportDraft(
       typeof window !== "undefined" ? window.sessionStorage : null,
       profileId,
       contestId,
       next,
     );
-    notifyCreatorImportDraftListeners();
+    if (changed) notifyCreatorImportDraftListeners();
   }
 
-  const displayCapturedAt =
-    draft.capturedAt ||
-    // Display-only fallback; do not write during render (hydration-safe).
-    "";
+  function patchDraft(partial: Partial<CreatorImportDraft>) {
+    commitDraft(ensureCapturedAt({ ...draft, ...partial }));
+  }
+
+  const displayCapturedAt = draft.capturedAt || "";
 
   const late = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
@@ -160,20 +162,10 @@ export function CreatorImportForm({
 
   function parse() {
     const withTime = ensureCapturedAt(draft);
-    if (withTime.capturedAt !== draft.capturedAt) {
-      writeCreatorImportDraft(
-        typeof window !== "undefined" ? window.sessionStorage : null,
-        profileId,
-        contestId,
-        withTime,
-      );
-      notifyCreatorImportDraftListeners();
-    }
-
     const tiered = parseCreatorRankingPaste(withTime.raw);
     if (!tiered.ok) {
-      patchDraft({
-        capturedAt: withTime.capturedAt,
+      commitDraft({
+        ...withTime,
         rows: null,
         ready: false,
         blocking: [tiered.error],
@@ -200,8 +192,8 @@ export function CreatorImportForm({
       confirmedExclusions: exclusions,
     });
 
-    patchDraft({
-      capturedAt: withTime.capturedAt,
+    commitDraft({
+      ...withTime,
       rows: extracted.rows,
       blocking: extracted.blockingIssues,
       ready: extracted.ready,
@@ -226,7 +218,7 @@ export function CreatorImportForm({
 
   function toggleExclude(sourceRank: number) {
     if (!draft.rows) return;
-    const next = draft.rows.map((row) =>
+    const nextRows = draft.rows.map((row) =>
       row.sourceRank === sourceRank
         ? {
             ...row,
@@ -237,7 +229,7 @@ export function CreatorImportForm({
           }
         : row,
     );
-    const exclusions = next
+    const exclusions = nextRows
       .filter((row) => row.excluded)
       .map((row) => ({
         sourceRank: row.sourceRank,
@@ -254,7 +246,8 @@ export function CreatorImportForm({
       otherPositions,
       confirmedExclusions: exclusions,
     });
-    patchDraft({
+    commitDraft({
+      ...draft,
       rows: extracted.rows,
       blocking: extracted.blockingIssues,
       ready: extracted.ready,
@@ -262,21 +255,23 @@ export function CreatorImportForm({
   }
 
   function resetForm() {
-    clearCreatorImportDraft(
+    const cleared = clearCreatorImportDraft(
       typeof window !== "undefined" ? window.sessionStorage : null,
       profileId,
       contestId,
     );
-    writeCreatorImportDraft(
+    const empty = emptyCreatorImportDraft({
+      sourceUrl: defaultSourceUrl ?? "",
+      capturedAt: "",
+    });
+    // Always write the empty baseline so getSnapshot is deterministic.
+    const wrote = writeCreatorImportDraft(
       typeof window !== "undefined" ? window.sessionStorage : null,
       profileId,
       contestId,
-      emptyCreatorImportDraft({
-        sourceUrl: defaultSourceUrl ?? "",
-        capturedAt: "",
-      }),
+      empty,
     );
-    notifyCreatorImportDraftListeners();
+    if (cleared || wrote) notifyCreatorImportDraftListeners();
     setBulkPreview([]);
     setMessage(null);
   }
@@ -294,6 +289,9 @@ export function CreatorImportForm({
       return;
     }
     const withTime = ensureCapturedAt(draft);
+    if (withTime.capturedAt !== draft.capturedAt) {
+      commitDraft(withTime);
+    }
     startTransition(async () => {
       try {
         const result = await adminCaptureBenchmarkAction({
@@ -323,12 +321,12 @@ export function CreatorImportForm({
             : result.error,
         );
         if (shouldClearCreatorImportDraft(result)) {
-          clearCreatorImportDraft(
+          const cleared = clearCreatorImportDraft(
             typeof window !== "undefined" ? window.sessionStorage : null,
             profileId,
             contestId,
           );
-          notifyCreatorImportDraftListeners();
+          if (cleared) notifyCreatorImportDraftListeners();
         }
       } catch (error) {
         setMessage(
