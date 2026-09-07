@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
-import {
-  extractTopNFromPastedText,
-  type SourceExtractRow,
-} from "@/lib/benchmarks/parser";
+import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
 import { isLateCapture } from "@/lib/benchmarks/merge";
 import { adminCaptureBenchmarkAction } from "@/lib/admin-benchmark-actions";
+import {
+  clearCreatorImportDraft,
+  emptyCreatorImportDraft,
+  readCreatorImportDraft,
+  shouldClearCreatorImportDraft,
+  writeCreatorImportDraft,
+  type CreatorImportDraft,
+} from "@/lib/admin/creator-import-draft";
 import type { EligibleParserEntry } from "@/lib/admin/ai-parser";
 import {
   parseCreatorRankingPaste,
@@ -23,10 +28,26 @@ import {
 import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
+const draftListeners = new Set<() => void>();
+
+function notifyCreatorImportDraftListeners() {
+  for (const listener of draftListeners) listener();
+}
+
+function subscribeCreatorImportDraft(listener: () => void) {
+  draftListeners.add(listener);
+  return () => {
+    draftListeners.delete(listener);
+  };
+}
+
 /**
  * Fast Creator ranking import — public attributable rankings only.
  * Persists via BenchmarkSnapshot (sourceUrl + sourcePublishedAt + capturedAt).
  * Never silently substitutes fuzzy matches.
+ *
+ * Draft lives in sessionStorage so remount / error-boundary Retry keeps paste,
+ * parsed rows, source URL, and validation. Cleared only on official lock or Reset.
  */
 export function CreatorImportForm({
   contestId,
@@ -65,46 +86,67 @@ export function CreatorImportForm({
   hasOfficialBoard: boolean;
   nextHref: string | null;
 }) {
-  const [raw, setRaw] = useState("");
-  const [rows, setRows] = useState<SourceExtractRow[] | null>(null);
-  const [blocking, setBlocking] = useState<string[]>([]);
-  const [ready, setReady] = useState(false);
-  const [tierNote, setTierNote] = useState<string | null>(null);
+  const fallbackDraft = useMemo(
+    () =>
+      emptyCreatorImportDraft({
+        sourceUrl: defaultSourceUrl ?? "",
+        capturedAt: toChicagoDateTimeLocal(new Date()),
+      }),
+    [defaultSourceUrl],
+  );
+
+  const readSnapshot = useCallback(() => {
+    if (typeof window === "undefined") return fallbackDraft;
+    return (
+      readCreatorImportDraft(window.sessionStorage, profileId, contestId) ??
+      fallbackDraft
+    );
+  }, [profileId, contestId, fallbackDraft]);
+
+  const draft = useSyncExternalStore(
+    subscribeCreatorImportDraft,
+    readSnapshot,
+    () => fallbackDraft,
+  );
+
   const [bulkPreview, setBulkPreview] = useState<
     Array<{ position: ContestPosition; lineCount: number; depth: number }>
   >([]);
-  const [captureType, setCaptureType] =
-    useState<BenchmarkCaptureType>("SUNDAY");
-  const [capturedAt, setCapturedAt] = useState(() =>
-    toChicagoDateTimeLocal(new Date()),
-  );
-  const [sourcePublishedAt, setSourcePublishedAt] = useState("");
-  const [sourceUrl, setSourceUrl] = useState(defaultSourceUrl ?? "");
-  const [notes, setNotes] = useState("");
-  const [publicBoardAllowed, setPublicBoardAllowed] = useState(true);
-  const [correctionReason, setCorrectionReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  function patchDraft(partial: Partial<CreatorImportDraft>) {
+    const next: CreatorImportDraft = { ...draft, ...partial };
+    writeCreatorImportDraft(
+      typeof window !== "undefined" ? window.sessionStorage : null,
+      profileId,
+      contestId,
+      next,
+    );
+    notifyCreatorImportDraftListeners();
+  }
 
   const late = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
     const captured =
-      parseChicagoDateTimeLocal(capturedAt) ?? new Date(capturedAt);
+      parseChicagoDateTimeLocal(draft.capturedAt) ?? new Date(draft.capturedAt);
     return isLateCapture(captured, lock);
-  }, [capturedAt, fullLockAt]);
+  }, [draft.capturedAt, fullLockAt]);
 
   function parse() {
-    const tiered = parseCreatorRankingPaste(raw);
+    const tiered = parseCreatorRankingPaste(draft.raw);
     if (!tiered.ok) {
-      setRows(null);
-      setReady(false);
-      setBlocking([tiered.error]);
-      setTierNote(null);
+      patchDraft({
+        rows: null,
+        ready: false,
+        blocking: [tiered.error],
+        tierNote: null,
+      });
       setMessage(null);
       return;
     }
 
-    const exclusions = (rows ?? [])
+    const exclusions = (draft.rows ?? [])
       .filter((row) => row.excluded)
       .map((row) => ({
         sourceRank: row.sourceRank,
@@ -112,7 +154,7 @@ export function CreatorImportForm({
       }));
 
     const extracted = extractTopNFromPastedText({
-      text: raw,
+      text: draft.raw,
       lines: tiered.lines,
       eligible,
       rankingDepth,
@@ -121,21 +163,20 @@ export function CreatorImportForm({
       confirmedExclusions: exclusions,
     });
 
-    // Exact field-size preference: too many selected extras still OK via extract,
-    // but missing slots / unmatched block submit.
-    setRows(extracted.rows);
-    setBlocking(extracted.blockingIssues);
-    setReady(extracted.ready);
-    setTierNote(
-      tiered.mode === "ordered_tiers"
-        ? `Flattened ${tiered.tierCount} ordered tiers into ${tiered.lines.length} ranks.`
-        : null,
-    );
+    patchDraft({
+      rows: extracted.rows,
+      blocking: extracted.blockingIssues,
+      ready: extracted.ready,
+      tierNote:
+        tiered.mode === "ordered_tiers"
+          ? `Flattened ${tiered.tierCount} ordered tiers into ${tiered.lines.length} ranks.`
+          : null,
+    });
     setMessage(null);
   }
 
   function previewBulk() {
-    const { sections } = parseMultiPositionCreatorPaste(raw);
+    const { sections } = parseMultiPositionCreatorPaste(draft.raw);
     setBulkPreview(
       sections.map((section) => ({
         position: section.position,
@@ -146,8 +187,8 @@ export function CreatorImportForm({
   }
 
   function toggleExclude(sourceRank: number) {
-    if (!rows) return;
-    const next = rows.map((row) =>
+    if (!draft.rows) return;
+    const next = draft.rows.map((row) =>
       row.sourceRank === sourceRank
         ? {
             ...row,
@@ -164,10 +205,10 @@ export function CreatorImportForm({
         sourceRank: row.sourceRank,
         reason: row.exclusionReason ?? "Admin confirmed exclusion",
       }));
-    const tiered = parseCreatorRankingPaste(raw);
+    const tiered = parseCreatorRankingPaste(draft.raw);
     if (!tiered.ok) return;
     const extracted = extractTopNFromPastedText({
-      text: raw,
+      text: draft.raw,
       lines: tiered.lines,
       eligible,
       rankingDepth,
@@ -175,49 +216,88 @@ export function CreatorImportForm({
       otherPositions,
       confirmedExclusions: exclusions,
     });
-    setRows(extracted.rows);
-    setBlocking(extracted.blockingIssues);
-    setReady(extracted.ready);
+    patchDraft({
+      rows: extracted.rows,
+      blocking: extracted.blockingIssues,
+      ready: extracted.ready,
+    });
+  }
+
+  function resetForm() {
+    clearCreatorImportDraft(
+      typeof window !== "undefined" ? window.sessionStorage : null,
+      profileId,
+      contestId,
+    );
+    writeCreatorImportDraft(
+      typeof window !== "undefined" ? window.sessionStorage : null,
+      profileId,
+      contestId,
+      emptyCreatorImportDraft({
+        sourceUrl: defaultSourceUrl ?? "",
+        capturedAt: toChicagoDateTimeLocal(new Date()),
+      }),
+    );
+    notifyCreatorImportDraftListeners();
+    setBulkPreview([]);
+    setMessage(null);
   }
 
   function save(asCorrection: boolean) {
-    if (!rows || !ready) {
+    const rows = draft.rows;
+    if (!rows || !draft.ready) {
       setMessage(
         "Fix validation errors and parse again. RankEyeQ never silently repairs creator rankings.",
       );
       return;
     }
-    if (asCorrection && !correctionReason.trim()) {
+    if (asCorrection && !draft.correctionReason.trim()) {
       setMessage("Corrections require a reason.");
       return;
     }
     startTransition(async () => {
-      const result = await adminCaptureBenchmarkAction({
-        contestId,
-        profileId,
-        weekId,
-        captureType,
-        capturedAt,
-        sourcePublishedAt: sourcePublishedAt || null,
-        sourceUrl,
-        notes,
-        rawText: raw,
-        publicBoardAllowed,
-        confirmedExclusions: rows
-          .filter((row) => row.excluded)
-          .map((row) => ({
-            sourceRank: row.sourceRank,
-            reason: row.exclusionReason ?? undefined,
-          })),
-        correctionOfId: asCorrection ? latestSnapshotId : null,
-        correctionReason: asCorrection ? correctionReason : null,
-        commitOfficial: !late,
-      });
-      setMessage(
-        result.ok
-          ? [result.message, ...(result.warnings ?? [])].join(" ")
-          : result.error,
-      );
+      try {
+        const result = await adminCaptureBenchmarkAction({
+          contestId,
+          profileId,
+          weekId,
+          captureType: draft.captureType,
+          capturedAt: draft.capturedAt,
+          sourcePublishedAt: draft.sourcePublishedAt || null,
+          sourceUrl: draft.sourceUrl,
+          notes: draft.notes,
+          rawText: draft.raw,
+          publicBoardAllowed: draft.publicBoardAllowed,
+          confirmedExclusions: rows
+            .filter((row) => row.excluded)
+            .map((row) => ({
+              sourceRank: row.sourceRank,
+              reason: row.exclusionReason ?? undefined,
+            })),
+          correctionOfId: asCorrection ? latestSnapshotId : null,
+          correctionReason: asCorrection ? draft.correctionReason : null,
+          commitOfficial: !late,
+        });
+        setMessage(
+          result.ok
+            ? [result.message, ...(result.warnings ?? [])].join(" ")
+            : result.error,
+        );
+        if (shouldClearCreatorImportDraft(result)) {
+          clearCreatorImportDraft(
+            typeof window !== "undefined" ? window.sessionStorage : null,
+            profileId,
+            contestId,
+          );
+          notifyCreatorImportDraftListeners();
+        }
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to capture benchmark snapshot",
+        );
+      }
     });
   }
 
@@ -247,8 +327,8 @@ export function CreatorImportForm({
       <label className="block text-sm">
         <span className="text-muted">Ranking paste</span>
         <textarea
-          value={raw}
-          onChange={(event) => setRaw(event.target.value)}
+          value={draft.raw}
+          onChange={(event) => patchDraft({ raw: event.target.value })}
           rows={14}
           className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
           placeholder={
@@ -261,8 +341,8 @@ export function CreatorImportForm({
         <label className="block text-sm sm:col-span-2">
           <span className="text-muted">Source URL</span>
           <input
-            value={sourceUrl}
-            onChange={(event) => setSourceUrl(event.target.value)}
+            value={draft.sourceUrl}
+            onChange={(event) => patchDraft({ sourceUrl: event.target.value })}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
             placeholder="https:// public ranking URL"
           />
@@ -273,8 +353,10 @@ export function CreatorImportForm({
           </span>
           <input
             type="datetime-local"
-            value={sourcePublishedAt}
-            onChange={(event) => setSourcePublishedAt(event.target.value)}
+            value={draft.sourcePublishedAt}
+            onChange={(event) =>
+              patchDraft({ sourcePublishedAt: event.target.value })
+            }
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
@@ -282,17 +364,19 @@ export function CreatorImportForm({
           <span className="text-muted">Import captured at (Chicago)</span>
           <input
             type="datetime-local"
-            value={capturedAt}
-            onChange={(event) => setCapturedAt(event.target.value)}
+            value={draft.capturedAt}
+            onChange={(event) => patchDraft({ capturedAt: event.target.value })}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
         <label className="block text-sm">
           <span className="text-muted">Capture type</span>
           <select
-            value={captureType}
+            value={draft.captureType}
             onChange={(event) =>
-              setCaptureType(event.target.value as BenchmarkCaptureType)
+              patchDraft({
+                captureType: event.target.value as BenchmarkCaptureType,
+              })
             }
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           >
@@ -304,8 +388,8 @@ export function CreatorImportForm({
         <label className="block text-sm">
           <span className="text-muted">Notes (optional)</span>
           <input
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
+            value={draft.notes}
+            onChange={(event) => patchDraft({ notes: event.target.value })}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
@@ -314,8 +398,10 @@ export function CreatorImportForm({
       <label className="flex items-center gap-2 text-sm text-ink">
         <input
           type="checkbox"
-          checked={publicBoardAllowed}
-          onChange={(event) => setPublicBoardAllowed(event.target.checked)}
+          checked={draft.publicBoardAllowed}
+          onChange={(event) =>
+            patchDraft({ publicBoardAllowed: event.target.checked })
+          }
         />
         Public board may show RankEyeQ Top {rankingDepth}
       </label>
@@ -333,6 +419,9 @@ export function CreatorImportForm({
         </Button>
         <Button type="button" variant="ghost" onClick={previewBulk}>
           Preview multi-position paste
+        </Button>
+        <Button type="button" variant="ghost" onClick={resetForm}>
+          Reset
         </Button>
         {nextHref ? (
           <Link
@@ -362,9 +451,11 @@ export function CreatorImportForm({
         </div>
       ) : null}
 
-      {tierNote ? <p className="text-sm text-accent-ink">{tierNote}</p> : null}
+      {draft.tierNote ? (
+        <p className="text-sm text-accent-ink">{draft.tierNote}</p>
+      ) : null}
 
-      {rows ? (
+      {draft.rows ? (
         <div className="space-y-3">
           <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm">
             <p className="font-medium text-ink">Preview</p>
@@ -375,10 +466,10 @@ export function CreatorImportForm({
               <li>
                 Week / Position: preserved · {position} · Top {rankingDepth}
               </li>
-              <li>Source URL: {sourceUrl.trim() || "—"}</li>
+              <li>Source URL: {draft.sourceUrl.trim() || "—"}</li>
               <li>
-                Source published: {sourcePublishedAt || "—"} · Import:{" "}
-                {capturedAt}
+                Source published: {draft.sourcePublishedAt || "—"} · Import:{" "}
+                {draft.capturedAt}
               </li>
               <li>
                 Lock: {late ? "LATE vs full lock" : "On-time for official board"}
@@ -386,14 +477,14 @@ export function CreatorImportForm({
             </ul>
           </div>
 
-          {blocking.length > 0 ? (
+          {draft.blocking.length > 0 ? (
             <div
               className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
               role="alert"
             >
               <p className="font-medium">Validation errors</p>
               <ul className="mt-1 list-disc pl-5">
-                {blocking.map((item) => (
+                {draft.blocking.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
@@ -419,7 +510,7 @@ export function CreatorImportForm({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {draft.rows.map((row) => (
                   <tr
                     key={row.sourceRank}
                     className={`border-b border-border last:border-0 ${
@@ -459,16 +550,18 @@ export function CreatorImportForm({
             <div className="flex flex-wrap gap-2 p-3">
               <Button
                 type="button"
-                disabled={pending || !ready}
+                disabled={pending || !draft.ready}
                 onClick={() => save(false)}
               >
-                Submit ranking
+                {pending ? "Submitting…" : "Submit ranking"}
               </Button>
               {hasOfficialBoard ? (
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={pending || !ready || !correctionReason.trim()}
+                  disabled={
+                    pending || !draft.ready || !draft.correctionReason.trim()
+                  }
                   onClick={() => save(true)}
                 >
                   Save correction
@@ -485,14 +578,30 @@ export function CreatorImportForm({
             Correction reason (required to rewrite an official board)
           </span>
           <input
-            value={correctionReason}
-            onChange={(event) => setCorrectionReason(event.target.value)}
+            value={draft.correctionReason}
+            onChange={(event) =>
+              patchDraft({ correctionReason: event.target.value })
+            }
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
         </label>
       ) : null}
 
-      {message ? <p className="text-sm text-accent-ink">{message}</p> : null}
+      {message ? (
+        <p
+          className={`text-sm ${
+            message.toLowerCase().includes("unable") ||
+            message.toLowerCase().includes("failed") ||
+            message.toLowerCase().includes("cannot") ||
+            message.toLowerCase().includes("require")
+              ? "text-danger"
+              : "text-accent-ink"
+          }`}
+          role="status"
+        >
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 }

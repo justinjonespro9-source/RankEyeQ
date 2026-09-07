@@ -489,26 +489,26 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
       })),
     });
 
-    const sunday = await captureBenchmarkSnapshot({
-      contestId,
-      universalProfileId: source.id,
-      adminUserId,
-      captureType: "SUNDAY",
-      capturedAt: zonedLocalToUtc(2026, 9, 13, 9, 50),
-      picks: [1, 0, 2, 3].map((index, rankIndex) => ({
-        sourceRank: rankIndex + 1,
-        rawName: `Bench QB ${index + 1}`,
-        rankableEntryId: entryIds[index],
-        rankIqRank: rankIndex + 1,
-        excluded: false,
-        exclusionReason: null,
-        issue: null,
-        selected: true,
-      })),
-    });
-    expect(sunday.warnings.some((warning) => /cannot be added/.test(warning))).toBe(
-      true,
-    );
+    await expect(
+      captureBenchmarkSnapshot({
+        contestId,
+        universalProfileId: source.id,
+        adminUserId,
+        captureType: "SUNDAY",
+        capturedAt: zonedLocalToUtc(2026, 9, 13, 9, 50),
+        picks: [1, 0, 2, 3].map((index, rankIndex) => ({
+          sourceRank: rankIndex + 1,
+          rawName: `Bench QB ${index + 1}`,
+          rankableEntryId: entryIds[index],
+          rankIqRank: rankIndex + 1,
+          excluded: false,
+          exclusionReason: null,
+          issue: null,
+          selected: true,
+        })),
+      }),
+    ).rejects.toThrow(/cannot be added|incomplete/i);
+
     const submission = await prisma.rankingSubmission.findUnique({
       where: {
         contestId_universalProfileId: {
@@ -518,9 +518,16 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
       },
       include: { picks: true },
     });
+    expect(submission).toBeNull();
     expect(
-      submission?.picks.some((pick) => pick.rankableEntryId === entryIds[1]),
-    ).toBeFalsy();
+      await prisma.benchmarkSnapshot.count({
+        where: {
+          contestId,
+          universalProfileId: source.id,
+          captureType: "SUNDAY",
+        },
+      }),
+    ).toBe(0);
   });
 
   it("marks NOT_AVAILABLE without blocking week finalization", async () => {

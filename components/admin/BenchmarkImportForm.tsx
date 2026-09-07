@@ -121,32 +121,40 @@ export function BenchmarkImportForm({
       return;
     }
     startTransition(async () => {
-      const result = await adminCaptureBenchmarkAction({
-        contestId,
-        profileId,
-        weekId,
-        captureType,
-        capturedAt,
-        sourceUrl,
-        sourcePublishedAt: sourcePublishedAt || null,
-        notes,
-        rawText: raw,
-        publicBoardAllowed,
-        confirmedExclusions: rows
-          .filter((row) => row.excluded)
-          .map((row) => ({
-            sourceRank: row.sourceRank,
-            reason: row.exclusionReason ?? undefined,
-          })),
-        correctionOfId: asCorrection ? latestSnapshotId : null,
-        correctionReason: asCorrection ? correctionReason : null,
-        commitOfficial: !late,
-      });
-      setMessage(
-        result.ok
-          ? [result.message, ...(result.warnings ?? [])].join(" ")
-          : result.error,
-      );
+      try {
+        const result = await adminCaptureBenchmarkAction({
+          contestId,
+          profileId,
+          weekId,
+          captureType,
+          capturedAt,
+          sourceUrl,
+          sourcePublishedAt: sourcePublishedAt || null,
+          notes,
+          rawText: raw,
+          publicBoardAllowed,
+          confirmedExclusions: rows
+            .filter((row) => row.excluded)
+            .map((row) => ({
+              sourceRank: row.sourceRank,
+              reason: row.exclusionReason ?? undefined,
+            })),
+          correctionOfId: asCorrection ? latestSnapshotId : null,
+          correctionReason: asCorrection ? correctionReason : null,
+          commitOfficial: !late,
+        });
+        setMessage(
+          result.ok
+            ? [result.message, ...(result.warnings ?? [])].join(" ")
+            : result.error,
+        );
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to capture benchmark snapshot",
+        );
+      }
     });
   }
 

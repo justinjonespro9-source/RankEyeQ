@@ -5,12 +5,17 @@ import {
   isThursdayKickoff,
   mergeSundayWithThursdayLocks,
   type MergePick,
+  type MergedSlot,
 } from "@/lib/benchmarks/merge";
+import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import type {
   BenchmarkCaptureType,
   BenchmarkSnapshotStatus,
+  Prisma,
 } from "@/lib/generated/prisma/client";
+
+type Tx = Prisma.TransactionClient;
 
 export class BenchmarkCaptureError extends Error {
   constructor(message: string) {
@@ -30,8 +35,8 @@ export type SnapshotPickInput = {
   selected: boolean;
 };
 
-async function loadKickoffMap(contestId: string) {
-  const entries = await prisma.contestEntry.findMany({
+async function loadKickoffMap(contestId: string, db: Tx | typeof prisma = prisma) {
+  const entries = await db.contestEntry.findMany({
     where: { contestId, excluded: false },
     include: {
       game: true,
@@ -83,12 +88,15 @@ export async function latestBenchmarkSnapshot(input: {
   });
 }
 
-async function latestCaptureOfType(input: {
-  contestId: string;
-  universalProfileId: string;
-  captureType: BenchmarkCaptureType;
-}) {
-  return prisma.benchmarkSnapshot.findFirst({
+async function latestCaptureOfType(
+  input: {
+    contestId: string;
+    universalProfileId: string;
+    captureType: BenchmarkCaptureType;
+  },
+  db: Tx | typeof prisma = prisma,
+) {
+  return db.benchmarkSnapshot.findFirst({
     where: {
       contestId: input.contestId,
       universalProfileId: input.universalProfileId,
@@ -100,8 +108,11 @@ async function latestCaptureOfType(input: {
   });
 }
 
-async function regradeSubmissionIfActualsExist(submissionId: string) {
-  const submission = await prisma.rankingSubmission.findUnique({
+async function regradeSubmissionIfActualsExist(
+  submissionId: string,
+  db: Tx | typeof prisma = prisma,
+) {
+  const submission = await db.rankingSubmission.findUnique({
     where: { id: submissionId },
     include: {
       picks: { orderBy: { predictedRank: "asc" } },
@@ -142,7 +153,7 @@ async function regradeSubmissionIfActualsExist(submissionId: string) {
     const pick = submission.picks.find((p) => p.rankableEntryId === row.playerId);
     if (!pick) continue;
     const result = actualByEntryId.get(row.playerId);
-    await prisma.rankingPick.update({
+    await db.rankingPick.update({
       where: { id: pick.id },
       data: {
         actualRank: row.actualRank,
@@ -155,7 +166,7 @@ async function regradeSubmissionIfActualsExist(submissionId: string) {
     });
   }
 
-  await prisma.rankingSubmission.update({
+  await db.rankingSubmission.update({
     where: { id: submission.id },
     data: {
       status: "GRADED",
@@ -165,22 +176,17 @@ async function regradeSubmissionIfActualsExist(submissionId: string) {
   });
 }
 
-async function upsertOfficialBenchmarkSubmission(input: {
-  contestId: string;
-  universalProfileId: string;
-  rankingDepth: number;
-  capturedAt: Date;
-  slots: Array<{
-    rankIqRank: number;
-    rankableEntryId: string;
-    sourceRank: number;
-    slotLocked: boolean;
-    lockedAt: Date | null;
-    lockedRank: number | null;
-    kickoffAt: Date | null;
-  }>;
-}) {
-  const existing = await prisma.rankingSubmission.findUnique({
+async function upsertOfficialBenchmarkSubmission(
+  input: {
+    contestId: string;
+    universalProfileId: string;
+    rankingDepth: number;
+    capturedAt: Date;
+    slots: MergedSlot[];
+  },
+  db: Tx | typeof prisma = prisma,
+) {
+  const existing = await db.rankingSubmission.findUnique({
     where: {
       contestId_universalProfileId: {
         contestId: input.contestId,
@@ -189,8 +195,14 @@ async function upsertOfficialBenchmarkSubmission(input: {
     },
   });
 
+  if (input.slots.length !== input.rankingDepth) {
+    throw new BenchmarkCaptureError(
+      `Official board requires exactly ${input.rankingDepth} slots (got ${input.slots.length})`,
+    );
+  }
+
   const submission = existing
-    ? await prisma.rankingSubmission.update({
+    ? await db.rankingSubmission.update({
         where: { id: existing.id },
         data: {
           status: existing.status === "GRADED" ? "GRADED" : "LOCKED",
@@ -198,7 +210,7 @@ async function upsertOfficialBenchmarkSubmission(input: {
           lockedAt: existing.lockedAt ?? input.capturedAt,
         },
       })
-    : await prisma.rankingSubmission.create({
+    : await db.rankingSubmission.create({
         data: {
           contestId: input.contestId,
           universalProfileId: input.universalProfileId,
@@ -208,25 +220,23 @@ async function upsertOfficialBenchmarkSubmission(input: {
         },
       });
 
-  await prisma.rankingPick.deleteMany({ where: { submissionId: submission.id } });
+  await db.rankingPick.deleteMany({ where: { submissionId: submission.id } });
 
-  for (const slot of input.slots) {
-    await prisma.rankingPick.create({
-      data: {
-        submissionId: submission.id,
-        rankableEntryId: slot.rankableEntryId,
-        predictedRank: slot.rankIqRank,
-        sourceRank: slot.sourceRank,
-        slotLocked: slot.slotLocked,
-        lockedAt: slot.lockedAt,
-        lockedRank: slot.lockedRank,
-        committedAt: slot.lockedAt ?? input.capturedAt,
-      },
-    });
-  }
+  await db.rankingPick.createMany({
+    data: input.slots.map((slot) => ({
+      submissionId: submission.id,
+      rankableEntryId: slot.rankableEntryId,
+      predictedRank: slot.rankIqRank,
+      sourceRank: slot.sourceRank,
+      slotLocked: slot.slotLocked,
+      lockedAt: slot.lockedAt,
+      lockedRank: slot.lockedRank,
+      committedAt: slot.lockedAt ?? input.capturedAt,
+    })),
+  });
 
   if (existing?.status === "GRADED") {
-    await regradeSubmissionIfActualsExist(submission.id);
+    await regradeSubmissionIfActualsExist(submission.id, db);
   }
 
   return submission.id;
@@ -268,73 +278,45 @@ export async function captureBenchmarkSnapshot(input: {
   }
   if (!contest) throw new BenchmarkCaptureError("Contest not found");
 
+  const warnings: string[] = [];
+  const expectedDepth = rankingDepthForPosition(contest.position);
+  // WR Top 15 is launch-critical — never capture against a truncated WR contest.
+  if (contest.position === "WR" && contest.rankingDepth !== expectedDepth) {
+    throw new BenchmarkCaptureError(
+      `WR contest must use Top ${expectedDepth} (found Top ${contest.rankingDepth})`,
+    );
+  }
+  if (contest.rankingDepth !== expectedDepth && contest.position !== "WR") {
+    // Non-WR test fixtures may use smaller depths; production contests should match defaults.
+    warnings.push(
+      `Contest rankingDepth Top ${contest.rankingDepth} differs from default Top ${expectedDepth} for ${contest.position}.`,
+    );
+  }
+
   const isCorrection = Boolean(input.correctionOfId);
   if (isCorrection && !input.correctionReason?.trim()) {
     throw new BenchmarkCaptureError("Corrections require a reason");
+  }
+
+  const selectedCount = input.picks.filter((pick) => pick.selected).length;
+  if (selectedCount !== contest.rankingDepth) {
+    throw new BenchmarkCaptureError(
+      `Exactly ${contest.rankingDepth} selected eligible picks are required (received ${selectedCount})`,
+    );
   }
 
   const late =
     !isCorrection && isLateCapture(input.capturedAt, contest.week.fullLockAt);
   const kickoffs = await loadKickoffMap(input.contestId);
 
-  let status: BenchmarkSnapshotStatus = late ? "LATE" : "CAPTURED";
-  const warnings: string[] = [];
   if (late) warnings.push(LATE_CAPTURE_WARNING);
 
-  const snapshot = await prisma.benchmarkSnapshot.create({
-    data: {
-      universalProfileId: input.universalProfileId,
-      contestId: input.contestId,
-      weekId: contest.weekId,
-      captureType: input.captureType,
-      capturedAt: input.capturedAt,
-      sourcePublishedAt: input.sourcePublishedAt ?? null,
-      sourceUrl: input.sourceUrl?.trim() || null,
-      notes: input.notes?.trim() || null,
-      rawText: input.rawText ?? null,
-      status,
-      publicBoardAllowed: input.publicBoardAllowed ?? true,
-      late,
-      adminUserId: input.adminUserId,
-      correctionOfId: input.correctionOfId ?? null,
-      correctionReason: input.correctionReason?.trim() || null,
-    },
-  });
-
-  for (const pick of input.picks) {
-    const kickoff = pick.rankableEntryId
-      ? (kickoffs.get(pick.rankableEntryId) ?? null)
-      : null;
-    const thursdayLock =
-      pick.selected &&
-      input.captureType === "THURSDAY" &&
-      isThursdayKickoff(kickoff);
-
-    await prisma.benchmarkSnapshotPick.create({
-      data: {
-        snapshotId: snapshot.id,
-        rankableEntryId: pick.rankableEntryId,
-        rawName: pick.rawName,
-        sourceRank: pick.sourceRank,
-        rankIqRank: pick.rankIqRank,
-        excluded: pick.excluded,
-        exclusionReason: pick.exclusionReason,
-        issue: pick.issue,
-        selected: pick.selected,
-        slotLocked: thursdayLock,
-        lockedAt: thursdayLock ? input.capturedAt : null,
-        lockedRank: thursdayLock ? pick.rankIqRank : null,
-        kickoffAt: kickoff,
-      },
-    });
-  }
-
-  let official = false;
   const shouldAttemptOfficial =
     input.commitOfficial !== false &&
     !late &&
     (input.captureType === "SUNDAY" || input.captureType === "MANUAL_FINAL");
 
+  let officialSlots: MergedSlot[] | null = null;
   if (shouldAttemptOfficial) {
     const thursdaySnap = await latestCaptureOfType({
       contestId: input.contestId,
@@ -368,30 +350,139 @@ export async function captureBenchmarkSnapshot(input: {
     warnings.push(...merged.warnings);
 
     if (merged.complete) {
-      await upsertOfficialBenchmarkSubmission({
-        contestId: input.contestId,
-        universalProfileId: input.universalProfileId,
-        rankingDepth: contest.rankingDepth,
-        capturedAt: input.capturedAt,
-        slots: merged.slots.filter(
-          (slot): slot is NonNullable<typeof slot> => slot != null,
-        ),
-      });
-      official = true;
-      status = "LOCKED";
-      await prisma.benchmarkSnapshot.update({
-        where: { id: snapshot.id },
-        data: { status: "LOCKED" },
-      });
+      officialSlots = merged.slots.filter(
+        (slot): slot is MergedSlot => slot != null,
+      );
+    } else if (isCorrection) {
+      // Corrections still record evidence even when Thursday locks prevent a full
+      // official board — do not invent slots.
+      officialSlots = null;
+    } else {
+      throw new BenchmarkCaptureError(
+        merged.warnings.join(" ") ||
+          `Cannot lock official Top ${contest.rankingDepth} board — merged board incomplete.`,
+      );
     }
   }
 
+  const status: BenchmarkSnapshotStatus = late
+    ? "LATE"
+    : officialSlots
+      ? "LOCKED"
+      : "CAPTURED";
+
+  const snapshotMeta = {
+    universalProfileId: input.universalProfileId,
+    contestId: input.contestId,
+    weekId: contest.weekId,
+    captureType: input.captureType,
+    capturedAt: input.capturedAt,
+    sourcePublishedAt: input.sourcePublishedAt ?? null,
+    sourceUrl: input.sourceUrl?.trim() || null,
+    notes: input.notes?.trim() || null,
+    rawText: input.rawText ?? null,
+    status,
+    publicBoardAllowed: input.publicBoardAllowed ?? true,
+    late,
+    adminUserId: input.adminUserId,
+    correctionOfId: input.correctionOfId ?? null,
+    correctionReason: input.correctionReason?.trim() || null,
+  };
+
+  const pickRows = input.picks.map((pick) => {
+    const kickoff = pick.rankableEntryId
+      ? (kickoffs.get(pick.rankableEntryId) ?? null)
+      : null;
+    const thursdayLock =
+      pick.selected &&
+      input.captureType === "THURSDAY" &&
+      isThursdayKickoff(kickoff);
+    return {
+      rankableEntryId: pick.rankableEntryId,
+      rawName: pick.rawName,
+      sourceRank: pick.sourceRank,
+      rankIqRank: pick.rankIqRank,
+      excluded: pick.excluded,
+      exclusionReason: pick.exclusionReason,
+      issue: pick.issue,
+      selected: pick.selected,
+      slotLocked: thursdayLock,
+      lockedAt: thursdayLock ? input.capturedAt : null,
+      lockedRank: thursdayLock ? pick.rankIqRank : null,
+      kickoffAt: kickoff,
+    };
+  });
+
+  const snapshotId = await prisma.$transaction(async (tx) => {
+    let snapshotIdLocal: string;
+
+    if (!isCorrection) {
+      const reusable = await tx.benchmarkSnapshot.findFirst({
+        where: {
+          contestId: input.contestId,
+          universalProfileId: input.universalProfileId,
+          captureType: input.captureType,
+          status: { in: ["CAPTURED", "LATE", "LOCKED"] },
+          correctionOfId: null,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (reusable) {
+        await tx.benchmarkSnapshotPick.deleteMany({
+          where: { snapshotId: reusable.id },
+        });
+        await tx.benchmarkSnapshot.update({
+          where: { id: reusable.id },
+          data: snapshotMeta,
+        });
+        snapshotIdLocal = reusable.id;
+      } else {
+        const created = await tx.benchmarkSnapshot.create({
+          data: snapshotMeta,
+        });
+        snapshotIdLocal = created.id;
+      }
+    } else {
+      const created = await tx.benchmarkSnapshot.create({
+        data: snapshotMeta,
+      });
+      snapshotIdLocal = created.id;
+    }
+
+    await tx.benchmarkSnapshotPick.createMany({
+      data: pickRows.map((pick) => ({
+        snapshotId: snapshotIdLocal,
+        ...pick,
+      })),
+    });
+
+    if (officialSlots) {
+      await upsertOfficialBenchmarkSubmission(
+        {
+          contestId: input.contestId,
+          universalProfileId: input.universalProfileId,
+          rankingDepth: contest.rankingDepth,
+          capturedAt: input.capturedAt,
+          slots: officialSlots,
+        },
+        tx,
+      );
+    }
+
+    return snapshotIdLocal;
+  });
+
   const saved = await prisma.benchmarkSnapshot.findUniqueOrThrow({
-    where: { id: snapshot.id },
+    where: { id: snapshotId },
     include: { picks: { orderBy: { sourceRank: "asc" } } },
   });
 
-  return { snapshot: saved, late, official, warnings };
+  return {
+    snapshot: saved,
+    late,
+    official: Boolean(officialSlots),
+    warnings,
+  };
 }
 
 export async function markBenchmarkNotAvailable(input: {

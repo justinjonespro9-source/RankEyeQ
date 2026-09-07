@@ -9,15 +9,22 @@ import {
   markBenchmarkNotAvailable,
 } from "@/lib/benchmarks/snapshots";
 import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
+import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import { parseCreatorRankingPaste } from "@/lib/creators/ranking-paste";
 import { assertAdmin } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import type { BenchmarkCaptureType } from "@/lib/generated/prisma/client";
+import { logServerEvent } from "@/lib/log";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
 import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
 
-function revalidateBenchmark(weekId?: string, profileId?: string, contestId?: string) {
+function revalidateBenchmark(
+  weekId?: string,
+  profileId?: string,
+  contestId?: string,
+  options?: { includeBoard?: boolean },
+) {
   revalidatePath("/admin");
   revalidatePath("/admin/benchmarks");
   revalidatePath("/admin/creators");
@@ -27,7 +34,9 @@ function revalidateBenchmark(weekId?: string, profileId?: string, contestId?: st
     revalidatePath(`/admin/benchmarks?weekId=${weekId}`);
     revalidatePath(`/admin/creators?weekId=${weekId}`);
   }
-  if (profileId && contestId) {
+  // Remounting the import board wipes client form state — only do it after
+  // a confirmed official lock (or explicit not-available), never on soft errors.
+  if (options?.includeBoard && profileId && contestId) {
     revalidatePath(`/admin/benchmarks/${profileId}/${contestId}`);
     revalidatePath(`/admin/creators/board/${profileId}/${contestId}`);
   }
@@ -43,6 +52,30 @@ function parseCapturedAt(raw: string | null | undefined, fallback: Date) {
     throw new BenchmarkCaptureError("capturedAt must be a valid date/time");
   }
   return asDate;
+}
+
+function logCaptureFailure(input: {
+  profileId: string;
+  contestId: string;
+  position: string;
+  expectedFieldSize: number;
+  parsedCount: number;
+  failingStep: string;
+  message: string;
+}) {
+  logServerEvent(
+    "admin.benchmark_capture_failed",
+    {
+      creatorProfileId: input.profileId,
+      contestId: input.contestId,
+      position: input.position,
+      expectedFieldSize: input.expectedFieldSize,
+      parsedCount: input.parsedCount,
+      failingStep: input.failingStep,
+      message: input.message.slice(0, 300),
+    },
+    "error",
+  );
 }
 
 export async function adminCaptureBenchmarkAction(input: {
@@ -61,70 +94,118 @@ export async function adminCaptureBenchmarkAction(input: {
   correctionReason?: string | null;
   commitOfficial?: boolean;
 }) {
-  const admin = await assertAdmin();
-  const limited = rateLimit({
-    key: await rateLimitKey("admin-parser", admin.user.id),
-    ...RATE_LIMITS.adminParser,
-  });
-  if (!limited.ok) {
-    return { ok: false as const, error: rateLimitErrorMessage(limited) };
-  }
+  let position = "unknown";
+  let expectedFieldSize = 0;
+  let parsedCount = 0;
+  let failingStep = "assert_admin";
 
-  const contest = await prisma.rankIQContest.findUnique({
-    where: { id: input.contestId },
-    include: {
-      week: true,
-      entries: {
-        include: { rankableEntry: true },
-      },
-    },
-  });
-  if (!contest) return { ok: false as const, error: "Contest not found" };
-
-  const eligible = contest.entries
-    .filter((entry) => !entry.excluded)
-    .map((entry) => ({
-      id: entry.rankableEntryId,
-      name: entry.rankableEntry.name,
-      team: entry.rankableEntry.team,
-      shortName: entry.rankableEntry.shortName,
-    }));
-  const [universe, otherPositions] = await Promise.all([
-    prisma.rankableEntry.findMany({
-      where: { position: contest.position, active: true },
-      select: { id: true, name: true, team: true, shortName: true },
-    }),
-    prisma.rankableEntry.findMany({
-      where: { position: { not: contest.position }, active: true },
-      select: { id: true, name: true, team: true, shortName: true },
-    }),
-  ]);
-
-  const tiered = parseCreatorRankingPaste(input.rawText);
-  if (!tiered.ok) {
-    return { ok: false as const, error: tiered.error };
-  }
-
-  const extracted = extractTopNFromPastedText({
-    text: input.rawText,
-    lines: tiered.lines,
-    eligible,
-    rankingDepth: contest.rankingDepth,
-    universe,
-    otherPositions,
-    confirmedExclusions: input.confirmedExclusions,
-  });
-
-  if (!extracted.ready) {
-    return {
-      ok: false as const,
-      error: extracted.blockingIssues[0] ?? "Ranking failed validation",
-      extracted,
-    };
-  }
-
-  const now = new Date();
   try {
+    const admin = await assertAdmin();
+    failingStep = "rate_limit";
+    const limited = rateLimit({
+      key: await rateLimitKey("admin-parser", admin.user.id),
+      ...RATE_LIMITS.adminParser,
+    });
+    if (!limited.ok) {
+      return { ok: false as const, error: rateLimitErrorMessage(limited) };
+    }
+
+    failingStep = "load_contest";
+    const contest = await prisma.rankIQContest.findUnique({
+      where: { id: input.contestId },
+      include: {
+        week: true,
+        entries: {
+          include: { rankableEntry: true },
+        },
+      },
+    });
+    if (!contest) return { ok: false as const, error: "Contest not found" };
+
+    position = contest.position;
+    expectedFieldSize = contest.rankingDepth;
+    const defaultDepth = rankingDepthForPosition(contest.position);
+    if (contest.position === "WR" && contest.rankingDepth !== defaultDepth) {
+      const message = `WR contest must use Top ${defaultDepth} (found Top ${contest.rankingDepth})`;
+      logCaptureFailure({
+        profileId: input.profileId,
+        contestId: input.contestId,
+        position,
+        expectedFieldSize: defaultDepth,
+        parsedCount,
+        failingStep: "assert_wr_depth",
+        message,
+      });
+      return { ok: false as const, error: message };
+    }
+
+    failingStep = "load_eligible";
+    const eligible = contest.entries
+      .filter((entry) => !entry.excluded)
+      .map((entry) => ({
+        id: entry.rankableEntryId,
+        name: entry.rankableEntry.name,
+        team: entry.rankableEntry.team,
+        shortName: entry.rankableEntry.shortName,
+      }));
+    const [universe, otherPositions] = await Promise.all([
+      prisma.rankableEntry.findMany({
+        where: { position: contest.position, active: true },
+        select: { id: true, name: true, team: true, shortName: true },
+      }),
+      prisma.rankableEntry.findMany({
+        where: { position: { not: contest.position }, active: true },
+        select: { id: true, name: true, team: true, shortName: true },
+      }),
+    ]);
+
+    failingStep = "parse_paste";
+    const tiered = parseCreatorRankingPaste(input.rawText);
+    if (!tiered.ok) {
+      logCaptureFailure({
+        profileId: input.profileId,
+        contestId: input.contestId,
+        position,
+        expectedFieldSize,
+        parsedCount: 0,
+        failingStep,
+        message: tiered.error,
+      });
+      return { ok: false as const, error: tiered.error };
+    }
+    parsedCount = tiered.lines.length;
+
+    failingStep = "extract_top_n";
+    const extracted = extractTopNFromPastedText({
+      text: input.rawText,
+      lines: tiered.lines,
+      eligible,
+      rankingDepth: contest.rankingDepth,
+      universe,
+      otherPositions,
+      confirmedExclusions: input.confirmedExclusions,
+    });
+
+    if (!extracted.ready) {
+      const message =
+        extracted.blockingIssues[0] ?? "Ranking failed validation";
+      logCaptureFailure({
+        profileId: input.profileId,
+        contestId: input.contestId,
+        position,
+        expectedFieldSize,
+        parsedCount,
+        failingStep,
+        message,
+      });
+      return {
+        ok: false as const,
+        error: message,
+      };
+    }
+
+    failingStep = "capture_snapshot";
+    const now = new Date();
     const capturedAt = parseCapturedAt(input.capturedAt, now);
     const sourcePublishedAt = input.sourcePublishedAt
       ? parseCapturedAt(input.sourcePublishedAt, capturedAt)
@@ -156,6 +237,7 @@ export async function adminCaptureBenchmarkAction(input: {
       commitOfficial: input.commitOfficial ?? true,
     });
 
+    failingStep = "audit_log";
     await logAdminAction({
       adminUserId: admin.user.id,
       action: input.correctionOfId
@@ -173,19 +255,26 @@ export async function adminCaptureBenchmarkAction(input: {
         captureType: input.captureType,
         late: result.late,
         official: result.official,
+        position: contest.position,
+        rankingDepth: contest.rankingDepth,
+        selectedCount: extracted.selected.length,
         correctionOfId: input.correctionOfId ?? null,
         correctionReason: input.correctionReason ?? null,
       },
     });
 
-    revalidateBenchmark(contest.weekId, input.profileId, input.contestId);
+    // Only remount the board page after an official lock so Retry/remount
+    // cannot wipe an in-progress paste after a soft failure.
+    revalidateBenchmark(contest.weekId, input.profileId, input.contestId, {
+      includeBoard: result.official || result.late,
+    });
+
     return {
       ok: true as const,
       late: result.late,
       official: result.official,
       warnings: result.warnings,
       snapshotId: result.snapshot.id,
-      extracted,
       message: result.late
         ? LATE_CAPTURE_WARNING
         : result.official
@@ -197,7 +286,16 @@ export async function adminCaptureBenchmarkAction(input: {
       error instanceof BenchmarkCaptureError
         ? error.message
         : "Unable to capture benchmark snapshot";
-    return { ok: false as const, error: message, extracted };
+    logCaptureFailure({
+      profileId: input.profileId,
+      contestId: input.contestId,
+      position,
+      expectedFieldSize,
+      parsedCount,
+      failingStep,
+      message,
+    });
+    return { ok: false as const, error: message };
   }
 }
 
@@ -224,7 +322,9 @@ export async function adminMarkBenchmarkNotAvailableAction(formData: FormData) {
       where: { id: contestId },
       select: { weekId: true },
     });
-    revalidateBenchmark(contest?.weekId, profileId, contestId);
+    revalidateBenchmark(contest?.weekId, profileId, contestId, {
+      includeBoard: true,
+    });
   } catch (error) {
     const message =
       error instanceof BenchmarkCaptureError
