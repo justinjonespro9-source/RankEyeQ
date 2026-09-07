@@ -24,7 +24,7 @@ export async function SiteHeader() {
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       <Container className="flex h-16 items-center justify-between gap-4">
-        <Link href="/" className="shrink-0">
+        <Link href="/" className="shrink-0 overflow-visible">
           <BrandWordmark size="md" variant="light" />
         </Link>
 

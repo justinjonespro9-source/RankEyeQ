@@ -14,7 +14,7 @@ export function Hero() {
 
       <Container className="relative grid min-h-0 items-center gap-8 overflow-visible py-10 sm:gap-10 sm:py-16 lg:min-h-[72vh] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12 xl:gap-16">
         <div className="max-w-2xl">
-          <p className="leading-none">
+          <p className="overflow-visible leading-none pb-[0.35em]">
             <BrandWordmark variant="dark" size="hero" />
           </p>
           <p className="mt-3 text-base font-semibold text-accent-bright sm:mt-4 sm:text-lg">

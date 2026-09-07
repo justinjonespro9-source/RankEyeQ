@@ -42,4 +42,18 @@ describe("RankEyeQ brand system", () => {
     expect(wordmark).toContain("BrandMark");
     expect(wordmark).toContain('variant === "dark"');
   });
+
+  it("sizes the Q bowl to match capital letter height optically", () => {
+    // SVG 40×44; bowl diameter 24.5 → ~1.53em SVG for ~0.85em bowl (~cap + overshoot).
+    expect(wordmark).toContain("h-[1.53em]");
+    expect(wordmark).toContain("w-[1.39em]");
+    expect(wordmark).toContain("top-[0.5em]");
+    // Standalone BrandMark default must stay independent of wordmark sizing.
+    const mark = readFileSync(
+      join(process.cwd(), "components/brand/BrandMark.tsx"),
+      "utf8",
+    );
+    expect(mark).toContain('className = "h-7 w-7"');
+    expect(mark).toContain('viewBox="0 0 40 44"');
+  });
 });
