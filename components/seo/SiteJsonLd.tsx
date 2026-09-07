@@ -1,5 +1,6 @@
 import { PUBLIC_BRAND_NAME } from "@/lib/brand";
 import { COMPANY_LEGAL_NAME, COMPANY_NAME } from "@/lib/company";
+import { communityLinkHrefs } from "@/lib/community-links";
 import { absoluteUrl, getCanonicalSiteOrigin } from "@/lib/seo";
 
 /** Minimal WebSite + Organization JSON-LD. No invented ratings or credentials. */
@@ -23,6 +24,7 @@ export function SiteJsonLd() {
         name: COMPANY_LEGAL_NAME,
         alternateName: COMPANY_NAME,
         url: absoluteUrl("/"),
+        sameAs: communityLinkHrefs(),
       },
     ],
   };

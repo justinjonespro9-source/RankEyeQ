@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Container } from "./Container";
+import { CommunityLinks } from "./CommunityLinks";
 import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import {
   COMPANY_PRODUCT_TAGLINE,
@@ -63,7 +64,7 @@ export async function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-border bg-surface">
       <Container className="flex flex-col gap-5 py-8">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <BrandWordmark size="sm" variant="light" />
             <p className="mt-1 text-sm text-muted">
@@ -81,11 +82,14 @@ export async function SiteFooter() {
               )}
             </p>
           </div>
-          {signedIn ? null : (
-            <Link href="/signin" className="text-sm text-muted hover:text-ink">
-              Sign In
-            </Link>
-          )}
+          <div className="flex flex-col gap-3 sm:items-end">
+            <CommunityLinks />
+            {signedIn ? null : (
+              <Link href="/signin" className="text-sm text-muted hover:text-ink">
+                Sign In
+              </Link>
+            )}
+          </div>
         </div>
 
         <FooterLinkRow links={FOOTER_PRIMARY_LINKS} />

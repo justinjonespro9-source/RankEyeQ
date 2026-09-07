@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { CommunityLinks } from "@/components/layout/CommunityLinks";
 import {
   LEADERBOARDS_SUBNAV,
   PRIMARY_NAV,
@@ -107,6 +108,12 @@ export function MobileNav() {
                 </div>
               );
             })}
+            <div className="mt-2 border-t border-border pt-3">
+              <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted">
+                Community
+              </p>
+              <CommunityLinks className="px-1" />
+            </div>
           </div>
         </div>
       ) : null}

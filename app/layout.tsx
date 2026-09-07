@@ -40,6 +40,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    site: "@RankEyeQ",
     title: DEFAULT_SITE_TITLE,
     description: DEFAULT_SITE_DESCRIPTION,
   },

@@ -13,7 +13,7 @@ const SITEMAP_REVALIDATE_SECONDS = 3600;
 const getCachedDynamicSitemapEntries = unstable_cache(
   loadDynamicSitemapEntries,
   // Bump when selection rules change so production does not serve a stale empty set.
-  ["rankeyeq-public-sitemap-v2"],
+  ["rankeyeq-public-sitemap-v3"],
   { revalidate: SITEMAP_REVALIDATE_SECONDS },
 );
 

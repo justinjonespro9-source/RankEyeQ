@@ -1,14 +1,26 @@
 import type { MetadataRoute } from "next";
 import { isOfficialBenchmarkUsername } from "@/lib/benchmark-sources";
 import { prisma } from "@/lib/db";
+import type {
+  ContestPosition,
+  ProfileType,
+} from "@/lib/generated/prisma/client";
 import { EXPERT_SOURCE_KIND } from "@/lib/expert-identity";
 import { publicPlayerPathId } from "@/lib/player-detail-queries";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 import { absoluteUrl } from "@/lib/seo";
-import type { ProfileType } from "@/lib/generated/prisma/client";
 
 export const PROFILE_SITEMAP_LIMIT = 300;
 export const PLAYER_SITEMAP_LIMIT = 200;
+
+/** Position-balanced sitemap budget (sums to PLAYER_SITEMAP_LIMIT). */
+export const SITEMAP_POSITION_CAPS = {
+  QB: 35,
+  RB: 50,
+  WR: 55,
+  TE: 28,
+  DEF: 32,
+} as const satisfies Record<ContestPosition, number>;
 
 export type SitemapProfileCandidate = {
   username: string;
@@ -61,36 +73,154 @@ export type SitemapPlayerCandidate = {
   id: string;
   provider: string;
   externalId: string;
+  name: string;
   updatedAt: Date;
   type: "PLAYER" | "DEFENSE" | string;
+  position: ContestPosition | string;
   active: boolean;
+  /** In a RankEyeQ contest pool (any week). */
+  inContestPool: boolean;
+  /** On the active season roster. */
+  inSeasonRoster: boolean;
 };
 
-/** Canonical player/DEF path ids for sitemap (deduped, bounded). */
-export function buildPlayerSitemapEntries(
-  players: SitemapPlayerCandidate[],
-  limit = PLAYER_SITEMAP_LIMIT,
-): MetadataRoute.Sitemap {
-  const seen = new Set<string>();
-  const entries: MetadataRoute.Sitemap = [];
+function isCanonicalSitemapPlayer(player: SitemapPlayerCandidate): boolean {
+  return (
+    player.active &&
+    player.provider === NFL_COM_BOOTSTRAP_PROVIDER &&
+    (player.type === "PLAYER" || player.type === "DEFENSE") &&
+    Boolean(publicPlayerPathId(player).trim())
+  );
+}
 
-  for (const player of players) {
-    if (!player.active) continue;
-    if (player.type !== "PLAYER" && player.type !== "DEFENSE") continue;
-    if (player.provider !== NFL_COM_BOOTSTRAP_PROVIDER) continue;
+/** Sort key: contest pool → season roster → name → externalId (deterministic). */
+export function compareSitemapPlayerPriority(
+  a: SitemapPlayerCandidate,
+  b: SitemapPlayerCandidate,
+): number {
+  if (a.inContestPool !== b.inContestPool) {
+    return a.inContestPool ? -1 : 1;
+  }
+  if (a.inSeasonRoster !== b.inSeasonRoster) {
+    return a.inSeasonRoster ? -1 : 1;
+  }
+  const byName = a.name.localeCompare(b.name, "en");
+  if (byName !== 0) return byName;
+  return a.externalId.localeCompare(b.externalId, "en");
+}
+
+/**
+ * Position-balanced selection under SITEMAP_POSITION_CAPS.
+ * Dedupes by canonical path id; no position may exceed its cap.
+ */
+export function selectBalancedSitemapPlayers(
+  candidates: SitemapPlayerCandidate[],
+  caps: Record<ContestPosition, number> = SITEMAP_POSITION_CAPS,
+): SitemapPlayerCandidate[] {
+  const byPath = new Map<string, SitemapPlayerCandidate>();
+
+  for (const player of candidates) {
+    if (!isCanonicalSitemapPlayer(player)) continue;
     const pathId = publicPlayerPathId(player).trim();
-    if (!pathId || seen.has(pathId)) continue;
-    seen.add(pathId);
-    entries.push({
-      url: absoluteUrl(`/players/${encodeURIComponent(pathId)}`),
-      lastModified: player.updatedAt,
-      changeFrequency: "weekly",
-      priority: 0.5,
-    });
-    if (entries.length >= limit) break;
+    const existing = byPath.get(pathId);
+    if (!existing || compareSitemapPlayerPriority(player, existing) < 0) {
+      byPath.set(pathId, player);
+    }
   }
 
-  return entries;
+  const byPosition = new Map<ContestPosition, SitemapPlayerCandidate[]>();
+  for (const player of byPath.values()) {
+    const position = (
+      player.type === "DEFENSE" ? "DEF" : player.position
+    ) as ContestPosition;
+    if (!(position in caps)) continue;
+    const bucket = byPosition.get(position) ?? [];
+    bucket.push(player);
+    byPosition.set(position, bucket);
+  }
+
+  const selected: SitemapPlayerCandidate[] = [];
+  for (const position of Object.keys(caps) as ContestPosition[]) {
+    const cap = caps[position];
+    const bucket = (byPosition.get(position) ?? []).sort(
+      compareSitemapPlayerPriority,
+    );
+    selected.push(...bucket.slice(0, cap));
+  }
+
+  // Stable overall order: position enum order then priority within position.
+  const positionOrder: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
+  selected.sort((a, b) => {
+    const posA = (a.type === "DEFENSE" ? "DEF" : a.position) as ContestPosition;
+    const posB = (b.type === "DEFENSE" ? "DEF" : b.position) as ContestPosition;
+    const order = positionOrder.indexOf(posA) - positionOrder.indexOf(posB);
+    if (order !== 0) return order;
+    return compareSitemapPlayerPriority(a, b);
+  });
+
+  return selected;
+}
+
+export function playerCandidatesToSitemapEntries(
+  players: SitemapPlayerCandidate[],
+): MetadataRoute.Sitemap {
+  return players.map((player) => ({
+    url: absoluteUrl(
+      `/players/${encodeURIComponent(publicPlayerPathId(player).trim())}`,
+    ),
+    lastModified: player.updatedAt,
+    changeFrequency: "weekly" as const,
+    priority: 0.5,
+  }));
+}
+
+/** @deprecated Prefer selectBalancedSitemapPlayers — kept for narrow unit tests. */
+export function buildPlayerSitemapEntries(
+  players: Array<
+    Omit<
+      SitemapPlayerCandidate,
+      "name" | "position" | "inContestPool" | "inSeasonRoster"
+    > &
+      Partial<
+        Pick<
+          SitemapPlayerCandidate,
+          "name" | "position" | "inContestPool" | "inSeasonRoster"
+        >
+      >
+  >,
+  limit = PLAYER_SITEMAP_LIMIT,
+): MetadataRoute.Sitemap {
+  const normalized: SitemapPlayerCandidate[] = players.map((player) => ({
+    name: player.name ?? player.externalId,
+    position:
+      player.position ??
+      (player.type === "DEFENSE" ? "DEF" : ("QB" as ContestPosition)),
+    inContestPool: player.inContestPool ?? true,
+    inSeasonRoster: player.inSeasonRoster ?? true,
+    ...player,
+  }));
+  return playerCandidatesToSitemapEntries(
+    selectBalancedSitemapPlayers(normalized).slice(0, limit),
+  );
+}
+
+export function countSitemapPlayersByPosition(
+  players: SitemapPlayerCandidate[],
+): Record<ContestPosition, number> {
+  const counts: Record<ContestPosition, number> = {
+    QB: 0,
+    RB: 0,
+    WR: 0,
+    TE: 0,
+    DEF: 0,
+  };
+  for (const player of players) {
+    const position = (
+      player.type === "DEFENSE" ? "DEF" : player.position
+    ) as ContestPosition;
+    if (position in counts) counts[position] += 1;
+  }
+  return counts;
 }
 
 export async function loadSitemapProfiles(): Promise<MetadataRoute.Sitemap> {
@@ -130,10 +260,9 @@ export async function loadSitemapProfiles(): Promise<MetadataRoute.Sitemap> {
 }
 
 /**
- * Indexable NFL player/DEF identities.
- * Prefer canonical nflcom-bootstrap rows that appear in an active season roster
- * or a contest pool — do NOT require week-stat joins (often empty pre-grade).
- * DEFENSE rows are loaded first (small set) so they are not crowded out by offense.
+ * Indexable NFL player/DEF identities with position-balanced caps.
+ * Prefer contest-pool membership, then active season roster, then stable
+ * nflcom-bootstrap identity — never week-stat joins or editorial rankings.
  */
 export async function loadSitemapPlayers(): Promise<MetadataRoute.Sitemap> {
   const activeSeason = await prisma.season.findFirst({
@@ -142,42 +271,67 @@ export async function loadSitemapPlayers(): Promise<MetadataRoute.Sitemap> {
     orderBy: { year: "desc" },
   });
 
-  const eligibility = {
-    provider: NFL_COM_BOOTSTRAP_PROVIDER,
-    active: true as const,
-    OR: [
-      activeSeason
-        ? { seasonPlayers: { some: { seasonId: activeSeason.id } } }
-        : { seasonPlayers: { some: {} } },
-      { contestEntries: { some: {} } },
-    ],
-  };
+  const positions = Object.keys(SITEMAP_POSITION_CAPS) as ContestPosition[];
 
-  const select = {
-    id: true,
-    provider: true,
-    externalId: true,
-    updatedAt: true,
-    type: true,
-    active: true,
-  };
+  const batches = await Promise.all(
+    positions.map(async (position) => {
+      const cap = SITEMAP_POSITION_CAPS[position];
+      // Fetch a modest overselect per position so pool/roster priority can win.
+      const take = Math.min(cap * 4, position === "DEF" ? 40 : 120);
+      const rows = await prisma.rankableEntry.findMany({
+        where: {
+          provider: NFL_COM_BOOTSTRAP_PROVIDER,
+          active: true,
+          position,
+          type: position === "DEF" ? "DEFENSE" : "PLAYER",
+          OR: [
+            activeSeason
+              ? { seasonPlayers: { some: { seasonId: activeSeason.id } } }
+              : { seasonPlayers: { some: {} } },
+            { contestEntries: { some: {} } },
+          ],
+        },
+        select: {
+          id: true,
+          provider: true,
+          externalId: true,
+          name: true,
+          updatedAt: true,
+          type: true,
+          position: true,
+          active: true,
+          contestEntries: { select: { id: true }, take: 1 },
+          seasonPlayers: activeSeason
+            ? {
+                where: { seasonId: activeSeason.id },
+                select: { id: true },
+                take: 1,
+              }
+            : { select: { id: true }, take: 1 },
+        },
+        orderBy: { name: "asc" },
+        take,
+      });
 
-  const [defenses, offense] = await Promise.all([
-    prisma.rankableEntry.findMany({
-      where: { ...eligibility, type: "DEFENSE" },
-      select,
-      orderBy: { name: "asc" },
-      take: 40,
+      return rows.map(
+        (row): SitemapPlayerCandidate => ({
+          id: row.id,
+          provider: row.provider,
+          externalId: row.externalId,
+          name: row.name,
+          updatedAt: row.updatedAt,
+          type: row.type,
+          position: row.position,
+          active: row.active,
+          inContestPool: row.contestEntries.length > 0,
+          inSeasonRoster: row.seasonPlayers.length > 0,
+        }),
+      );
     }),
-    prisma.rankableEntry.findMany({
-      where: { ...eligibility, type: "PLAYER" },
-      select,
-      orderBy: [{ position: "asc" }, { name: "asc" }],
-      take: PLAYER_SITEMAP_LIMIT * 2,
-    }),
-  ]);
+  );
 
-  return buildPlayerSitemapEntries([...defenses, ...offense], PLAYER_SITEMAP_LIMIT);
+  const selected = selectBalancedSitemapPlayers(batches.flat());
+  return playerCandidatesToSitemapEntries(selected);
 }
 
 export async function loadDynamicSitemapEntries(): Promise<MetadataRoute.Sitemap> {
