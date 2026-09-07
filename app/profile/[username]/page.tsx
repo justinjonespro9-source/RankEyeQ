@@ -10,10 +10,12 @@ import {
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
 import { getCompetitorBadgesForProfile } from "@/lib/badges";
+import { isOfficialBenchmarkUsername } from "@/lib/benchmark-sources";
 import {
   NO_INDEX,
   publicPageMetadata,
 } from "@/lib/seo";
+import { EXPERT_SOURCE_KIND } from "@/lib/expert-identity";
 import { getRankIQProfileView } from "@/lib/profile-stats";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
@@ -38,12 +40,31 @@ export async function generateMetadata(
 
   const visibility = await prisma.universalProfile.findUnique({
     where: { username: view.username },
-    select: { publicVisible: true },
+    select: {
+      publicVisible: true,
+      competitorActive: true,
+      profileType: true,
+      expertSource: { select: { sourceKind: true } },
+    },
   });
   if (visibility && !visibility.publicVisible) {
     return {
       title: view.displayName,
       description: "Private RankEyeQ profile.",
+      ...NO_INDEX,
+    };
+  }
+
+  const isLegacyPublisherShell =
+    visibility?.profileType === "BENCHMARK" &&
+    (isOfficialBenchmarkUsername(view.username) ||
+      !visibility.competitorActive ||
+      visibility.expertSource?.sourceKind !== EXPERT_SOURCE_KIND.ANALYST);
+
+  if (isLegacyPublisherShell) {
+    return {
+      title: view.displayName,
+      description: "Legacy RankEyeQ publisher shell — not an active Expert competitor.",
       ...NO_INDEX,
     };
   }

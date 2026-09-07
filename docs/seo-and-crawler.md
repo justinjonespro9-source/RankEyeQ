@@ -33,4 +33,8 @@ Apply in Vercel project → Firewall (tune thresholds after observing traffic):
 | `/players/[playerId]` | Detail + week history + badges | index |
 | `/` | Homepage composites + receipts | index |
 
-Sitemap dynamic segments are cached (`unstable_cache`, 1h) and bounded (profiles ≤300, players ≤200).
+## Sitemap dynamic rules (v2)
+
+- **Players:** up to 200 active `nflcom-bootstrap` PLAYER/DEFENSE identities that appear on the active season roster or a contest pool. Canonical path = `externalId` (e.g. `/players/justin-jefferson`, `/players/def-MIN`). Week-stat joins are **not** required (often empty pre-grade).
+- **Profiles:** public ACTIVE Humans / Creators / AI; Experts only when `competitorActive` and `sourceKind=ANALYST`. Official publisher shells (`espn-fantasy`, `yahoo-fantasy`, …) are excluded and noindex when visited.
+- **`/receipts`:** noindex + omitted from sitemap (ephemeral Thursday early-slate). Durable receipts live on public `/profile/[username]`.

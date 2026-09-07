@@ -115,7 +115,6 @@ export const SITEMAP_STATIC_PATHS = [
   "/players",
   "/rankers",
   "/consensus",
-  "/receipts",
   "/archive",
   "/legal",
   "/privacy",
@@ -134,6 +133,7 @@ export const ROBOTS_DISALLOW_PATHS = [
   "/signin",
   "/creator",
   "/following",
+  "/receipts",
   "/rank$",
   "/rank/",
   "/leaderboards/live",
@@ -163,6 +163,7 @@ export function isSitemapExcludedPath(path: string): boolean {
   if (clean.startsWith("/signin")) return true;
   if (clean === "/creator" || clean.startsWith("/creator/")) return true;
   if (clean === "/following" || clean.startsWith("/following/")) return true;
+  if (clean === "/receipts" || clean.startsWith("/receipts/")) return true;
   if (clean === "/rank" || clean.startsWith("/rank/")) return true;
   if (clean.startsWith("/leaderboards/live")) return true;
   return false;

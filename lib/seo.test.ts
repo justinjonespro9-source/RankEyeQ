@@ -100,6 +100,7 @@ describe("sitemap inclusion rules", () => {
         "/terms",
       ]),
     );
+    expect(SITEMAP_STATIC_PATHS).not.toContain("/receipts");
   });
 
   it("excludes private, interactive, and query variants", () => {
@@ -110,6 +111,7 @@ describe("sitemap inclusion rules", () => {
     expect(isSitemapExcludedPath("/rank")).toBe(true);
     expect(isSitemapExcludedPath("/rank/qb")).toBe(true);
     expect(isSitemapExcludedPath("/leaderboards/live")).toBe(true);
+    expect(isSitemapExcludedPath("/receipts")).toBe(true);
     expect(isSitemapExcludedPath("/leaderboards?filter=AI")).toBe(true);
     expect(isSitemapExcludedPath("/rankers")).toBe(false);
     expect(isSitemapExcludedPath("/players")).toBe(false);
