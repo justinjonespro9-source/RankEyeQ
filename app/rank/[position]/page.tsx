@@ -24,6 +24,11 @@ import {
   parsePlayerResearchWindow,
   researchWindowLabel,
 } from "@/lib/player-research";
+import {
+  NO_INDEX,
+  canonicalMetadata,
+  rankPositionCanonicalPath,
+} from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -33,19 +38,24 @@ export async function generateMetadata(
   const { position: rawPosition } = await props.params;
   const position = parsePositionParam(rawPosition);
   if (!position) {
-    return { title: "Challenge" };
+    return { title: "Challenge", ...NO_INDEX };
   }
+  const canonicalPath = rankPositionCanonicalPath(position);
   try {
     const { challenge } = await getPublicPositionContest(position);
     return {
       title: `${challenge.shortLabel} Rankings`,
       description: `Weekly ${challenge.shortLabel} rankings for this NFL slate — Top ${challenge.slotCount}. Rank before kickoff; graded against that week's actual fantasy-point finishes.`,
+      ...NO_INDEX,
+      ...canonicalMetadata(canonicalPath),
     };
   } catch {
     return {
       title: "Challenge",
       description:
         "Weekly NFL position rankings on RankEyeQ — rank before kickoff.",
+      ...NO_INDEX,
+      ...canonicalMetadata(canonicalPath),
     };
   }
 }

@@ -11,15 +11,12 @@ import { getLiveWeekRankerBoard } from "@/lib/live-rankiq";
 import { formatRankIqScore } from "@/lib/scoring";
 import { toUiPosition } from "@/lib/contest-defaults";
 import { isManualNflMode } from "@/lib/providers/nfl";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { privatePageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Live EYEQ",
-  description:
-    "Unofficial live EYEQ standings from provisional fantasy points for this NFL week.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/leaderboards/live"),
-};
+export const metadata: Metadata = privatePageMetadata(
+  "Live EYEQ",
+  "Unofficial live EYEQ standings from provisional fantasy points for this NFL week.",
+);
 
 export const dynamic = "force-dynamic";
 

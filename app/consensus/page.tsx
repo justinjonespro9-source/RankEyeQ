@@ -25,16 +25,14 @@ import {
 } from "@/lib/admin/test-preview";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { trackEvent } from "@/lib/analytics";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 
-export const metadata: Metadata = {
-  title: "Consensus",
-  description:
-    "Weekly community consensus: average predicted rank across this week's official RankEyeQ submissions. Not season-long or draft rankings.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/consensus"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Consensus',
+  description: 'Community ranking consensus for RankEyeQ weekly contests — Public, Experts, Creators, and AI.',
+  path: '/consensus',
+});
 
 export const dynamic = "force-dynamic";
 

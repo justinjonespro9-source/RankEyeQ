@@ -53,4 +53,6 @@ export const RATE_LIMITS = {
   unlockWrite: { limit: 40, windowMs: 60_000 },
   adminImport: { limit: 12, windowMs: 60_000 },
   adminParser: { limit: 20, windowMs: 60_000 },
+  sponsorGo: { limit: 60, windowMs: 60_000 },
+  creatorClaim: { limit: 5, windowMs: 60 * 60_000 },
 } as const;

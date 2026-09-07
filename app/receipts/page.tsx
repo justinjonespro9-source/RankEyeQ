@@ -8,16 +8,14 @@ import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { prisma } from "@/lib/db";
 import { trackEvent } from "@/lib/analytics";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 import { getThursdayReceipts } from "@/lib/timing/thursday-receipts";
 
-export const metadata: Metadata = {
-  title: "Thursday Receipts",
-  description:
-    "Thursday receipts for this NFL week: early-game fantasy points, provisional ranks, and pre-kickoff conviction on weekly boards.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/receipts"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Thursday Receipts',
+  description: 'Early-slate fantasy receipts and pre-kickoff conviction on RankEyeQ weekly boards.',
+  path: '/receipts',
+});
 
 export const dynamic = "force-dynamic";
 

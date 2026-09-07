@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import { Container } from "@/components/layout/Container";
 import { Button } from "@/components/ui/Button";
+import { NO_INDEX } from "@/lib/seo";
+
+export const metadata: Metadata = {
+  title: "Page not found",
+  description: "That RankEyeQ page does not exist.",
+  ...NO_INDEX,
+};
 
 export default function NotFoundPage() {
   return (

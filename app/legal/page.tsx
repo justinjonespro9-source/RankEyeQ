@@ -8,15 +8,13 @@ import {
   POLICY_DEFINITIONS,
   policyRoute,
 } from "@/lib/legal/policies";
-import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Legal & Policies",
-  description:
-    "RankEyeQ terms, privacy, eligibility, responsible play, and AI disclosure policies.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/legal"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Legal',
+  description: 'RankEyeQ legal and policy documents.',
+  path: '/legal',
+});
 
 export default function LegalIndexPage() {
   return (

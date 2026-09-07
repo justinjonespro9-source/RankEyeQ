@@ -4,14 +4,13 @@ import { Container } from "@/components/layout/Container";
 import { ResultsSubnav } from "@/components/layout/ResultsSubnav";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { prisma } from "@/lib/db";
-import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Season archive",
-  description: "Browse finalized RankEyeQ weeks by season and position.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/archive"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Archive',
+  description: 'Archived RankEyeQ weekly contests and graded results.',
+  path: '/archive',
+});
 
 export const dynamic = "force-dynamic";
 

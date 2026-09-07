@@ -12,12 +12,12 @@ import {
   WEEKLY_RANKINGS_EXPLAINER,
   WEEKLY_RANKINGS_SHORT,
 } from "@/lib/weekly-messaging";
+import { privatePageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Weekly Rankings",
-  description:
-    "Rank this week's NFL slate by position before kickoff. Weekly contests graded against actual fantasy-point finishes — not draft or season-long projections.",
-};
+export const metadata: Metadata = privatePageMetadata(
+  "Weekly Rankings",
+  "Rank this week's NFL slate by position before kickoff. Weekly contests graded against actual fantasy-point finishes — not draft or season-long projections.",
+);
 
 export const dynamic = "force-dynamic";
 

@@ -18,15 +18,13 @@ import { prisma } from "@/lib/db";
 import { getContestResultsView } from "@/lib/results-view";
 import { formatRankIqScore } from "@/lib/scoring";
 import { toUiPosition } from "@/lib/contest-defaults";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Results",
-  description:
-    "Graded weekly contest results: actual fantasy-point finishes, consensus vs actual, and top EYEQ performers for that NFL week.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/results"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Results',
+  description: 'Graded weekly contest results: actual fantasy-point finishes, consensus vs actual, and top EYEQ performers.',
+  path: '/results',
+});
 
 export const dynamic = "force-dynamic";
 

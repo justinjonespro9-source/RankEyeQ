@@ -12,7 +12,7 @@ import {
 import { evaluateAthleteBadges } from "@/lib/badges";
 import { getPlayerDetailById } from "@/lib/player-detail-queries";
 import { formatFinishTrend } from "@/lib/player-profile";
-import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
+import { NO_INDEX, publicPageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -24,15 +24,15 @@ export async function generateMetadata({
   const { playerId } = await params;
   const detail = await getPlayerDetailById(playerId);
   if (!detail?.entry) {
-    return { title: "Player not found" };
+    return { title: "Player not found", ...NO_INDEX };
   }
   const pathId = detail.profilePathId;
-  return {
-    title: `${detail.entry.name} · Player Performance`,
-    description: `Week-by-week fantasy production and pregame market view for ${detail.entry.name} on RankEyeQ.`,
-    ...PUBLIC_INDEX,
-    ...canonicalMetadata(`/players/${pathId}`),
-  };
+  const name = detail.entry.name;
+  return publicPageMetadata({
+    title: `${name} Fantasy Performance & Weekly Rankings`,
+    description: `${name} fantasy performance and weekly rankings on RankEyeQ — finishes, production, and how the field ranked them.`,
+    path: `/players/${pathId}`,
+  });
 }
 
 export default async function PlayerDetailPage({

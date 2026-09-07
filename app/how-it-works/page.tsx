@@ -9,7 +9,7 @@ import {
 } from "@/lib/contest";
 import { ELIGIBILITY_SUMMARY } from "@/lib/legal/eligibility";
 import { policyRoute } from "@/lib/legal/policies";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 import { FantasyTrackScoringRules } from "@/components/fantasy/FantasyTrackScoringRules";
 import { getFantasyScoringSummary } from "@/lib/fantasy/scoring-reference";
 import {
@@ -28,13 +28,12 @@ import {
 } from "@/lib/weekly-messaging";
 import { TOP_10_MAX_RAW, TOP_15_MAX_RAW } from "@/lib/scoring";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: "How It Works",
   description:
-    "How RankEyeQ fantasy points and EYEQ Scores are calculated — Half PPR finishes and weekly ranking accuracy.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/how-it-works"),
-};
+    "How RankEyeQ works: weekly rankings for the Public, Experts, Creators, and AI — graded against actual fantasy-point finishes.",
+  path: "/how-it-works",
+});
 
 const HOW_STEPS = [
   {

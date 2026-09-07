@@ -2,10 +2,10 @@
 export const PUBLIC_BRAND_NAME = "RankEyeQ";
 
 export const DEFAULT_SITE_TITLE =
-  "RankEyeQ | Fantasy Football Player Ranking Competition";
+  "RankEyeQ | Fantasy Football Rankings Finally Have a Scoreboard";
 
 export const DEFAULT_SITE_DESCRIPTION =
-  "Weekly NFL player rankings — rank this week's slate before kickoff, graded against actual fantasy-point finishes. Not draft rankings or season-long projections.";
+  "Fantasy football rankings finally have a scoreboard. Compete weekly — Public vs Experts vs Creators vs AI — graded against actual fantasy-point finishes.";
 
 export const EYEQ_SCORE_LABEL = "EYEQ Score";
 

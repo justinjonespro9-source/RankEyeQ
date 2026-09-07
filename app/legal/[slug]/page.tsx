@@ -11,7 +11,7 @@ import {
   type PolicySlug,
 } from "@/lib/legal/policies";
 import { getPublishedPolicy } from "@/lib/legal/policy-acceptance";
-import { PUBLIC_INDEX, canonicalMetadata } from "@/lib/seo";
+import { publicPageMetadata, NO_INDEX } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +24,14 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const definition = getPolicyDefinitionOrFallback(slug);
-  return {
-    title: definition?.title ?? "Legal",
-    description: definition?.description ?? "RankEyeQ legal policy",
-    ...PUBLIC_INDEX,
-    ...canonicalMetadata(`/legal/${slug}`),
-  };
+  if (!definition) {
+    return { title: "Legal", ...NO_INDEX };
+  }
+  return publicPageMetadata({
+    title: definition.title,
+    description: definition.description,
+    path: `/legal/${slug}`,
+  });
 }
 
 export default async function LegalPolicyPage({

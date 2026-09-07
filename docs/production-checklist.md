@@ -21,7 +21,8 @@ Required:
 
 - [ ] `DATABASE_URL`
 - [ ] `AUTH_SECRET` (≥32 chars, not the example value)
-- [ ] `AUTH_URL` (canonical public URL, e.g. `https://rankeyeq.com`)
+- [ ] `AUTH_URL` (canonical public URL, e.g. `https://www.rankeyeq.com`)
+- [ ] Optional `NEXT_PUBLIC_SITE_URL=https://www.rankeyeq.com` (SEO canonical host; bare `rankeyeq.com` is normalized to www)
 - [ ] `EMAIL_FROM` plus `AUTH_RESEND_KEY` **or** `EMAIL_SERVER`
 - [ ] `NFL_DATA_PROVIDER=manual` (recommended without paid sports API), `mock`, or `sportsdataio`
 

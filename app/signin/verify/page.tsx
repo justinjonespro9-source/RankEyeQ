@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
+import { privatePageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Check your email",
-  description: "Confirm your RankEyeQ magic link to finish signing in.",
-};
+export const metadata: Metadata = privatePageMetadata(
+  "Check your email",
+  "Confirm your RankEyeQ magic link to finish signing in.",
+);
 
 export default function VerifyRequestPage() {
   return (

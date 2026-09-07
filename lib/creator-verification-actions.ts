@@ -11,9 +11,22 @@ import {
   requestCreatorVerification,
 } from "@/lib/creator-verification";
 import { logServerEvent } from "@/lib/log";
+import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
+import { rateLimitKey } from "@/lib/request-ip";
 
 export async function requestCreatorVerificationAction(formData: FormData) {
   const { universalProfile } = await requireUniversalProfile();
+
+  const limited = rateLimit({
+    key: await rateLimitKey("creator-claim", universalProfile.id),
+    ...RATE_LIMITS.creatorClaim,
+  });
+  if (!limited.ok) {
+    return {
+      ok: false as const,
+      error: rateLimitErrorMessage(limited),
+    };
+  }
 
   try {
     await requestCreatorVerification({

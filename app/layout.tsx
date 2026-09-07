@@ -3,11 +3,13 @@ import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
 import { DevProfileChrome } from "@/components/layout/DevProfileChrome";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { SiteHeader } from "@/components/layout/SiteHeader";
+import { SiteJsonLd } from "@/components/seo/SiteJsonLd";
 import {
   DEFAULT_SITE_DESCRIPTION,
   DEFAULT_SITE_TITLE,
   PUBLIC_BRAND_NAME,
 } from "@/lib/brand";
+import { absoluteUrl, getCanonicalSiteOrigin } from "@/lib/seo";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -23,6 +25,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getCanonicalSiteOrigin()),
   title: {
     default: DEFAULT_SITE_TITLE,
     template: `%s · ${PUBLIC_BRAND_NAME}`,
@@ -33,6 +36,7 @@ export const metadata: Metadata = {
     siteName: PUBLIC_BRAND_NAME,
     title: DEFAULT_SITE_TITLE,
     description: DEFAULT_SITE_DESCRIPTION,
+    url: absoluteUrl("/"),
   },
   twitter: {
     card: "summary_large_image",
@@ -48,6 +52,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col font-sans">
+        <SiteJsonLd />
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <SiteFooter />

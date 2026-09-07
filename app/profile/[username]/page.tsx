@@ -10,7 +10,10 @@ import {
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
 import { getCompetitorBadgesForProfile } from "@/lib/badges";
-import { PUBLIC_INDEX } from "@/lib/seo";
+import {
+  NO_INDEX,
+  publicPageMetadata,
+} from "@/lib/seo";
 import { getRankIQProfileView } from "@/lib/profile-stats";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
@@ -29,11 +32,28 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { username } = await props.params;
   const view = await getRankIQProfileView(username);
-  return {
-    title: view?.displayName ?? username,
-    description: `RankEyeQ profile for ${view?.displayName ?? username} — weekly contest EYEQ stats, position ranks, and recent NFL-week results.`,
-    ...PUBLIC_INDEX,
-  };
+  if (!view) {
+    return { title: "Profile", ...NO_INDEX };
+  }
+
+  const visibility = await prisma.universalProfile.findUnique({
+    where: { username: view.username },
+    select: { publicVisible: true },
+  });
+  if (visibility && !visibility.publicVisible) {
+    return {
+      title: view.displayName,
+      description: "Private RankEyeQ profile.",
+      ...NO_INDEX,
+    };
+  }
+
+  const name = view.displayName;
+  return publicPageMetadata({
+    title: `${name} Fantasy Rankings & EYEQ Score`,
+    description: `${name} on RankEyeQ — weekly fantasy rankings, EYEQ Score, and contest results versus the Public, Experts, Creators, and AI.`,
+    path: `/profile/${view.username}`,
+  });
 }
 
 export default async function ProfilePage(

@@ -22,18 +22,16 @@ import {
 } from "@/lib/leaderboards";
 import { prisma } from "@/lib/db";
 import { formatRankIqScore } from "@/lib/scoring";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 import { SEASON_LEADERBOARD_NOTE } from "@/lib/weekly-messaging";
 import { getFollowerCountsForProfiles, getFollowingIdSet } from "@/lib/social/follows";
 import { logServerEvent } from "@/lib/log";
 
-export const metadata: Metadata = {
-  title: "Leaderboards",
-  description:
-    "Weekly and season EYEQ leaderboards from graded weekly contests — not season-long projection rankings.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/leaderboards"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Leaderboards',
+  description: 'Weekly and season EYEQ leaderboards — Public, Experts, Creators, and AI on RankEyeQ.',
+  path: '/leaderboards',
+});
 
 export const dynamic = "force-dynamic";
 

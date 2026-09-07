@@ -13,15 +13,14 @@ import { Container } from "@/components/layout/Container";
 import { getActiveProfile } from "@/lib/active-profile";
 import { DEFAULT_SITE_DESCRIPTION, DEFAULT_SITE_TITLE } from "@/lib/brand";
 import { getHomepageData } from "@/lib/homepage";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 import { getThursdayReceipts } from "@/lib/timing/thursday-receipts";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
   title: DEFAULT_SITE_TITLE,
   description: DEFAULT_SITE_DESCRIPTION,
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/"),
-};
+  path: "/",
+});
 
 export const dynamic = "force-dynamic";
 

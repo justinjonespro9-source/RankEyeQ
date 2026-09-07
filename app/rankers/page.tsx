@@ -17,15 +17,13 @@ import {
 } from "@/lib/social/discovery";
 import { getFollowingIdSet } from "@/lib/social/follows";
 
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Rankers",
-  description:
-    "Discover rankers with proven weekly ranking accuracy. Sample size required — one NFL week is not enough.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/rankers"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Rankers',
+  description: 'Browse RankEyeQ competitors across Public, Experts, Creators, and AI.',
+  path: '/rankers',
+});
 
 export const dynamic = "force-dynamic";
 

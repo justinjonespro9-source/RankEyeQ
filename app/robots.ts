@@ -1,32 +1,19 @@
 import type { MetadataRoute } from "next";
+import {
+  buildRobotsRules,
+  getCanonicalSiteOrigin,
+} from "@/lib/seo";
 
+/**
+ * Crawl guidance for public discovery. Not an access-control mechanism —
+ * auth, admin guards, and Vercel Firewall remain the security layers.
+ */
 export default function robots(): MetadataRoute.Robots {
-  const base = process.env.AUTH_URL?.replace(/\/$/, "") ?? "";
+  const origin = getCanonicalSiteOrigin();
+  const built = buildRobotsRules(origin);
   return {
-    rules: [
-      {
-        userAgent: "*",
-        allow: [
-          "/",
-          "/how-it-works",
-          "/consensus",
-          "/results",
-          "/leaderboards",
-          "/rankers",
-          "/receipts",
-        ],
-        disallow: [
-          "/account",
-          "/account/setup",
-          "/creator",
-          "/following",
-          "/admin",
-          "/signin",
-          "/rank",
-          "/api/",
-        ],
-      },
-    ],
-    sitemap: base ? `${base}/sitemap.xml` : undefined,
+    rules: built.rules,
+    sitemap: built.sitemap,
+    host: built.host,
   };
 }

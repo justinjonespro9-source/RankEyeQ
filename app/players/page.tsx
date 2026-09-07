@@ -20,15 +20,13 @@ import type {
   PlayerPerformanceSortKey,
   PlayerQualificationFilter,
 } from "@/lib/player-performance";
-import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
+import { publicPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Player Performance",
-  description:
-    "The Player Performance Market: NFL player production plus how Humans, Experts, Creators, and AI ranked players before kickoff.",
-  ...PUBLIC_INDEX,
-  ...canonicalMetadata("/players"),
-};
+export const metadata: Metadata = publicPageMetadata({
+  title: 'Player Performance',
+  description: 'Player fantasy performance and weekly finishes across RankEyeQ contests.',
+  path: '/players',
+});
 
 export const dynamic = "force-dynamic";
 

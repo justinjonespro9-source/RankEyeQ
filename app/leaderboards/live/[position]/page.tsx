@@ -10,6 +10,7 @@ import { toDbPosition } from "@/lib/contest-defaults";
 import { prisma } from "@/lib/db";
 import { getLivePlayerStandings } from "@/lib/live-rankiq";
 import { isManualNflMode } from "@/lib/providers/nfl";
+import { NO_INDEX } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,11 @@ export async function generateMetadata(
   props: PageProps<"/leaderboards/live/[position]">,
 ): Promise<Metadata> {
   const { position } = await props.params;
+  const pos = typeof position === "string" ? position.toLowerCase() : "qb";
   return {
-    title: `Live ${position.toUpperCase()} results`,
-    description: `Provisional RankEyeQ actual standings for ${position.toUpperCase()}.`,
+    title: `Live ${pos.toUpperCase()} results`,
+    description: `Provisional RankEyeQ actual standings for ${pos.toUpperCase()}.`,
+    ...NO_INDEX,
   };
 }
 
