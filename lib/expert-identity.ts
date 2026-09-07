@@ -225,9 +225,13 @@ export async function createExpertAnalyst(input: {
   publicationName: string;
   username?: string;
   sourceUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
   positionsCovered?: ContestPosition[];
   competitorActive?: boolean;
   notes?: string | null;
+  acknowledgeDuplicate?: boolean;
 }) {
   const result = await upsertExpertAnalyst(input);
   if (result.action !== "created") {
@@ -258,9 +262,13 @@ export async function upsertExpertAnalyst(input: {
   publicationName: string;
   username?: string;
   sourceUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
   positionsCovered?: ContestPosition[];
   competitorActive?: boolean;
   notes?: string | null;
+  acknowledgeDuplicate?: boolean;
 }): Promise<UpsertExpertAnalystResult> {
   const nameResult = validateDisplayName(input.analystName);
   if (!nameResult.ok) throw new ExpertIdentityError(nameResult.error);
@@ -285,7 +293,10 @@ export async function upsertExpertAnalyst(input: {
   }
 
   const competitorActive = input.competitorActive ?? true;
+  const publicVisible = input.publicVisible ?? true;
   const sourceUrl = input.sourceUrl?.trim() || null;
+  const avatarUrl = input.avatarUrl?.trim() || null;
+  const bio = input.bio?.trim() ?? input.notes?.trim() ?? null;
   const positions = input.positionsCovered ?? [];
   const notes = input.notes ?? null;
 
@@ -314,7 +325,10 @@ export async function upsertExpertAnalyst(input: {
     const unchanged =
       existing.displayName === nameResult.username &&
       existing.competitorActive === competitorActive &&
+      existing.publicVisible === publicVisible &&
       existing.status === "ACTIVE" &&
+      (existing.avatarUrl ?? null) === avatarUrl &&
+      (existing.bio ?? null) === bio &&
       (existing.expertSource?.analystName ?? null) === nameResult.username &&
       (existing.expertSource?.publicationName ?? null) === publication &&
       (existing.expertSource?.sourceUrl ?? null) === sourceUrl &&
@@ -342,7 +356,9 @@ export async function upsertExpertAnalyst(input: {
         displayName: nameResult.username,
         status: "ACTIVE",
         competitorActive,
-        publicVisible: true,
+        publicVisible,
+        avatarUrl,
+        bio,
       },
     });
     await upsertExpertSourceProfile({
@@ -368,6 +384,22 @@ export async function upsertExpertAnalyst(input: {
     };
   }
 
+  const nameConflicts = await prisma.universalProfile.findMany({
+    where: {
+      profileType: "BENCHMARK",
+      displayName: { equals: nameResult.username, mode: "insensitive" },
+    },
+    select: { username: true },
+    take: 5,
+  });
+  if (nameConflicts.length > 0 && !input.acknowledgeDuplicate) {
+    throw new ExpertIdentityError(
+      `A similar Expert already exists (${nameConflicts
+        .map((row) => `@${row.username}`)
+        .join(", ")}). Check “Acknowledge existing name” to create anyway.`,
+    );
+  }
+
   const profile = await prisma.universalProfile.create({
     data: {
       username,
@@ -376,7 +408,9 @@ export async function upsertExpertAnalyst(input: {
       status: "ACTIVE",
       competitorActive,
       universalUserId: `uu_expert_${username}`,
-      publicVisible: true,
+      publicVisible,
+      avatarUrl,
+      bio,
     },
   });
 

@@ -64,6 +64,12 @@ export default async function AdminExpertsPage({
 
       <div className="mb-4 flex flex-wrap gap-4 text-sm">
         <Link
+          href="/admin/competitors/new?type=expert"
+          className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink"
+        >
+          Add Expert
+        </Link>
+        <Link
           href="/admin/benchmarks"
           className="font-medium text-accent-ink hover:underline"
         >

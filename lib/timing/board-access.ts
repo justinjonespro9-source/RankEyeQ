@@ -100,9 +100,19 @@ export function canViewCurrentWeekBoard(input: {
 export function canViewCurrentWeekConsensus(input: {
   week: BoardAccessWeek;
   now?: Date;
+  viewer?: Pick<BoardViewer, "isAdmin">;
 }): boolean {
+  if (input.viewer?.isAdmin) return true;
   const now = input.now ?? new Date();
   if (isWeekHistoricallyPublic(input.week, now)) return true;
   const lockAt = input.week.fullLockAt ?? input.week.revealStartsAt;
   return Boolean(lockAt && now >= lockAt);
+}
+
+/** Time-based public release only (ignores admin). Used for admin-preview banners. */
+export function isConsensusPubliclyReleased(input: {
+  week: BoardAccessWeek;
+  now?: Date;
+}): boolean {
+  return canViewCurrentWeekConsensus({ week: input.week, now: input.now });
 }

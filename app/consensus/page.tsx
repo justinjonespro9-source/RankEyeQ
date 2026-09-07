@@ -17,7 +17,7 @@ import { prisma } from "@/lib/db";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { ensureWeekFullLock } from "@/lib/timing/apply-locks";
-import { canViewCurrentWeekConsensus } from "@/lib/timing/board-access";
+import { canViewCurrentWeekConsensus, isConsensusPubliclyReleased } from "@/lib/timing/board-access";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
 import {
   isAdminTestPreviewRequested,
@@ -59,8 +59,9 @@ export default async function ConsensusPage({
 }) {
   const params = await searchParams;
   const auth = await getAuthContext();
+  const isAdmin = auth?.user?.role ? isAdminRole(auth.user.role) : false;
   const includeTest = resolveIncludeTestWeeks({
-    isAdmin: auth?.user?.role ? isAdminRole(auth.user.role) : false,
+    isAdmin,
     adminTestPreview: isAdminTestPreviewRequested(params),
     legacyTestParam: params.test === "1",
   });
@@ -103,9 +104,16 @@ export default async function ConsensusPage({
         weekStatus: selectedWeek.status,
       })
     : null;
-  const consensusVisible = selectedWeek
-    ? canViewCurrentWeekConsensus({ week: selectedWeek })
+  const consensusPublic = selectedWeek
+    ? isConsensusPubliclyReleased({ week: selectedWeek })
     : false;
+  const consensusVisible = selectedWeek
+    ? canViewCurrentWeekConsensus({
+        week: selectedWeek,
+        viewer: { isAdmin },
+      })
+    : false;
+  const isAdminPreview = Boolean(isAdmin && consensusVisible && !consensusPublic);
 
   const contest = weekId
     ? await prisma.rankIQContest.findUnique({
@@ -240,6 +248,32 @@ export default async function ConsensusPage({
           </div>
 
           <AdPlacement placementKey="consensus_inline" className="mb-6" />
+
+          {isAdminPreview ? (
+            <div
+              role="status"
+              className="mb-6 rounded-md border border-warning/50 bg-warning/10 px-4 py-3 text-sm text-ink"
+            >
+              <p className="font-semibold text-warning">
+                Admin Preview — consensus is still private to the public.
+              </p>
+              <p className="mt-1 text-muted">
+                Showing live aggregated Community EYEQ before Sunday lock / reveal.
+                Public release remains{" "}
+                {selectedWeek?.fullLockAt
+                  ? formatInChicago(selectedWeek.fullLockAt, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                      timeZoneName: "short",
+                    })
+                  : "at Sunday 10:00 AM America/Chicago"}
+                . This view is not a public release.
+              </p>
+            </div>
+          ) : null}
 
           {!contest ? (
             <EmptyState

@@ -5,10 +5,17 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { StatusPill } from "@/components/admin/StatusPill";
 import { Container } from "@/components/layout/Container";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import {
+  setCompetitorActiveAction,
+  updateCompetitorMetadataAction,
+} from "@/lib/admin-competitor-actions";
 import { getBotCoverage } from "@/lib/admin/bot-coverage";
 import { loadWeekAiPrompts } from "@/lib/admin/ai-prompt-data";
 import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
+import { listAiCompetitorIdentities } from "@/lib/ai-identity";
 import { prisma } from "@/lib/db";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
@@ -26,6 +33,10 @@ export default async function AdminAiPage({
     weekId?: string;
     profileId?: string;
     position?: string;
+    created?: string;
+    username?: string;
+    error?: string;
+    updated?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -71,8 +82,23 @@ export default async function AdminAiPage({
         eyebrow="Bots"
         title="AI ranking workflow"
         description={`Canonical ${RANKEYEQ_AI_WEEKLY_PROMPT_VERSION} prompts from the live contest pool. Same eligible field and scoring rules for every AI competitor — then parse/submit on the RankingSubmission path.`}
+        action={
+          <Link
+            href="/admin/competitors/new?type=ai"
+            className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink"
+          >
+            Add AI competitor
+          </Link>
+        }
       />
 
+      {params.created === "1" ? (
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
+          AI competitor created
+          {params.username ? ` (@${params.username})` : ""}. It appears in coverage when
+          competitorActive.
+        </p>
+      ) : null}
       <div className="mb-4 flex flex-wrap gap-2">
         {weeks.map((item) => (
           <Link
@@ -263,7 +289,132 @@ export default async function AdminAiPage({
           ) : null}
         </>
       )}
+
+      <AiCompetitorDirectory />
     </Container>
+  );
+}
+
+async function AiCompetitorDirectory() {
+  const rows = await listAiCompetitorIdentities();
+
+  return (
+    <section className="mt-12">
+      <h2 className="font-display text-lg font-semibold text-ink">
+        AI competitor directory
+      </h2>
+      <p className="mt-1 text-sm text-muted">
+        Deactivate to remove from weekly coverage without deleting historical
+        submissions. Display name feeds the public AI · model chip.
+      </p>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-border bg-surface-elevated">
+        <table className="w-full min-w-[48rem] text-left text-sm">
+          <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th className="px-3 py-3">AI</th>
+              <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Graded</th>
+              <th className="px-3 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.universalProfileId}
+                className="border-b border-border align-top last:border-0"
+              >
+                <td className="px-3 py-3">
+                  <p className="font-medium text-ink">{row.displayName}</p>
+                  <p className="text-xs text-muted">@{row.username}</p>
+                  {row.bio ? (
+                    <p className="mt-1 text-xs text-muted">{row.bio}</p>
+                  ) : null}
+                </td>
+                <td className="px-3 py-3">
+                  <Badge tone={row.competitorActive ? "success" : "warning"}>
+                    {row.competitorActive ? "Active" : "Inactive"}
+                  </Badge>
+                  {!row.publicVisible ? (
+                    <Badge tone="neutral" className="ml-1">
+                      Hidden
+                    </Badge>
+                  ) : null}
+                </td>
+                <td className="px-3 py-3 tabular-nums">{row.gradedSubmissions}</td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-col gap-2">
+                    <form action={setCompetitorActiveAction}>
+                      <input type="hidden" name="type" value="ai" />
+                      <input
+                        type="hidden"
+                        name="universalProfileId"
+                        value={row.universalProfileId}
+                      />
+                      <input type="hidden" name="returnTo" value="/admin/ai" />
+                      <input
+                        type="hidden"
+                        name="active"
+                        value={row.competitorActive ? "false" : "true"}
+                      />
+                      <Button type="submit" variant="secondary" className="text-xs">
+                        {row.competitorActive ? "Deactivate" : "Activate"}
+                      </Button>
+                    </form>
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted hover:text-ink">
+                        Edit metadata
+                      </summary>
+                      <form
+                        action={updateCompetitorMetadataAction}
+                        className="mt-2 grid gap-2 rounded-md border border-border bg-surface p-2"
+                      >
+                        <input type="hidden" name="type" value="ai" />
+                        <input
+                          type="hidden"
+                          name="universalProfileId"
+                          value={row.universalProfileId}
+                        />
+                        <input type="hidden" name="returnTo" value="/admin/ai" />
+                        <input
+                          name="displayName"
+                          defaultValue={row.displayName}
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="avatarUrl"
+                          defaultValue={row.avatarUrl ?? ""}
+                          placeholder="Avatar URL"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="bio"
+                          defaultValue={row.bio ?? ""}
+                          placeholder="Version notes"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input type="hidden" name="publicVisible" value="false" />
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            name="publicVisible"
+                            value="true"
+                            defaultChecked={row.publicVisible}
+                          />
+                          Public visible
+                        </label>
+                        <Button type="submit" className="text-xs">
+                          Save
+                        </Button>
+                      </form>
+                    </details>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

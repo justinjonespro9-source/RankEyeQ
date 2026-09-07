@@ -1,0 +1,272 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { logAdminAction } from "@/lib/admin/audit";
+import {
+  AiIdentityError,
+  createAiCompetitor,
+  setAiDirectoryActive,
+  updateAiCompetitorMetadata,
+} from "@/lib/ai-identity";
+import { assertAdmin } from "@/lib/auth/session";
+import {
+  CreatorIdentityError,
+  createCreatorCompetitor,
+  setCreatorDirectoryActive,
+  updateCreatorCompetitorMetadata,
+} from "@/lib/creator-identity";
+import {
+  ExpertIdentityError,
+  createExpertAnalyst,
+  setExpertDirectoryActive,
+  updateExpertAnalystMetadata,
+} from "@/lib/expert-identity";
+import type { ContestPosition } from "@/lib/generated/prisma/client";
+
+function revalidateCompetitorSurfaces() {
+  revalidatePath("/admin/competitors/new");
+  revalidatePath("/admin/ai");
+  revalidatePath("/admin/creators");
+  revalidatePath("/admin/creators/verification");
+  revalidatePath("/admin/experts");
+  revalidatePath("/admin/benchmarks");
+  revalidatePath("/admin/users");
+  revalidatePath("/rankers");
+  revalidatePath("/leaderboards");
+}
+
+function parsePositions(formData: FormData): ContestPosition[] {
+  const raw = formData.getAll("positions").map(String);
+  const allowed = new Set(["QB", "RB", "WR", "TE", "DEF"]);
+  return raw.filter((value): value is ContestPosition => allowed.has(value));
+}
+
+function flag(formData: FormData, name: string, defaultTrue = true) {
+  const values = formData.getAll(name).map(String);
+  if (values.length === 0) return defaultTrue;
+  const last = values[values.length - 1];
+  return last !== "false" && last !== "0";
+}
+
+function redirectCreateError(type: string, message: string): never {
+  redirect(
+    `/admin/competitors/new?type=${encodeURIComponent(type)}&error=${encodeURIComponent(message)}`,
+  );
+}
+
+export async function createCompetitorAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const type = String(formData.get("type") || "").toLowerCase();
+  const acknowledgeDuplicate = formData.get("acknowledgeDuplicate") === "true";
+
+  try {
+    if (type === "ai") {
+      const profile = await createAiCompetitor({
+        displayName: String(formData.get("displayName") || ""),
+        username: String(formData.get("username") || ""),
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        competitorActive: flag(formData, "competitorActive", true),
+        publicVisible: flag(formData, "publicVisible", true),
+        acknowledgeDuplicate,
+      });
+      await logAdminAction({
+        adminUserId: admin.user.id,
+        action: "ai.competitor_created",
+        entityType: "UniversalProfile",
+        entityId: profile.id,
+        metadata: { username: profile.username },
+      });
+      revalidateCompetitorSurfaces();
+      redirect(`/admin/ai?created=1&username=${encodeURIComponent(profile.username)}`);
+    }
+
+    if (type === "creator") {
+      const profile = await createCreatorCompetitor({
+        personName: String(formData.get("displayName") || formData.get("personName") || ""),
+        brandName: String(formData.get("brandName") || ""),
+        username: String(formData.get("username") || "").trim() || undefined,
+        creatorSiteUrl:
+          String(formData.get("creatorSiteUrl") || "").trim() || null,
+        socialUrl: String(formData.get("socialUrl") || "").trim() || null,
+        socialHandle: String(formData.get("socialHandle") || "").trim() || null,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        competitorActive: flag(formData, "competitorActive", true),
+        publicVisible: flag(formData, "publicVisible", true),
+        positionsCovered: parsePositions(formData),
+        acknowledgeDuplicate,
+      });
+      await logAdminAction({
+        adminUserId: admin.user.id,
+        action: "creator.competitor_created",
+        entityType: "UniversalProfile",
+        entityId: profile.id,
+        metadata: { username: profile.username, claimStatus: "UNCLAIMED" },
+      });
+      revalidateCompetitorSurfaces();
+      redirect(
+        `/admin/creators?created=1&username=${encodeURIComponent(profile.username)}`,
+      );
+    }
+
+    if (type === "expert") {
+      const profile = await createExpertAnalyst({
+        analystName: String(formData.get("displayName") || formData.get("analystName") || ""),
+        publicationName: String(formData.get("publicationName") || ""),
+        username: String(formData.get("username") || "").trim() || undefined,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        publicVisible: flag(formData, "publicVisible", true),
+        positionsCovered: parsePositions(formData),
+        competitorActive: flag(formData, "competitorActive", true),
+        notes: String(formData.get("notes") || "").trim() || null,
+        acknowledgeDuplicate,
+      });
+      await logAdminAction({
+        adminUserId: admin.user.id,
+        action: "expert.analyst_created",
+        entityType: "UniversalProfile",
+        entityId: profile.id,
+        metadata: { username: profile.username, sourceKind: "ANALYST" },
+      });
+      revalidateCompetitorSurfaces();
+      redirect(
+        `/admin/experts?created=1&username=${encodeURIComponent(profile.username)}`,
+      );
+    }
+
+    redirectCreateError(type || "ai", "Unknown competitor type");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "digest" in error &&
+      String((error as { digest?: string }).digest || "").startsWith("NEXT_REDIRECT")
+    ) {
+      throw error;
+    }
+    const message =
+      error instanceof AiIdentityError ||
+      error instanceof CreatorIdentityError ||
+      error instanceof ExpertIdentityError
+        ? error.message
+        : "Unable to create competitor";
+    redirectCreateError(type || "ai", message);
+  }
+}
+
+export async function setCompetitorActiveAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const type = String(formData.get("type") || "").toLowerCase();
+  const profileId = String(formData.get("universalProfileId") || "");
+  const active = String(formData.get("active") || "") === "true";
+  const returnTo = String(formData.get("returnTo") || `/admin/${type === "ai" ? "ai" : type === "creator" ? "creators" : "experts"}`);
+
+  try {
+    if (type === "ai") {
+      await setAiDirectoryActive({ universalProfileId: profileId, active });
+    } else if (type === "creator") {
+      await setCreatorDirectoryActive({ universalProfileId: profileId, active });
+    } else if (type === "expert") {
+      await setExpertDirectoryActive({ universalProfileId: profileId, active });
+    } else {
+      throw new Error("Unknown competitor type");
+    }
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: active ? `${type}.activated` : `${type}.deactivated`,
+      entityType: "UniversalProfile",
+      entityId: profileId,
+    });
+  } catch (error) {
+    const message =
+      error instanceof AiIdentityError ||
+      error instanceof CreatorIdentityError ||
+      error instanceof ExpertIdentityError
+        ? error.message
+        : "Unable to update competitor status";
+    redirect(`${returnTo}?error=${encodeURIComponent(message)}`);
+  }
+  revalidateCompetitorSurfaces();
+  redirect(returnTo);
+}
+
+export async function updateCompetitorMetadataAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const type = String(formData.get("type") || "").toLowerCase();
+  const profileId = String(formData.get("universalProfileId") || "");
+  const returnTo = String(
+    formData.get("returnTo") ||
+      `/admin/${type === "ai" ? "ai" : type === "creator" ? "creators" : "experts"}`,
+  );
+
+  try {
+    if (type === "ai") {
+      await updateAiCompetitorMetadata({
+        universalProfileId: profileId,
+        displayName: String(formData.get("displayName") || "") || undefined,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        publicVisible: flag(formData, "publicVisible", true),
+      });
+    } else if (type === "creator") {
+      await updateCreatorCompetitorMetadata({
+        universalProfileId: profileId,
+        personName: String(formData.get("displayName") || formData.get("personName") || "") || undefined,
+        brandName: String(formData.get("brandName") || "") || undefined,
+        creatorSiteUrl:
+          String(formData.get("creatorSiteUrl") || "").trim() || null,
+        socialUrl: String(formData.get("socialUrl") || "").trim() || null,
+        socialHandle: String(formData.get("socialHandle") || "").trim() || null,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        publicVisible: flag(formData, "publicVisible", true),
+        positionsCovered: parsePositions(formData),
+      });
+    } else if (type === "expert") {
+      await updateExpertAnalystMetadata({
+        universalProfileId: profileId,
+        analystName:
+          String(formData.get("displayName") || formData.get("analystName") || "") ||
+          undefined,
+        publicationName:
+          String(formData.get("publicationName") || "") || undefined,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        positionsCovered: parsePositions(formData),
+        notes: String(formData.get("bio") || formData.get("notes") || "").trim() || null,
+      });
+      const { prisma } = await import("@/lib/db");
+      await prisma.universalProfile.update({
+        where: { id: profileId },
+        data: {
+          avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+          publicVisible: flag(formData, "publicVisible", true),
+          bio: String(formData.get("bio") || "").trim() || null,
+        },
+      });
+    } else {
+      throw new Error("Unknown competitor type");
+    }
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: `${type}.metadata_updated`,
+      entityType: "UniversalProfile",
+      entityId: profileId,
+    });
+  } catch (error) {
+    const message =
+      error instanceof AiIdentityError ||
+      error instanceof CreatorIdentityError ||
+      error instanceof ExpertIdentityError
+        ? error.message
+        : "Unable to update competitor";
+    redirect(`${returnTo}?error=${encodeURIComponent(message)}`);
+  }
+  revalidateCompetitorSurfaces();
+  redirect(`${returnTo}?updated=1`);
+}

@@ -55,5 +55,22 @@ describe("RankEyeQ brand system", () => {
     );
     expect(mark).toContain('className = "h-7 w-7"');
     expect(mark).toContain('viewBox="0 0 40 44"');
+    expect(mark).toContain('treatment = "standalone"');
+    expect(mark).toContain("M26.8 26.2 L35.2 38.4");
+  });
+
+  it("joins the Q to RankEye as a letter, not a detached icon", () => {
+    // ~30% tighter than prior gap-0.5 / gap-1, plus left nudge into viewBox pad.
+    expect(wordmark).toContain("gap-[0.085em]");
+    expect(wordmark).toContain("gap-[0.12em]");
+    expect(wordmark).toContain("-ml-[0.1em]");
+    expect(wordmark).toContain('treatment="letter"');
+    const mark = readFileSync(
+      join(process.cwd(), "components/brand/BrandMark.tsx"),
+      "utf8",
+    );
+    // Wordmark-only shorter Q descender; standalone handle preserved.
+    expect(mark).toContain("M26.8 26.2 L32.6 34.8");
+    expect(mark).toContain("M26.8 26.2 L35.2 38.4");
   });
 });

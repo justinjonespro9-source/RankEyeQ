@@ -4,6 +4,7 @@ import {
   canViewCurrentWeekBoard,
   canViewCurrentWeekConsensus,
   getBoardRevealEntitlement,
+  isConsensusPubliclyReleased,
 } from "@/lib/timing/board-access";
 
 const week = {
@@ -169,6 +170,54 @@ describe("board and consensus privacy", () => {
     ).toBe(true);
     expect(
       getBoardRevealEntitlement(stranger, {}).canViewRevealBoards,
+    ).toBe(false);
+  });
+
+  it("lets admin view consensus before Sunday lock", () => {
+    expect(
+      canViewCurrentWeekConsensus({
+        week,
+        viewer: { isAdmin: true },
+        now: zonedLocalToUtc(2026, 9, 13, 9, 0),
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps consensus private for humans and signed-out before lock", () => {
+    expect(
+      canViewCurrentWeekConsensus({
+        week,
+        viewer: { isAdmin: false },
+        now: zonedLocalToUtc(2026, 9, 13, 9, 0),
+      }),
+    ).toBe(false);
+    expect(
+      canViewCurrentWeekConsensus({
+        week,
+        now: zonedLocalToUtc(2026, 9, 13, 9, 0),
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves post-lock public consensus unchanged", () => {
+    expect(
+      canViewCurrentWeekConsensus({
+        week,
+        viewer: { isAdmin: false },
+        now: zonedLocalToUtc(2026, 9, 13, 10, 0),
+      }),
+    ).toBe(true);
+    expect(
+      isConsensusPubliclyReleased({
+        week,
+        now: zonedLocalToUtc(2026, 9, 13, 10, 0),
+      }),
+    ).toBe(true);
+    expect(
+      isConsensusPubliclyReleased({
+        week,
+        now: zonedLocalToUtc(2026, 9, 13, 9, 0),
+      }),
     ).toBe(false);
   });
 });

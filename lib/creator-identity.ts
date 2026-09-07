@@ -74,6 +74,13 @@ export type CreatorIdentityRow = {
   personName: string | null;
   brandName: string | null;
   sourceUrl: string | null;
+  creatorSiteUrl: string | null;
+  socialHandle: string | null;
+  socialUrl: string | null;
+  claimStatus: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  publicVisible: boolean;
   positionsCovered: ContestPosition[];
   active: boolean;
   competitorActive: boolean;
@@ -113,6 +120,13 @@ export async function listCreatorCompetitorIdentities(): Promise<
       personName,
       brandName,
       sourceUrl: profile.creatorCompetitor?.sourceUrl ?? null,
+      creatorSiteUrl: profile.creatorCompetitor?.creatorSiteUrl ?? null,
+      socialHandle: profile.creatorCompetitor?.socialHandle ?? null,
+      socialUrl: profile.creatorCompetitor?.socialUrl ?? null,
+      claimStatus: profile.creatorCompetitor?.claimStatus ?? "UNCLAIMED",
+      avatarUrl: profile.avatarUrl,
+      bio: profile.bio,
+      publicVisible: profile.publicVisible,
       positionsCovered: parseCreatorPositionsCovered(
         profile.creatorCompetitor?.positionsCovered,
       ),
@@ -143,9 +157,13 @@ async function upsertCreatorCompetitorMetadata(input: {
   personName?: string | null;
   brandName?: string | null;
   sourceUrl?: string | null;
+  creatorSiteUrl?: string | null;
+  socialHandle?: string | null;
+  socialUrl?: string | null;
   positionsCovered?: ContestPosition[];
   active?: boolean;
   notes?: string | null;
+  claimStatus?: "UNCLAIMED" | "REQUESTED" | "VERIFIED" | "REJECTED";
 }) {
   const existing = await prisma.creatorCompetitorProfile.findUnique({
     where: { universalProfileId: input.universalProfileId },
@@ -164,6 +182,18 @@ async function upsertCreatorCompetitorMetadata(input: {
       input.sourceUrl !== undefined
         ? input.sourceUrl
         : (existing?.sourceUrl ?? null),
+    creatorSiteUrl:
+      input.creatorSiteUrl !== undefined
+        ? input.creatorSiteUrl
+        : (existing?.creatorSiteUrl ?? null),
+    socialHandle:
+      input.socialHandle !== undefined
+        ? input.socialHandle
+        : (existing?.socialHandle ?? null),
+    socialUrl:
+      input.socialUrl !== undefined
+        ? input.socialUrl
+        : (existing?.socialUrl ?? null),
     positionsCovered:
       input.positionsCovered !== undefined
         ? input.positionsCovered
@@ -172,6 +202,11 @@ async function upsertCreatorCompetitorMetadata(input: {
       input.active !== undefined ? input.active : (existing?.active ?? true),
     notes:
       input.notes !== undefined ? input.notes : (existing?.notes ?? null),
+    ...(input.claimStatus !== undefined
+      ? { claimStatus: input.claimStatus }
+      : existing
+        ? {}
+        : { claimStatus: "UNCLAIMED" as const }),
   };
 
   if (existing) {
@@ -209,9 +244,16 @@ export async function upsertCreatorCompetitor(input: {
   brandName: string;
   username?: string;
   sourceUrl?: string | null;
+  creatorSiteUrl?: string | null;
+  socialHandle?: string | null;
+  socialUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
   positionsCovered?: ContestPosition[];
   competitorActive?: boolean;
   notes?: string | null;
+  acknowledgeDuplicate?: boolean;
 }): Promise<UpsertCreatorCompetitorResult> {
   const nameResult = validateDisplayName(input.personName);
   if (!nameResult.ok) throw new CreatorIdentityError(nameResult.error);
@@ -231,7 +273,13 @@ export async function upsertCreatorCompetitor(input: {
   }
 
   const competitorActive = input.competitorActive ?? true;
+  const publicVisible = input.publicVisible ?? true;
   const sourceUrl = input.sourceUrl?.trim() || null;
+  const creatorSiteUrl = input.creatorSiteUrl?.trim() || null;
+  const socialHandle = input.socialHandle?.trim() || null;
+  const socialUrl = input.socialUrl?.trim() || null;
+  const avatarUrl = input.avatarUrl?.trim() || null;
+  const bio = input.bio?.trim() || null;
   const positions = input.positionsCovered ?? [];
   const notes = input.notes ?? null;
 
@@ -262,10 +310,16 @@ export async function upsertCreatorCompetitor(input: {
     const unchanged =
       existing.displayName === nameResult.username &&
       existing.competitorActive === competitorActive &&
+      existing.publicVisible === publicVisible &&
       existing.status === "ACTIVE" &&
+      (existing.avatarUrl ?? null) === avatarUrl &&
+      (existing.bio ?? null) === bio &&
       (existing.creatorCompetitor?.personName ?? null) === nameResult.username &&
       (existing.creatorCompetitor?.brandName ?? null) === brand &&
       (existing.creatorCompetitor?.sourceUrl ?? null) === sourceUrl &&
+      (existing.creatorCompetitor?.creatorSiteUrl ?? null) === creatorSiteUrl &&
+      (existing.creatorCompetitor?.socialHandle ?? null) === socialHandle &&
+      (existing.creatorCompetitor?.socialUrl ?? null) === socialUrl &&
       (existing.creatorCompetitor?.active ?? true) === true &&
       positionsEqual &&
       (existing.creatorCompetitor?.notes ?? null) === notes;
@@ -289,7 +343,9 @@ export async function upsertCreatorCompetitor(input: {
         displayName: nameResult.username,
         status: "ACTIVE",
         competitorActive,
-        publicVisible: true,
+        publicVisible,
+        avatarUrl,
+        bio,
       },
     });
     await upsertCreatorCompetitorMetadata({
@@ -297,6 +353,9 @@ export async function upsertCreatorCompetitor(input: {
       personName: nameResult.username,
       brandName: brand,
       sourceUrl,
+      creatorSiteUrl,
+      socialHandle,
+      socialUrl,
       positionsCovered: positions,
       active: true,
       notes,
@@ -314,6 +373,22 @@ export async function upsertCreatorCompetitor(input: {
     };
   }
 
+  const nameConflicts = await prisma.universalProfile.findMany({
+    where: {
+      profileType: "CREATOR",
+      displayName: { equals: nameResult.username, mode: "insensitive" },
+    },
+    select: { username: true },
+    take: 5,
+  });
+  if (nameConflicts.length > 0 && !input.acknowledgeDuplicate) {
+    throw new CreatorIdentityError(
+      `A similar Creator already exists (${nameConflicts
+        .map((row) => `@${row.username}`)
+        .join(", ")}). Check “Acknowledge existing name” to create anyway.`,
+    );
+  }
+
   const profile = await prisma.universalProfile.create({
     data: {
       username,
@@ -322,7 +397,9 @@ export async function upsertCreatorCompetitor(input: {
       status: "ACTIVE",
       competitorActive,
       universalUserId: `uu_creator_${username}`,
-      publicVisible: true,
+      publicVisible,
+      avatarUrl,
+      bio,
     },
   });
 
@@ -331,9 +408,13 @@ export async function upsertCreatorCompetitor(input: {
     personName: nameResult.username,
     brandName: brand,
     sourceUrl,
+    creatorSiteUrl,
+    socialHandle,
+    socialUrl,
     positionsCovered: positions,
     active: true,
     notes,
+    claimStatus: "UNCLAIMED",
   });
 
   return {
@@ -346,6 +427,106 @@ export async function upsertCreatorCompetitor(input: {
       competitorActive: profile.competitorActive,
     },
   };
+}
+
+/**
+ * Admin create for a tracked Creator identity.
+ * Does NOT verify or claim the profile — claimStatus stays UNCLAIMED.
+ */
+export async function createCreatorCompetitor(input: {
+  personName: string;
+  brandName: string;
+  username?: string;
+  sourceUrl?: string | null;
+  creatorSiteUrl?: string | null;
+  socialHandle?: string | null;
+  socialUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
+  positionsCovered?: ContestPosition[];
+  competitorActive?: boolean;
+  notes?: string | null;
+  acknowledgeDuplicate?: boolean;
+}) {
+  const result = await upsertCreatorCompetitor(input);
+  if (result.action !== "created") {
+    throw new CreatorIdentityError(
+      `Username @${result.profile.username} is already taken`,
+    );
+  }
+  return result.profile;
+}
+
+export async function updateCreatorCompetitorMetadata(input: {
+  universalProfileId: string;
+  personName?: string;
+  brandName?: string;
+  sourceUrl?: string | null;
+  creatorSiteUrl?: string | null;
+  socialHandle?: string | null;
+  socialUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
+  positionsCovered?: ContestPosition[];
+  notes?: string | null;
+}) {
+  const profile = await prisma.universalProfile.findUnique({
+    where: { id: input.universalProfileId },
+    include: { creatorCompetitor: true },
+  });
+  if (!profile || profile.profileType !== "CREATOR") {
+    throw new CreatorIdentityError("Creator competitor profile not found");
+  }
+
+  let displayName = profile.displayName;
+  const profileData: {
+    displayName?: string;
+    avatarUrl?: string | null;
+    bio?: string | null;
+    publicVisible?: boolean;
+  } = {};
+
+  if (input.personName != null) {
+    const nameResult = validateDisplayName(input.personName);
+    if (!nameResult.ok) throw new CreatorIdentityError(nameResult.error);
+    displayName = nameResult.username;
+    profileData.displayName = displayName;
+  }
+  if (input.avatarUrl !== undefined) {
+    profileData.avatarUrl = input.avatarUrl?.trim() || null;
+  }
+  if (input.bio !== undefined) {
+    profileData.bio = input.bio?.trim() || null;
+  }
+  if (input.publicVisible !== undefined) {
+    profileData.publicVisible = input.publicVisible;
+  }
+
+  if (Object.keys(profileData).length > 0) {
+    await prisma.universalProfile.update({
+      where: { id: profile.id },
+      data: profileData,
+    });
+  }
+
+  await upsertCreatorCompetitorMetadata({
+    universalProfileId: profile.id,
+    personName: input.personName != null ? displayName : undefined,
+    brandName: input.brandName,
+    sourceUrl: input.sourceUrl,
+    creatorSiteUrl: input.creatorSiteUrl,
+    socialHandle: input.socialHandle,
+    socialUrl: input.socialUrl,
+    positionsCovered: input.positionsCovered,
+    notes: input.notes,
+  });
+
+  return prisma.universalProfile.findUniqueOrThrow({
+    where: { id: profile.id },
+    include: { creatorCompetitor: true },
+  });
 }
 
 /** Directory + competitor activation without deleting historical Creator rows. */

@@ -9,11 +9,15 @@ type BrandWordmarkProps = {
   markClassName?: string;
 };
 
+/**
+ * Inter-letter gap between “e” and Q — ~30% tighter than prior gap-0.5 / gap-1
+ * so the mark joins the word instead of reading as a trailing icon.
+ */
 const sizeClasses = {
-  sm: "text-base gap-0.5",
-  md: "text-xl gap-0.5",
-  lg: "text-2xl gap-1",
-  hero: "text-4xl gap-1 sm:text-5xl md:text-6xl",
+  sm: "text-base gap-[0.085em]",
+  md: "text-xl gap-[0.085em]",
+  lg: "text-2xl gap-[0.12em]",
+  hero: "text-4xl gap-[0.12em] sm:text-5xl md:text-6xl",
 } as const;
 
 /**
@@ -28,6 +32,9 @@ const sizeClasses = {
  * Width keeps the 40∶44 aspect ≈ 1.39em
  * Baseline nudge = height × ((44 − 29.75) / 44) ≈ 0.50em so the bowl rests
  * on the alphabetic baseline and the tail descends like a true Q.
+ *
+ * Horizontal join: flex gap (~30% tighter) plus -ml-[0.1em] pulls the bowl
+ * toward the final “e”, eating unused left viewBox padding without clipping.
  */
 const markSizeClasses = {
   sm: "h-[1.53em] w-[1.39em]",
@@ -54,7 +61,8 @@ export function BrandWordmark({
     >
       <span className={wordColor}>RankEye</span>
       <BrandMark
-        className={`relative top-[0.5em] shrink-0 text-accent ${markSizeClasses[size]} ${markClassName}`}
+        treatment="letter"
+        className={`relative top-[0.5em] -ml-[0.1em] shrink-0 text-accent ${markSizeClasses[size]} ${markClassName}`}
       />
     </span>
   );

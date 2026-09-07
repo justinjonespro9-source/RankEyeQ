@@ -2,13 +2,29 @@
  * Standalone RankEyeQ Q mark — teal monocle / magnifier with logo-only iris.
  * Artwork lives inline for now; replace with `/public/brand/q-mark.svg` (or PNG)
  * when final production assets are ready.
+ *
+ * `treatment="letter"` shortens the tail for in-wordmark use so the mark reads as
+ * a capital Q. Default standalone treatment (favicons, badges) is unchanged.
  */
 type BrandMarkProps = {
   className?: string;
   title?: string;
+  /** standalone = full magnifier handle; letter = shorter Q descender for wordmarks */
+  treatment?: "standalone" | "letter";
 };
 
-export function BrandMark({ className = "h-7 w-7", title }: BrandMarkProps) {
+/** Full handle — default for badges / favicon-style marks. */
+const TAIL_STANDALONE = "M26.8 26.2 L35.2 38.4";
+/** ~30% shorter descender — wordmark letter Q, not a detached magnifier. */
+const TAIL_LETTER = "M26.8 26.2 L32.6 34.8";
+
+export function BrandMark({
+  className = "h-7 w-7",
+  title,
+  treatment = "standalone",
+}: BrandMarkProps) {
+  const tailPath = treatment === "letter" ? TAIL_LETTER : TAIL_STANDALONE;
+
   return (
     <svg
       className={className}
@@ -34,7 +50,7 @@ export function BrandMark({ className = "h-7 w-7", title }: BrandMarkProps) {
       <circle cx="15.55" cy="15.15" r="1.2" fill="#f7f9fa" fillOpacity="0.55" />
       {/* Q tail / handle */}
       <path
-        d="M26.8 26.2 L35.2 38.4"
+        d={tailPath}
         stroke="currentColor"
         strokeWidth="3.25"
         strokeLinecap="round"

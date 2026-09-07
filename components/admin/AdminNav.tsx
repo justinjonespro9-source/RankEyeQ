@@ -2,12 +2,13 @@ import Link from "next/link";
 
 const LINKS = [
   { href: "/admin", label: "Command Center" },
-  { href: "/admin/ai", label: "AI Rankings" },
-  { href: "/admin/benchmarks", label: "Benchmarks" },
-  { href: "/admin/experts", label: "Experts" },
-  { href: "/admin/users", label: "Users" },
+  { href: "/admin/competitors/new", label: "Add Competitor" },
+  { href: "/admin/ai", label: "AI" },
   { href: "/admin/creators", label: "Creators" },
   { href: "/admin/creators/verification", label: "Creator Verify" },
+  { href: "/admin/experts", label: "Experts" },
+  { href: "/admin/benchmarks", label: "Benchmarks" },
+  { href: "/admin/users", label: "Users" },
   { href: "/admin/test-week", label: "Test Week" },
   { href: "/admin/preview", label: "Test Preview" },
   { href: "/admin/diagnostics", label: "Diagnostics" },

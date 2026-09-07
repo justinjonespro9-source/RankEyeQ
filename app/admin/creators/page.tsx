@@ -3,11 +3,18 @@ import Link from "next/link";
 import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { Container } from "@/components/layout/Container";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import {
+  setCompetitorActiveAction,
+  updateCompetitorMetadataAction,
+} from "@/lib/admin-competitor-actions";
 import {
   getCreatorRankingCoverage,
   type CreatorImportCellStatus,
 } from "@/lib/creators/coverage";
+import { listCreatorCompetitorIdentities } from "@/lib/creator-identity";
 import { prisma } from "@/lib/db";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 
@@ -27,7 +34,7 @@ function statusClass(status: CreatorImportCellStatus) {
 export default async function AdminCreatorRankingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ weekId?: string }>;
+  searchParams: Promise<{ weekId?: string; created?: string; username?: string }>;
 }) {
   const params = await searchParams;
   const weeks = await prisma.week.findMany({
@@ -57,6 +64,12 @@ export default async function AdminCreatorRankingsPage({
         action={
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
             <Link
+              href="/admin/competitors/new?type=creator"
+              className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink"
+            >
+              Add Creator
+            </Link>
+            <Link
               href="/admin/creators/entitlements"
               className="text-sm font-medium text-accent-ink hover:underline"
             >
@@ -72,6 +85,13 @@ export default async function AdminCreatorRankingsPage({
         }
       />
 
+      {params.created === "1" ? (
+        <p className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
+          Creator competitor created
+          {params.username ? ` (@${params.username})` : ""} as UNCLAIMED tracked
+          identity — not verified.
+        </p>
+      ) : null}
       <div className="mb-4 flex flex-wrap gap-2">
         {weeks.map((item) => (
           <Link
@@ -194,6 +214,152 @@ export default async function AdminCreatorRankingsPage({
           </div>
         </>
       )}
+
+      <CreatorCompetitorDirectory />
     </Container>
+  );
+}
+
+async function CreatorCompetitorDirectory() {
+  const rows = await listCreatorCompetitorIdentities();
+  return (
+    <section className="mt-12">
+      <h2 className="font-display text-lg font-semibold text-ink">
+        Creator competitor directory
+      </h2>
+      <p className="mt-1 text-sm text-muted">
+        Tracked Creators default to UNCLAIMED. Deactivate without deleting
+        historical boards. Brand feeds the CREATOR · brand chip.
+      </p>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-border bg-surface-elevated">
+        <table className="w-full min-w-[56rem] text-left text-sm">
+          <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th className="px-3 py-3">Creator</th>
+              <th className="px-3 py-3">Claim</th>
+              <th className="px-3 py-3">Directory</th>
+              <th className="px-3 py-3">Graded</th>
+              <th className="px-3 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.universalProfileId}
+                className="border-b border-border align-top last:border-0"
+              >
+                <td className="px-3 py-3">
+                  <p className="font-medium text-ink">{row.primaryName}</p>
+                  <p className="text-xs text-muted">
+                    @{row.username}
+                    {row.affiliationBadge ? ` · ${row.affiliationBadge}` : ""}
+                  </p>
+                </td>
+                <td className="px-3 py-3">
+                  <Badge
+                    tone={
+                      row.claimStatus === "VERIFIED"
+                        ? "success"
+                        : row.claimStatus === "REQUESTED"
+                          ? "warning"
+                          : "neutral"
+                    }
+                  >
+                    {row.claimStatus}
+                  </Badge>
+                </td>
+                <td className="px-3 py-3">
+                  <Badge tone={row.competitorActive ? "success" : "warning"}>
+                    {row.competitorActive ? "Active" : "Inactive"}
+                  </Badge>
+                </td>
+                <td className="px-3 py-3 tabular-nums">{row.gradedSubmissions}</td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-col gap-2">
+                    <form action={setCompetitorActiveAction}>
+                      <input type="hidden" name="type" value="creator" />
+                      <input
+                        type="hidden"
+                        name="universalProfileId"
+                        value={row.universalProfileId}
+                      />
+                      <input type="hidden" name="returnTo" value="/admin/creators" />
+                      <input
+                        type="hidden"
+                        name="active"
+                        value={row.competitorActive ? "false" : "true"}
+                      />
+                      <Button type="submit" variant="secondary" className="text-xs">
+                        {row.competitorActive ? "Deactivate" : "Activate"}
+                      </Button>
+                    </form>
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted hover:text-ink">
+                        Edit metadata
+                      </summary>
+                      <form
+                        action={updateCompetitorMetadataAction}
+                        className="mt-2 grid gap-2 rounded-md border border-border bg-surface p-2"
+                      >
+                        <input type="hidden" name="type" value="creator" />
+                        <input
+                          type="hidden"
+                          name="universalProfileId"
+                          value={row.universalProfileId}
+                        />
+                        <input
+                          type="hidden"
+                          name="returnTo"
+                          value="/admin/creators"
+                        />
+                        <input
+                          name="displayName"
+                          defaultValue={row.personName ?? row.displayName}
+                          placeholder="Person name"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="brandName"
+                          defaultValue={row.brandName ?? ""}
+                          placeholder="Brand"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="creatorSiteUrl"
+                          defaultValue={row.creatorSiteUrl ?? ""}
+                          placeholder="Site URL"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="socialUrl"
+                          defaultValue={row.socialUrl ?? ""}
+                          placeholder="Social URL"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="socialHandle"
+                          defaultValue={row.socialHandle ?? ""}
+                          placeholder="Handle"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <input
+                          name="avatarUrl"
+                          defaultValue={row.avatarUrl ?? ""}
+                          placeholder="Avatar URL"
+                          className="rounded border border-border bg-surface-elevated px-2 py-1"
+                        />
+                        <Button type="submit" className="text-xs">
+                          Save
+                        </Button>
+                      </form>
+                    </details>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
