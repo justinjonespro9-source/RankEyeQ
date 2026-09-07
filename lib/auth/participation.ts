@@ -2,6 +2,13 @@ import type { ProfileType } from "@/lib/generated/prisma/client";
 
 export type ParticipationState = "signed-out" | "needs-setup" | "ready";
 
+/** HUMAN and claimed/verified CREATOR accounts may participate when signed in. */
+export function canAuthenticateAsParticipant(
+  profileType: ProfileType | null | undefined,
+): boolean {
+  return profileType === "HUMAN" || profileType === "CREATOR";
+}
+
 export function resolveParticipationState(input: {
   signedIn: boolean;
   universalProfileId: string | null;
@@ -9,7 +16,12 @@ export function resolveParticipationState(input: {
 }): ParticipationState {
   if (!input.signedIn) return "signed-out";
   if (!input.universalProfileId) return "needs-setup";
-  if (input.profileType && input.profileType !== "HUMAN") return "needs-setup";
+  if (
+    input.profileType &&
+    !canAuthenticateAsParticipant(input.profileType)
+  ) {
+    return "needs-setup";
+  }
   return "ready";
 }
 
@@ -32,6 +44,10 @@ export function isBenchmarkProfileWithoutAuth(profileType: ProfileType) {
   return profileType === "BENCHMARK";
 }
 
+/**
+ * CREATOR class can exist as a tracked (imported) identity without an auth User.
+ * Verified creators may also sign in — use canAuthenticateAsParticipant for that.
+ */
 export function isCreatorProfileWithoutAuth(profileType: ProfileType) {
   return profileType === "CREATOR";
 }

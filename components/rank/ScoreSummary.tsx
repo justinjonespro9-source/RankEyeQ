@@ -11,7 +11,7 @@ export function ScoreSummary({ summary }: { summary: ContestScoreSummary }) {
       <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
         {EYEQ_SCORE_LABEL}: {formatRankIqScore(summary.rankIqScore)} / 100
       </p>
-      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <dl className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <Stat label="Raw Points" value={String(summary.rawPoints)} />
         <Stat label="Theoretical Max" value={String(summary.maxPoints)} />
         <Stat

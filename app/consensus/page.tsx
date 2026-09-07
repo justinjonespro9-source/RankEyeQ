@@ -178,7 +178,7 @@ export default async function ConsensusPage({
               <Link
                 key={week.id}
                 href={href({ weekId: week.id })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                   weekId === week.id
                     ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
@@ -193,7 +193,7 @@ export default async function ConsensusPage({
               <Link
                 key={pos}
                 href={href({ position: pos })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                   position === pos
                     ? "bg-accent-soft text-ink"
                     : "border border-border bg-surface-elevated text-ink"
@@ -208,7 +208,7 @@ export default async function ConsensusPage({
               <Link
                 key={item.key}
                 href={href({ filter: item.key })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                   filter === item.key
                     ? "bg-ink text-off-white"
                     : "border border-border bg-surface-elevated text-ink"
@@ -221,7 +221,7 @@ export default async function ConsensusPage({
           <div className="mb-6 flex flex-wrap gap-2">
             <Link
               href={href({ view: "consensus" })}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                 view === "consensus"
                   ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
@@ -231,7 +231,7 @@ export default async function ConsensusPage({
             </Link>
             <Link
               href={href({ view: "actual" })}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                 view === "actual"
                   ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
@@ -321,7 +321,68 @@ export default async function ConsensusPage({
                 </div>
               ) : null}
 
-              <div className="table-scroll overflow-x-auto rounded-lg border border-border bg-surface-elevated">
+              <div className="space-y-3 md:hidden">
+                {consensus.entries
+                  .filter((entry) => entry.consensusRank != null)
+                  .map((entry) => (
+                    <article
+                      key={entry.rankableEntryId}
+                      className="rounded-lg border border-border bg-surface-elevated p-3.5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-display text-lg font-semibold text-ink">
+                            #{entry.consensusRank}{" "}
+                            <span className="font-sans text-base font-medium">
+                              {entry.name}
+                            </span>
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted">
+                            {entry.team} · {entry.opponent}
+                            {showActual && entry.actualRank != null
+                              ? ` · Actual #${entry.actualRank}`
+                              : ""}
+                          </p>
+                        </div>
+                        {showActual && entry.consensusVsActual != null ? (
+                          <span className="shrink-0 text-sm tabular-nums text-ink">
+                            {entry.consensusVsActual > 0
+                              ? `+${entry.consensusVsActual}`
+                              : entry.consensusVsActual}
+                          </span>
+                        ) : null}
+                      </div>
+                      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-md bg-surface px-2 py-2">
+                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                            Selected
+                          </dt>
+                          <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                            {(entry.selectionRate * 100).toFixed(1)}%
+                          </dd>
+                        </div>
+                        <div className="rounded-md bg-surface px-2 py-2">
+                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                            Avg rank
+                          </dt>
+                          <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                            {entry.averageSelectedRank?.toFixed(1) ?? "—"}
+                          </dd>
+                        </div>
+                        <div className="rounded-md bg-surface px-2 py-2">
+                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                            Ballots
+                          </dt>
+                          <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                            {entry.timesRanked}
+                          </dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+              </div>
+
+              <div className="table-scroll hidden overflow-x-auto rounded-lg border border-border bg-surface-elevated md:block">
                 <table className="w-full min-w-[56rem] text-left text-sm">
                   <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
                     <tr>

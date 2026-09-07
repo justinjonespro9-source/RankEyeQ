@@ -225,7 +225,7 @@ export function PlayerPool({
                         event.stopPropagation();
                         handleAdd(player);
                       }}
-                      className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 py-2 text-xs font-semibold text-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Add
                     </button>

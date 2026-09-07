@@ -12,7 +12,7 @@ export function Hero() {
         className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-background/25"
       />
 
-      <Container className="relative grid min-h-[72vh] items-center gap-10 py-12 sm:py-16 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12 xl:gap-16">
+      <Container className="relative grid min-h-0 items-center gap-8 overflow-visible py-10 sm:gap-10 sm:py-16 lg:min-h-[72vh] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12 xl:gap-16">
         <div className="max-w-2xl">
           <p className="leading-none">
             <BrandWordmark variant="dark" size="hero" />
@@ -32,11 +32,11 @@ export function Hero() {
               finish highest in fantasy scoring for that NFL slate. Then RankEyeQ
               scores everyone against the actual results.
             </p>
-            <p>
+            <p className="hidden sm:block">
               Compete against the Public, Experts, Creators, and AI — all on the
               same scoreboard.
             </p>
-            <p>
+            <p className="hidden md:block">
               No preseason rankings. No rest-of-season projections. Just fresh
               weekly calls, locked before kickoff.
             </p>
@@ -45,7 +45,7 @@ export function Hero() {
             </p>
           </div>
           <div className="mt-7 sm:mt-8">
-            <Button href="/rank" size="lg" variant="primary">
+            <Button href="/rank" size="lg" variant="primary" className="min-h-12 w-full sm:w-auto">
               Rank This Week&apos;s Players
             </Button>
           </div>

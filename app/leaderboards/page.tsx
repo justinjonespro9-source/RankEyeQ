@@ -21,14 +21,11 @@ import {
   type LeaderboardRow,
 } from "@/lib/leaderboards";
 import { prisma } from "@/lib/db";
-import { competitorClassLabel } from "@/lib/profile-labels";
 import { formatRankIqScore } from "@/lib/scoring";
 import { canonicalMetadata, PUBLIC_INDEX } from "@/lib/seo";
 import { SEASON_LEADERBOARD_NOTE } from "@/lib/weekly-messaging";
-import {
-  getFollowerCountsForProfiles,
-  getFollowingIdSet,
-} from "@/lib/social/follows";
+import { getFollowerCountsForProfiles, getFollowingIdSet } from "@/lib/social/follows";
+import { logServerEvent } from "@/lib/log";
 
 export const metadata: Metadata = {
   title: "Leaderboards",
@@ -89,23 +86,28 @@ function BoardTable({
           className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="flex min-w-0 items-center gap-3">
-            <span className="font-display w-6 font-semibold text-ink">
+            <span className="font-display w-7 shrink-0 text-center text-base font-semibold tabular-nums text-ink sm:w-8">
               {entry.rank}
             </span>
-            <div>
+            <div className="min-w-0 flex-1">
               <ProfileLink
                 username={entry.username}
                 displayName={entry.displayName}
                 avatarUrl={entry.avatarUrl}
+                profileType={entry.profileType}
                 isAi={entry.profileType === "AI"}
                 isExpert={entry.profileType === "BENCHMARK"}
                 isCreator={entry.profileType === "CREATOR"}
                 expertPublisher={entry.expertPublisher}
                 creatorBrand={entry.creatorBrand}
+                aiModel={
+                  entry.profileType === "AI" ? entry.displayName : null
+                }
               />
               {follow &&
               entry.profileType !== "BENCHMARK" &&
-              entry.profileType !== "CREATOR" ? (
+              entry.profileType !== "CREATOR" &&
+              entry.profileType !== "AI" ? (
                 <p className="mt-1 text-xs text-muted">
                   {follow.followerCounts.get(entry.universalProfileId) ?? 0}{" "}
                   followers
@@ -113,7 +115,7 @@ function BoardTable({
               ) : null}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted sm:min-w-[20rem] sm:text-right">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-muted sm:min-w-[18rem] sm:text-right">
             <span className="sm:col-span-2">
               Contests played{" "}
               <strong className="font-display text-base text-ink">
@@ -144,9 +146,6 @@ function BoardTable({
             </span>
             <span>
               #1 <strong className="text-ink">{entry.numberOneHits}</strong>
-            </span>
-            <span>
-              {competitorClassLabel(entry.profileType)}
             </span>
           </div>
           {follow &&
@@ -180,7 +179,23 @@ export default async function LeaderboardsPage({
 }) {
   const params = await searchParams;
   const scope = params.scope === "season" ? "season" : "weekly";
-  const auth = await getAuthContext();
+
+  let auth;
+  try {
+    auth = await getAuthContext();
+  } catch (error) {
+    logServerEvent(
+      "leaderboards.auth_failed",
+      {
+        route: "/leaderboards",
+        step: "auth",
+        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      },
+      "error",
+    );
+    throw error;
+  }
+
   const includeTest = resolveIncludeTestWeeks({
     isAdmin: auth?.user?.role ? isAdminRole(auth.user.role) : false,
     adminTestPreview: isAdminTestPreviewRequested(params),
@@ -193,7 +208,25 @@ export default async function LeaderboardsPage({
     ? params.filter
     : "ALL") as LeaderboardFilter;
 
-  const [context] = await Promise.all([getActiveSeasonAndWeek()]);
+  let context;
+  try {
+    context = await getActiveSeasonAndWeek();
+  } catch (error) {
+    logServerEvent(
+      "leaderboards.context_failed",
+      {
+        route: "/leaderboards",
+        step: "active_season_week",
+        scope,
+        position: positionParam,
+        filter,
+        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      },
+      "error",
+    );
+    throw error;
+  }
+
   const position =
     positionParam === "ALL" ? undefined : (positionParam as ContestPosition);
 
@@ -207,28 +240,45 @@ export default async function LeaderboardsPage({
         })
       : null;
 
-  if (testWeek?.isTest) {
-    rows = await getWeeklyLeaderboard({
-      weekId: testWeek.id,
-      position,
-      filter,
-      includeTest: true,
-    });
-    title = `[TEST] ${testWeek.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
-  } else if (context?.week && scope === "weekly") {
-    rows = await getWeeklyLeaderboard({
-      weekId: context.week.id,
-      position,
-      filter,
-    });
-    title = `${context.week.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
-  } else if (context?.season) {
-    rows = await getSeasonLeaderboard({
-      seasonId: context.season.id,
-      position,
-      filter,
-    });
-    title = `${context.season.year} Season · ${positionParam === "ALL" ? "Overall" : positionParam}`;
+  try {
+    if (testWeek?.isTest) {
+      rows = await getWeeklyLeaderboard({
+        weekId: testWeek.id,
+        position,
+        filter,
+        includeTest: true,
+      });
+      title = `[TEST] ${testWeek.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
+    } else if (context?.week && scope === "weekly") {
+      rows = await getWeeklyLeaderboard({
+        weekId: context.week.id,
+        position,
+        filter,
+      });
+      title = `${context.week.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
+    } else if (context?.season) {
+      rows = await getSeasonLeaderboard({
+        seasonId: context.season.id,
+        position,
+        filter,
+      });
+      title = `${context.season.year} Season · ${positionParam === "ALL" ? "Overall" : positionParam}`;
+    }
+  } catch (error) {
+    logServerEvent(
+      "leaderboards.query_failed",
+      {
+        route: "/leaderboards",
+        step: "leaderboard_query",
+        scope,
+        position: positionParam,
+        filter,
+        weekId: testWeek?.id ?? context?.week?.id ?? null,
+        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      },
+      "error",
+    );
+    throw error;
   }
 
   const followingIds = auth?.universalProfile

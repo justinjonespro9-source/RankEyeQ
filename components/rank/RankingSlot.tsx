@@ -48,7 +48,7 @@ export function RankingSlot({
         event.preventDefault();
         onDrop();
       }}
-      className={`flex min-h-14 min-w-0 items-center gap-2 rounded-md border bg-surface px-2 py-2 sm:gap-3 sm:px-3 ${
+      className={`flex min-h-[3.5rem] min-w-0 items-center gap-2 rounded-md border bg-surface px-2.5 py-2 sm:min-h-14 sm:gap-3 sm:px-3 ${
         locked
           ? "border-warning/50 bg-warning-soft/40"
           : podiumPick
@@ -59,7 +59,7 @@ export function RankingSlot({
       } ${isDragging ? "opacity-50" : ""}`}
     >
       <span
-        className={`font-display w-6 shrink-0 text-center text-sm font-semibold tabular-nums sm:w-7 ${
+        className={`font-display w-7 shrink-0 text-center text-sm font-semibold tabular-nums sm:w-8 ${
           podiumPick ? "text-accent-ink" : "text-accent-ink"
         }`}
       >
@@ -97,23 +97,26 @@ export function RankingSlot({
               </span>
               <span className="block truncate text-xs text-muted">
                 {player.team} · {player.opponent}
+                {player.gameDay || player.gameTime
+                  ? ` · ${[player.gameDay, player.gameTime].filter(Boolean).join(" ")}`
+                  : ""}
                 {locked ? " · Locked" : ""}
               </span>
             </span>
           </button>
 
           {locked ? (
-            <span className="shrink-0 rounded-md bg-warning-soft px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-warning">
+            <span className="shrink-0 rounded-md bg-warning-soft px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
               Locked
             </span>
           ) : slotEditable ? (
             <div className="flex shrink-0 items-center gap-1">
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-0.5">
                 <button
                   type="button"
                   onClick={onMoveUp}
                   disabled={!canMoveUp}
-                  className="rounded px-1.5 py-0.5 text-xs font-semibold text-ink hover:bg-surface-elevated disabled:opacity-30"
+                  className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-border bg-surface-elevated text-sm font-semibold text-ink hover:bg-surface disabled:opacity-30"
                   aria-label={`Move ${player.name} up`}
                 >
                   ▲
@@ -122,7 +125,7 @@ export function RankingSlot({
                   type="button"
                   onClick={onMoveDown}
                   disabled={!canMoveDown}
-                  className="rounded px-1.5 py-0.5 text-xs font-semibold text-ink hover:bg-surface-elevated disabled:opacity-30"
+                  className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-border bg-surface-elevated text-sm font-semibold text-ink hover:bg-surface disabled:opacity-30"
                   aria-label={`Move ${player.name} down`}
                 >
                   ▼
@@ -131,7 +134,7 @@ export function RankingSlot({
               <button
                 type="button"
                 onClick={onRemove}
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted hover:bg-surface-elevated hover:text-ink"
+                className="inline-flex min-h-11 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted hover:bg-surface-elevated hover:text-ink"
               >
                 Remove
               </button>

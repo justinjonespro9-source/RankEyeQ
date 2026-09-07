@@ -49,6 +49,13 @@ export async function getContestResultsView(
 
   let userScore: ContestScoreSummary | null = null;
   let userSubmissionStatus: string | null = null;
+  const fantasyById = new Map(
+    leagueResults.map((row) => [row.rankableEntryId, row.fantasyPoints]),
+  );
+  const userPickMeta = new Map<
+    string,
+    { team: string; opponent: string; fantasyPoints: number | null }
+  >();
 
   if (activeProfileId) {
     const submission = await prisma.rankingSubmission.findUnique({
@@ -72,6 +79,14 @@ export async function getContestResultsView(
         [...actualById.entries()].map(([id, rank]) => [id, rank]),
       );
 
+      for (const pick of submission.picks) {
+        userPickMeta.set(pick.rankableEntryId, {
+          team: pick.rankableEntry.team,
+          opponent: pick.rankableEntry.opponent,
+          fantasyPoints: fantasyById.get(pick.rankableEntryId) ?? null,
+        });
+      }
+
       userScore = scoreContest(
         submission.picks.map((pick) => ({
           playerId: pick.rankableEntryId,
@@ -93,5 +108,6 @@ export async function getContestResultsView(
     topPerformers: topPerformers.slice(0, 10),
     userScore,
     userSubmissionStatus,
+    userPickMeta: Object.fromEntries(userPickMeta),
   };
 }

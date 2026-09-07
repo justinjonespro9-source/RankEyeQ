@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Container } from "@/components/layout/Container";
 import { AccountProfileForm } from "@/components/auth/AccountProfileForm";
+import { CreatorVerificationSection } from "@/components/account/CreatorVerificationSection";
 import { CreatorAccountSection } from "@/components/social/CreatorAccountSection";
 import { requireAuthContext } from "@/lib/auth/session";
 import { getAvatarUploadAvailability } from "@/lib/account-actions";
@@ -24,11 +25,19 @@ export default async function AccountPage() {
   }
 
   const profile = ctx.universalProfile;
-  const [qualification, context, uploadEnabled] = await Promise.all([
-    evaluateProfileQualification(profile.id),
-    getActiveSeasonAndWeek(),
-    getAvatarUploadAvailability(),
-  ]);
+  const [qualification, context, uploadEnabled, competitorMeta] =
+    await Promise.all([
+      evaluateProfileQualification(profile.id),
+      getActiveSeasonAndWeek(),
+      getAvatarUploadAvailability(),
+      prisma.creatorCompetitorProfile.findUnique({
+        where: { universalProfileId: profile.id },
+        select: {
+          claimStatus: true,
+          brandName: true,
+        },
+      }),
+    ]);
 
   const currentWeekBoards = context?.week
     ? await prisma.rankingSubmission.findMany({
@@ -70,21 +79,28 @@ export default async function AccountPage() {
             uploadEnabled={uploadEnabled}
           />
         </div>
-        <CreatorAccountSection
-          status={qualification.status}
-          eligible={qualification.eligible}
-          reasons={qualification.reasons}
-          enabled={qualification.status === "ENABLED"}
-          defaultRevealPreference={qualification.defaultRevealPreference}
-          gradedContestCount={qualification.gradedContestCount}
-          minGradedContests={qualification.rules.minGradedContests}
-          currentWeekBoards={currentWeekBoards.map((board) => ({
-            contestId: board.contestId,
-            position: board.contest.position,
-            status: board.status,
-            revealPreference: board.revealPreference,
-          }))}
+        <CreatorVerificationSection
+          profileType={profile.profileType}
+          claimStatus={competitorMeta?.claimStatus ?? null}
+          creatorBrandName={competitorMeta?.brandName ?? null}
         />
+        {profile.profileType === "HUMAN" ? (
+          <CreatorAccountSection
+            status={qualification.status}
+            eligible={qualification.eligible}
+            reasons={qualification.reasons}
+            enabled={qualification.status === "ENABLED"}
+            defaultRevealPreference={qualification.defaultRevealPreference}
+            gradedContestCount={qualification.gradedContestCount}
+            minGradedContests={qualification.rules.minGradedContests}
+            currentWeekBoards={currentWeekBoards.map((board) => ({
+              contestId: board.contestId,
+              position: board.contest.position,
+              status: board.status,
+              revealPreference: board.revealPreference,
+            }))}
+          />
+        ) : null}
       </div>
     </Container>
   );

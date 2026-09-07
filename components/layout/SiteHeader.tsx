@@ -19,7 +19,10 @@ export async function SiteHeader() {
     : null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/80 bg-off-white/90 backdrop-blur-md">
+    <header
+      className="sticky top-0 z-40 border-b border-border/80 bg-off-white/90 backdrop-blur-md"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+    >
       <Container className="flex h-16 items-center justify-between gap-4">
         <Link href="/" className="shrink-0">
           <BrandWordmark size="md" variant="light" />

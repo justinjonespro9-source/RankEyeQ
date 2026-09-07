@@ -140,6 +140,15 @@ enum ScoringVersionStatus {
   RETIRED
 }
 
+/// Manual Creator claim / verification state on CreatorCompetitorProfile.
+/// Tracked (imported) creators stay UNCLAIMED until a real person is approved.
+enum CreatorClaimStatus {
+  UNCLAIMED
+  REQUESTED
+  VERIFIED
+  REJECTED
+}
+
 model UniversalProfile {
   id              String        @id @default(cuid())
   /// Future cross-platform Handicap Hero / FantasyTrack mapping key.
@@ -166,6 +175,8 @@ model UniversalProfile {
   followsReceived  ProfileFollow[]      @relation("FollowsReceived")
   creatorProfile   CreatorProfile?
   creatorCompetitor CreatorCompetitorProfile?
+  /// Incoming claim requests that name this profile as the tracked creator to claim.
+  creatorClaimTargets CreatorCompetitorProfile[] @relation("CreatorClaimTarget")
   entitlementsViewed BoardEntitlement[] @relation("EntitlementViewer")
   entitlementsGranted BoardEntitlement[] @relation("EntitlementCreator")
   unlocksViewed    BoardUnlockEvent[]   @relation("UnlockViewer")
@@ -214,8 +225,9 @@ model ProfileFollow {
   @@index([followerProfileId, createdAt])
 }
 
-/// Competitive Creator ranker metadata (profileType CREATOR).
+/// Competitive Creator ranker metadata (profileType CREATOR once verified/tracked).
 /// Distinct from monetization `CreatorProfile` (HUMAN payout opt-in).
+/// HUMAN profiles may hold a REQUESTED row before admin approval.
 model CreatorCompetitorProfile {
   id                 String   @id @default(cuid())
   universalProfileId String   @unique
@@ -229,12 +241,35 @@ model CreatorCompetitorProfile {
   /// Directory active flag (separate from weekly ballot presence).
   active             Boolean  @default(true)
   notes              String?
+  /// Manual claim / verification queue state.
+  claimStatus        CreatorClaimStatus @default(UNCLAIMED)
+  claimRequestedAt   DateTime?
+  verifiedAt         DateTime?
+  verifiedByUserId   String?
+  rejectedAt         DateTime?
+  /// Public fantasy content / site URL from the claim form.
+  creatorSiteUrl     String?
+  /// Primary platform handle (e.g. @name or channel name).
+  socialHandle       String?
+  socialUrl          String?
+  /// Public proof connecting the person to RankEyeQ (receipt, post, profile link).
+  publicProofUrl     String?
+  /// Optional short note from the requester.
+  claimNote          String?
+  /// Admin-only internal notes (rejection reason, identity resolution).
+  verificationNotes  String?
+  /// Optional tracked CREATOR UniversalProfile this HUMAN request wants to claim.
+  claimTargetProfileId String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Cascade)
+  claimTargetProfile UniversalProfile? @relation("CreatorClaimTarget", fields: [claimTargetProfileId], references: [id], onDelete: SetNull)
+  verifiedByUser   User? @relation("CreatorVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
 
   @@index([active])
+  @@index([claimStatus])
+  @@index([claimTargetProfileId])
 }
 
 /// Creator opt-in + default reveal preference. Qualification is derived, not stored.
@@ -340,6 +375,7 @@ model User {
   benchmarkSnapshots BenchmarkSnapshot[]
   manualImports    ManualImportLog[]
   policyAcceptances PolicyAcceptance[]
+  creatorVerifications CreatorCompetitorProfile[] @relation("CreatorVerifiedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.

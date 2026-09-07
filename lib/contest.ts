@@ -58,6 +58,18 @@ export function isPosition(value: string): value is Position {
   return VALID_POSITIONS.has(value);
 }
 
+/**
+ * Normalize a dynamic `[position]` route segment to the canonical UI Position.
+ * Accepts `qb` / `QB` / mixed case. Returns null when the segment is not a position.
+ */
+export function parsePositionParam(
+  value: string | undefined | null,
+): Position | null {
+  if (!value || typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return isPosition(normalized) ? normalized : null;
+}
+
 export function getPositionConfig(position: Position): ContestPositionConfig {
   const config = POSITION_CONFIGS.find((c) => c.position === position);
   if (!config) {

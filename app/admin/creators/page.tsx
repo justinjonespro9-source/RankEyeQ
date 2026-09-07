@@ -55,12 +55,20 @@ export default async function AdminCreatorRankingsPage({
         title="Creator ranking imports"
         description="Import clearly public, attributable weekly rankings for CREATOR competitors. Same scoring path as Humans, Experts, and AI via BenchmarkSnapshot + RankingSubmission. Not a partnership or endorsement."
         action={
-          <Link
-            href="/admin/creators/entitlements"
-            className="text-sm font-medium text-accent-ink hover:underline"
-          >
-            Monetization entitlements
-          </Link>
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Link
+              href="/admin/creators/entitlements"
+              className="text-sm font-medium text-accent-ink hover:underline"
+            >
+              Monetization entitlements
+            </Link>
+            <Link
+              href="/admin/creators/verification"
+              className="text-sm font-medium text-accent-ink hover:underline"
+            >
+              Verification queue
+            </Link>
+          </span>
         }
       />
 

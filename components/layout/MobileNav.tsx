@@ -50,7 +50,7 @@ export function MobileNav() {
                   <Link
                     href={link.href}
                     onClick={() => setOpen(false)}
-                    className={`rounded-md px-3 py-2.5 text-sm font-medium ${
+                    className={`inline-flex min-h-11 items-center rounded-md px-3 py-2.5 text-sm font-medium ${
                       active
                         ? "bg-accent-soft text-ink"
                         : "text-ink hover:bg-surface"

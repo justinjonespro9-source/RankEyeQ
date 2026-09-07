@@ -63,13 +63,20 @@ export function ResultsComparison({
         </div>
 
         <ol>
-          {summary.players.map((row) => (
-            <ScoredPlayerRow
-              key={row.playerId}
-              row={row}
-              fieldSize={summary.fieldSize}
-            />
-          ))}
+          {summary.players.map((row) => {
+            const player =
+              predicted.find((entry) => entry.id === row.playerId) ??
+              pool.find((entry) => entry.id === row.playerId);
+            return (
+              <ScoredPlayerRow
+                key={row.playerId}
+                row={row}
+                fieldSize={summary.fieldSize}
+                team={player?.team}
+                opponent={player?.opponent}
+              />
+            );
+          })}
         </ol>
       </div>
     </section>

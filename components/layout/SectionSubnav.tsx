@@ -26,7 +26,7 @@ export function SectionSubnav({
           <Link
             key={link.href}
             href={link.href}
-            className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
               active
                 ? "bg-accent-soft text-ink"
                 : "text-muted hover:bg-surface-elevated hover:text-ink"

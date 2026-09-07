@@ -43,12 +43,8 @@ function PlayerCardBody({
           <span className="font-semibold uppercase">{player.team}</span>
           {" · "}
           {player.opponent}
-          {!compact ? (
-            <>
-              {" · "}
-              {player.gameDay} {player.gameTime}
-            </>
-          ) : null}
+          {" · "}
+          {player.gameDay} {player.gameTime}
         </p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
@@ -114,12 +110,8 @@ export function PlayerCard({
               <span className="font-semibold uppercase">{player.team}</span>
               {" · "}
               {player.opponent}
-              {!compact ? (
-                <>
-                  {" · "}
-                  {player.gameDay} {player.gameTime}
-                </>
-              ) : null}
+              {" · "}
+              {player.gameDay} {player.gameTime}
             </p>
           </div>
         </button>

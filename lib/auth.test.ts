@@ -54,6 +54,13 @@ describe("participation + profile spoofing guards", () => {
       resolveParticipationState({
         signedIn: true,
         universalProfileId: "p1",
+        profileType: "CREATOR",
+      }),
+    ).toBe("ready");
+    expect(
+      resolveParticipationState({
+        signedIn: true,
+        universalProfileId: "p1",
         profileType: "BENCHMARK",
       }),
     ).toBe("needs-setup");

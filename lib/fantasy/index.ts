@@ -36,4 +36,4 @@ export {
 
 export { scorePlayerFantasy } from "@/lib/fantasy/player-scoring";
 export { scoreDefenseFantasy } from "@/lib/fantasy/defense-scoring";
-export { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
+export { assignCompetitionRanks, assignCompetitionRanksAscending } from "@/lib/fantasy/competition-rank";

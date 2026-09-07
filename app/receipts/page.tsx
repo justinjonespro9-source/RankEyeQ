@@ -55,7 +55,7 @@ export default async function ThursdayReceiptsPage({
             <Link
               key={week.id}
               href={`/receipts?weekId=${week.id}`}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                 week.id === weekId
                   ? "bg-accent text-ink"
                   : "border border-border bg-surface-elevated text-ink"
@@ -97,7 +97,84 @@ export default async function ThursdayReceiptsPage({
               </p>
             ))}
 
-          <div className="overflow-x-auto rounded-lg border border-border bg-surface-elevated">
+          <div className="space-y-3 md:hidden">
+            {receipts.rows.map((row) => (
+              <article
+                key={row.rankableEntryId}
+                className="rounded-lg border border-border bg-surface-elevated p-3.5"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-ink">{row.name}</p>
+                    <p className="mt-0.5 text-sm text-muted">
+                      {row.team} · {row.position}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      Fantasy Pts
+                    </p>
+                    <p className="font-display text-lg font-semibold tabular-nums text-ink">
+                      {row.fantasyPoints?.toFixed(1) ?? "—"}
+                    </p>
+                  </div>
+                </div>
+                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-md bg-surface px-2 py-2">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      Prov. rank
+                    </dt>
+                    <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                      {row.provisionalRank ?? "—"}
+                    </dd>
+                  </div>
+                  <div className="rounded-md bg-surface px-2 py-2">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      % #1
+                    </dt>
+                    <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                      {Math.round(row.percentRankedOne * 100)}%
+                    </dd>
+                  </div>
+                  <div className="rounded-md bg-surface px-2 py-2">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      % Top 3
+                    </dt>
+                    <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                      {Math.round(row.percentTop3 * 100)}%
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+                  <span>
+                    Boards{" "}
+                    <span className="font-semibold tabular-nums text-ink">
+                      {row.boardsIncluding}
+                    </span>
+                  </span>
+                  <span>
+                    Avg rank{" "}
+                    <span className="font-semibold tabular-nums text-ink">
+                      {row.averageCommittedRank?.toFixed(1) ?? "—"}
+                    </span>
+                  </span>
+                </div>
+                {row.numberOneCallers.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {row.numberOneCallers.map((caller) => (
+                      <ProfileLink
+                        key={caller.username}
+                        username={caller.username}
+                        displayName={caller.displayName}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+
+          <div className="table-scroll hidden overflow-x-auto rounded-lg border border-border bg-surface-elevated md:block">
             <table className="w-full min-w-[52rem] text-left text-sm">
               <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
                 <tr>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ReceiptOutcomeChip } from "@/components/rank/ReceiptOutcomeChip";
+import { classifyReceiptOutcome } from "@/lib/profile-receipt";
 import type { PlayerScoreBreakdown } from "@/types/scoring";
 
 function rowTone(row: PlayerScoreBreakdown) {
@@ -49,46 +51,69 @@ export function formatPlayerScoreLines(
 export function ScoredPlayerRow({
   row,
   fieldSize = 10,
+  team,
+  opponent,
+  fantasyPoints,
 }: {
   row: PlayerScoreBreakdown;
   fieldSize?: number;
+  team?: string;
+  opponent?: string;
+  fantasyPoints?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const scoreLines = formatPlayerScoreLines(row, fieldSize);
   const breakdownParts = scoreLines.slice(0, -1);
   const fieldLabel = fieldSize === 15 ? "Top 15" : "Top 10";
+  const outcome = classifyReceiptOutcome(row, fieldSize);
+  const meta = [team, opponent].filter(Boolean).join(" · ");
 
   return (
     <li className={`border-b border-border last:border-0 ${rowTone(row)}`}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full flex-col gap-1 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between sm:px-5"
+        className="flex w-full flex-col gap-2 px-4 py-3.5 text-left sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
         aria-expanded={open}
       >
-        <div className="min-w-0">
-          <p className="font-medium text-ink">
-            <span className="font-display tabular-nums text-accent-ink">
-              {row.predictedRank}.
-            </span>{" "}
-            {row.playerName}
-            {row.podiumCallHit ? (
-              <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-accent-ink">
-                Podium Call
-              </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-ink">{row.playerName}</p>
+          {meta ? (
+            <p className="mt-0.5 text-sm text-muted">{meta}</p>
+          ) : null}
+
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:flex sm:flex-wrap sm:gap-x-4">
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Predicted:</dt>
+              <dd className="font-display font-semibold tabular-nums text-ink">
+                #{row.predictedRank}
+              </dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Actual:</dt>
+              <dd className="font-display font-semibold tabular-nums text-ink">
+                #{row.actualRank}
+              </dd>
+            </div>
+            {fantasyPoints != null && Number.isFinite(fantasyPoints) ? (
+              <div className="col-span-2 flex gap-1.5 sm:col-span-1">
+                <dt className="text-muted">Fantasy Pts:</dt>
+                <dd className="font-semibold tabular-nums text-ink">
+                  {fantasyPoints.toFixed(1)}
+                </dd>
+              </div>
             ) : null}
-          </p>
-          <p className="mt-0.5 text-xs text-muted">
-            Actual: {row.actualRank} · {differenceLabel(row, fieldSize)}
-          </p>
-          <p className="mt-1 text-xs text-muted sm:hidden">
-            {breakdownParts.join(" · ")} ·{" "}
-            <span className="font-semibold text-ink">
+          </dl>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ReceiptOutcomeChip outcome={outcome} />
+            <span className="text-sm font-semibold tabular-nums text-ink sm:hidden">
               {row.totalPoints} pts
             </span>
-          </p>
+          </div>
         </div>
-        <div className="hidden text-right text-sm sm:block">
+
+        <div className="hidden shrink-0 text-right text-sm sm:block">
           <p className="font-display text-lg font-semibold tabular-nums text-ink">
             {row.totalPoints} pts
           </p>
@@ -151,10 +176,4 @@ export function ScoredPlayerRow({
       ) : null}
     </li>
   );
-}
-
-function differenceLabel(row: PlayerScoreBreakdown, fieldSize: number) {
-  if (!row.topNHit) return `Outside ${fieldSize === 15 ? "Top 15" : "Top 10"}`;
-  if (row.exactHit) return "Exact";
-  return `Off by ${Math.abs(row.rankDifference)}`;
 }

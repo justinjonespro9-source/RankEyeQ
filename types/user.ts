@@ -46,6 +46,8 @@ export type UniversalProfile = {
   creatorPersonName?: string | null;
   /** Creator brand / show affiliation. */
   creatorBrandName?: string | null;
+  /** Public Verified Creator indicator (claimStatus === VERIFIED). */
+  creatorVerified?: boolean;
   rankiq: RankIQProfileStats | null;
 };
 

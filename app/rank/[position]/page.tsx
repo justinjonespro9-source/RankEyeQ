@@ -6,10 +6,12 @@ import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { RankingWorkspace } from "@/components/rank/RankingWorkspace";
 import { ScoringRulesDetails } from "@/components/rank/ScoringRulesDetails";
 import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { getAuthContext } from "@/lib/auth/session";
-import { isPosition, POSITION_CONFIGS } from "@/lib/contest";
+import { parsePositionParam } from "@/lib/contest";
 import { contestAllowsEdits } from "@/lib/contest-lifecycle";
 import { getPublicPositionContest } from "@/lib/contests";
+import { logServerEvent } from "@/lib/log";
 import {
   getOrCreateDraftSubmission,
   getSubmissionForProfile,
@@ -25,42 +27,76 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export function generateStaticParams() {
-  return POSITION_CONFIGS.map((config) => ({ position: config.position }));
-}
-
 export async function generateMetadata(
   props: PageProps<"/rank/[position]">,
 ): Promise<Metadata> {
-  const { position } = await props.params;
-  if (!isPosition(position)) {
+  const { position: rawPosition } = await props.params;
+  const position = parsePositionParam(rawPosition);
+  if (!position) {
     return { title: "Challenge" };
   }
-  const { challenge } = await getPublicPositionContest(position);
-  return {
-    title: `${challenge.shortLabel} Rankings`,
-    description: `Weekly ${challenge.shortLabel} rankings for this NFL slate — Top ${challenge.slotCount}. Rank before kickoff; graded against that week's actual fantasy-point finishes.`,
-  };
+  try {
+    const { challenge } = await getPublicPositionContest(position);
+    return {
+      title: `${challenge.shortLabel} Rankings`,
+      description: `Weekly ${challenge.shortLabel} rankings for this NFL slate — Top ${challenge.slotCount}. Rank before kickoff; graded against that week's actual fantasy-point finishes.`,
+    };
+  } catch {
+    return {
+      title: "Challenge",
+      description:
+        "Weekly NFL position rankings on RankEyeQ — rank before kickoff.",
+    };
+  }
 }
 
 export default async function PositionRankPage(
   props: PageProps<"/rank/[position]">,
 ) {
-  const { position } = await props.params;
+  const { position: rawPosition } = await props.params;
   const searchParams = await props.searchParams;
   const researchWindow =
     typeof searchParams.window === "string" ? searchParams.window : undefined;
-  if (!isPosition(position)) {
+
+  const position = parsePositionParam(rawPosition);
+  if (!position) {
+    logServerEvent(
+      "rank.position_invalid",
+      {
+        route: "/rank/[position]",
+        rawPosition:
+          typeof rawPosition === "string" ? rawPosition.slice(0, 16) : null,
+      },
+      "warn",
+    );
     notFound();
   }
 
-  const [
-    contestData,
-    authCtx,
-  ] = await Promise.all([
-    getPublicPositionContest(position, { researchWindow }),
-    getAuthContext(),
-  ]);
+  // Use canonical lowercase Position for all data lookups. Do not redirect for
+  // casing alone — on case-insensitive hosts (/rank/QB vs /rank/qb) a redirect
+  // can no-op and strand the client on loading.tsx.
+
+  let contestData;
+  let authCtx;
+  try {
+    [contestData, authCtx] = await Promise.all([
+      getPublicPositionContest(position, { researchWindow }),
+      getAuthContext(),
+    ]);
+  } catch (error) {
+    logServerEvent(
+      "rank.page_load_failed",
+      {
+        route: "/rank/[position]",
+        position,
+        researchWindow: researchWindow ?? null,
+        step: "contest_or_auth",
+        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      },
+      "error",
+    );
+    throw error;
+  }
 
   const {
     challenge,
@@ -81,7 +117,22 @@ export default async function PositionRankPage(
   } = contestData;
 
   if (weekId) {
-    await ensureWeekFullLock(weekId);
+    try {
+      await ensureWeekFullLock(weekId);
+    } catch (error) {
+      logServerEvent(
+        "rank.lock_sync_failed",
+        {
+          route: "/rank/[position]",
+          position,
+          weekId,
+          message:
+            error instanceof Error ? error.message.slice(0, 160) : "unknown",
+        },
+        "warn",
+      );
+      // Non-fatal: continue with existing timing; lock sync can retry next request.
+    }
   }
 
   const timing = getWeekTimingState({
@@ -114,33 +165,50 @@ export default async function PositionRankPage(
     timing.canEditUnlocked;
 
   if (contestId && profile && participation === "ready") {
-    const submission = canCreateOrEdit
-      ? await getOrCreateDraftSubmission(contestId, profile.id)
-      : await getSubmissionForProfile(contestId, profile.id);
-    if (submission) {
-      initialRankedEntryIds = picksToRankedIds(
-        submission.picks,
-        challenge.slotCount,
-      );
-      initialSubmissionStatus = submission.status;
-      initialLockedEntryIds = submission.picks
-        .filter((pick) => pick.slotLocked)
-        .map((pick) => pick.rankableEntryId);
-      gradedPredicted = submission.picks.map((pick) => {
-        const player = players.find((p) => p.id === pick.rankableEntryId);
-        return (
-          player ?? {
-            id: pick.rankableEntryId,
-            name: pick.rankableEntry.name,
-            team: pick.rankableEntry.team,
-            opponent: pick.rankableEntry.opponent,
-            position,
-            gameDay: "",
-            gameTime: "",
-            availability: "active" as const,
-          }
+    try {
+      const submission = canCreateOrEdit
+        ? await getOrCreateDraftSubmission(contestId, profile.id)
+        : await getSubmissionForProfile(contestId, profile.id);
+      if (submission) {
+        initialRankedEntryIds = picksToRankedIds(
+          submission.picks,
+          challenge.slotCount,
         );
-      });
+        initialSubmissionStatus = submission.status;
+        initialLockedEntryIds = submission.picks
+          .filter((pick) => pick.slotLocked)
+          .map((pick) => pick.rankableEntryId);
+        gradedPredicted = submission.picks.map((pick) => {
+          const player = players.find((p) => p.id === pick.rankableEntryId);
+          return (
+            player ?? {
+              id: pick.rankableEntryId,
+              name: pick.rankableEntry.name,
+              team: pick.rankableEntry.team,
+              opponent: pick.rankableEntry.opponent,
+              position,
+              gameDay: "",
+              gameTime: "",
+              availability: "active" as const,
+            }
+          );
+        });
+      }
+    } catch (error) {
+      logServerEvent(
+        "rank.submission_load_failed",
+        {
+          route: "/rank/[position]",
+          position,
+          weekId: weekId ?? null,
+          contestId,
+          step: "submission",
+          message:
+            error instanceof Error ? error.message.slice(0, 160) : "unknown",
+        },
+        "error",
+      );
+      throw error;
     }
   }
 
@@ -160,6 +228,20 @@ export default async function PositionRankPage(
     for (let week = weekNumber - 1; week >= 1; week -= 1) {
       researchWindowLinks.push({ key: `week-${week}`, label: `Wk ${week}` });
     }
+  }
+
+  // Empty pool is a real empty state — never leave Suspense hanging.
+  if (players.length === 0) {
+    return (
+      <Container className="py-8 sm:py-12">
+        <EmptyState
+          title={`No ${challenge.shortLabel} players yet`}
+          description={`${challenge.weekLabel} ${challenge.shortLabel} does not have an eligible pool yet. Check back when the weekly contest is configured.`}
+          actionHref="/rank"
+          actionLabel="Back to weekly rankings"
+        />
+      </Container>
+    );
   }
 
   return (

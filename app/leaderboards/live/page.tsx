@@ -2,14 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { ResultsSubnav } from "@/components/layout/ResultsSubnav";
-import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { prisma } from "@/lib/db";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { getLiveWeekRankerBoard } from "@/lib/live-rankiq";
-import { competitorClassLabel } from "@/lib/profile-labels";
 import { formatRankIqScore } from "@/lib/scoring";
 import { toUiPosition } from "@/lib/contest-defaults";
 import { isManualNflMode } from "@/lib/providers/nfl";
@@ -180,18 +178,13 @@ export default async function LiveLeaderboardPage({
                   username={row.username}
                   displayName={row.displayName}
                   avatarUrl={row.avatarUrl}
+                  profileType={row.profileType}
                   isAi={row.profileType === "AI"}
                   isExpert={row.profileType === "BENCHMARK"}
-                />
-                <Badge
-                  tone={
-                    row.profileType === "AI" || row.profileType === "BENCHMARK"
-                      ? "warning"
-                      : "neutral"
+                  aiModel={
+                    row.profileType === "AI" ? row.displayName : null
                   }
-                >
-                  {competitorClassLabel(row.profileType)}
-                </Badge>
+                />
               </div>
               <div className="grid grid-cols-3 gap-3 text-xs text-muted sm:text-right">
                 <span>

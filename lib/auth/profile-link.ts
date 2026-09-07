@@ -105,9 +105,12 @@ export async function updateOwnedUniversalProfile(input: ProfileEditInput) {
   if (!user?.universalProfile) {
     throw new ProfileLinkError("Complete profile setup first.");
   }
-  if (user.universalProfile.profileType !== "HUMAN") {
+  if (
+    user.universalProfile.profileType !== "HUMAN" &&
+    user.universalProfile.profileType !== "CREATOR"
+  ) {
     throw new ProfileLinkError(
-      "AI and benchmark profiles are admin-managed and cannot sign in.",
+      "AI and Expert profiles are admin-managed and cannot sign in.",
     );
   }
 

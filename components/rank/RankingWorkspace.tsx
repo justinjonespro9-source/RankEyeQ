@@ -274,7 +274,7 @@ export function RankingWorkspace({
           editable={editable}
         />
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="hidden flex-col gap-2 lg:flex lg:flex-row">
           {participation === "signed-out" ? (
             <Button
               href={`/signin?callbackUrl=/rank/${challenge.position}`}
@@ -291,7 +291,7 @@ export function RankingWorkspace({
               <Button
                 type="button"
                 variant="secondary"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 onClick={handleSaveDraft}
                 disabled={!editable || pending}
               >
@@ -299,7 +299,7 @@ export function RankingWorkspace({
               </Button>
               <Button
                 type="button"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 onClick={() => setConfirmSubmit(true)}
                 disabled={!canSubmit}
               >
@@ -314,6 +314,53 @@ export function RankingWorkspace({
             {statusMessage}
           </p>
         ) : null}
+      </div>
+    </div>
+  );
+
+  const mobileActionBar = (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface-elevated/95 px-4 pt-3 shadow-[0_-8px_24px_rgba(10,28,45,0.08)] backdrop-blur lg:hidden"
+      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-2">
+        <p className="text-center text-xs text-muted">
+          {filledCount} / {challenge.slotCount} filled
+          {submissionStatus === "SUBMITTED" ? " · Submitted" : ""}
+        </p>
+        <div className="flex gap-2">
+          {participation === "signed-out" ? (
+            <Button
+              href={`/signin?callbackUrl=/rank/${challenge.position}`}
+              className="min-h-11 flex-1"
+            >
+              Sign in to build rankings
+            </Button>
+          ) : participation === "needs-setup" ? (
+            <Button href="/account/setup" className="min-h-11 flex-1">
+              Finish profile setup
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-11 flex-1"
+                onClick={handleSaveDraft}
+                disabled={!editable || pending}
+              >
+                Save
+              </Button>
+              <Button
+                type="button"
+                className="min-h-11 flex-1"
+                onClick={() => setConfirmSubmit(true)}
+                disabled={!canSubmit}
+              >
+                Submit
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -354,15 +401,16 @@ export function RankingWorkspace({
       ) : null}
 
       <div
-        className="sticky top-16 z-30 -mx-4 border-b border-border bg-surface/95 px-4 py-2 backdrop-blur lg:hidden"
+        className="sticky z-30 -mx-4 border-b border-border bg-surface/95 px-4 py-1.5 backdrop-blur lg:hidden"
+        style={{ top: "calc(4rem + env(safe-area-inset-top, 0px))" }}
         aria-live="polite"
       >
-        <p className="text-sm font-medium text-ink">
+        <p className="text-xs font-medium text-ink sm:text-sm">
           {filledCount} / {challenge.slotCount} selected · {boardTitle}
         </p>
       </div>
 
-      <div className="space-y-4 lg:hidden">
+      <div className="space-y-4 pb-28 lg:hidden">
         <PlayerPool
           players={players}
           rankedIds={rankedIds}
@@ -391,9 +439,11 @@ export function RankingWorkspace({
           mode="list"
           filterState={poolFilters}
           onFilterStateChange={setPoolFilters}
-          listClassName="max-h-[28rem]"
+          listClassName="max-h-[min(28rem,55vh)]"
         />
       </div>
+
+      {mobileActionBar}
 
       <div className="hidden gap-6 overflow-x-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-start">
         <div className="min-h-0">

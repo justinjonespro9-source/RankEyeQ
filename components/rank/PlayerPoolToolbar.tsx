@@ -72,7 +72,7 @@ export function PlayerPoolToolbar({
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search name, team, or alias"
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2.5 text-base text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 sm:text-sm"
           />
         </label>
         <label>
@@ -80,7 +80,7 @@ export function PlayerPoolToolbar({
           <select
             value={teamFilter}
             onChange={(event) => onTeamFilterChange(event.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2.5 text-base text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 sm:text-sm"
           >
             <option value="">All teams</option>
             {teamOptions.map((team) => (
@@ -93,13 +93,13 @@ export function PlayerPoolToolbar({
       </div>
 
       <div className="mt-2 flex flex-wrap gap-2 text-xs">
-        <span className="text-muted">Sort:</span>
+        <span className="self-center text-muted">Sort:</span>
         {sortOptions.map(([key, label]) => (
           <button
             key={key}
             type="button"
             onClick={() => onSortKeyChange(key)}
-            className={`rounded px-2 py-0.5 ${
+            className={`inline-flex min-h-9 items-center rounded-md px-2.5 py-1.5 ${
               sortKey === key
                 ? "bg-accent/15 font-medium text-accent-ink"
                 : "text-muted hover:text-ink"

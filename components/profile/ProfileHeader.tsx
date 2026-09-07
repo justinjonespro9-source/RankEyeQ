@@ -105,10 +105,18 @@ export function ProfileHeader({
                 {benchmarkAffiliationDisclaimer(disclaimerSource)}
               </p>
             ) : profile.isCreator ? (
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-                Independent RankEyeQ Creator. Brand affiliation is shown for
-                context and is not an endorsement.
-              </p>
+              <div className="mt-3 space-y-2">
+                {profile.creatorVerified ? (
+                  <p className="inline-flex items-center rounded-md border border-accent/40 bg-accent-soft/60 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-accent-ink">
+                    Verified Creator
+                  </p>
+                ) : null}
+                <p className="max-w-2xl text-sm leading-relaxed text-muted">
+                  {profile.creatorVerified
+                    ? "Verified Creator on RankEyeQ. Brand affiliation is shown for context and is not an endorsement or partnership."
+                    : "Tracked creator profiles may include rankings publicly posted before kickoff. Tracking does not imply endorsement or partnership."}
+                </p>
+              </div>
             ) : (
               <p className="mt-3 text-sm text-muted">
                 <strong className="font-display text-ink">{followerCount}</strong>{" "}
@@ -144,13 +152,18 @@ export function ProfileHeader({
               }
             >
               {profile.isBenchmark
-                ? (expertBadge ?? "Expert")
+                ? (expertBadge ?? "EXPERT")
                 : profile.isCreator
-                  ? (creatorCompetitorBadge ?? "Creator")
+                  ? (creatorCompetitorBadge ?? "CREATOR")
                   : profile.isBot
-                    ? "AI Competitor"
-                    : "Human"}
+                    ? `AI · ${expertPrimary}`
+                    : "PUBLIC"}
             </Badge>
+            {profile.isCreator && profile.creatorVerified ? (
+              <Badge tone="accent" className="text-[10px] sm:text-xs">
+                Verified Creator
+              </Badge>
+            ) : null}
             {!isAuthFree ? (
               <CreatorBadge
                 enabled={creator?.enabled}
@@ -176,6 +189,7 @@ export function ProfileHeader({
         badges={badges}
         title="RankEyeQ badges"
         emptyLabel="Badges unlock with qualified season EYEQ, Exact Hits, Podium Calls, and hot streaks."
+        size="sm"
       />
     </header>
   );

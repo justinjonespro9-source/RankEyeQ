@@ -11,6 +11,7 @@ export type LeagueWeeklyResultRow = {
   rankableEntryId: string;
   name: string;
   team: string;
+  opponent: string;
   actualRank: number;
   fantasyPoints: number;
   selectionRate: number | null;
@@ -103,6 +104,7 @@ export async function getLeagueWeeklyResults(input: {
       rankableEntryId,
       name: row.rankableEntry?.name ?? "Unknown",
       team: row.rankableEntry?.team ?? "—",
+      opponent: row.rankableEntry?.opponent ?? "TBD",
       actualRank,
       fantasyPoints: row.fantasyPoints,
       selectionRate,

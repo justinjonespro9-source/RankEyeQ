@@ -20,7 +20,7 @@ function FooterLinkRow({
   links: typeof FOOTER_PRIMARY_LINKS;
 }) {
   return (
-    <nav aria-label="Footer" className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+    <nav aria-label="Footer" className="flex flex-wrap gap-x-4 gap-y-2.5 text-sm leading-snug">
       {links.map((link) =>
         link.external ? (
           <a
@@ -99,7 +99,7 @@ export async function SiteFooter() {
           </p>
         ) : null}
 
-        <div className="space-y-2 border-t border-border pt-4 text-xs leading-relaxed text-muted">
+        <div className="space-y-2 border-t border-border pt-4 text-[11px] leading-relaxed text-muted sm:text-xs">
           <p>{NO_WAGERING_DISCLAIMER}</p>
           <p>{COPYRIGHT_NOTICE}</p>
           <p>{THIRD_PARTY_MARKS_NOTICE}</p>

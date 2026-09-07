@@ -4,7 +4,6 @@ import { Container } from "@/components/layout/Container";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { Badge } from "@/components/ui/Badge";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { getAuthContext } from "@/lib/auth/session";
@@ -139,11 +138,12 @@ export default async function FollowingPage({
                       username={item.username}
                       displayName={item.displayName}
                       avatarUrl={item.avatarUrl}
+                      profileType={item.profileType}
                       isAi={item.profileType === "AI"}
+                      aiModel={
+                        item.profileType === "AI" ? item.displayName : null
+                      }
                     />
-                    <Badge tone={item.profileType === "AI" ? "warning" : "success"}>
-                      {item.profileType}
-                    </Badge>
                     <CreatorBadge enabled={item.creatorEnabled} />
                   </div>
                   <p className="mt-1 text-xs text-muted">

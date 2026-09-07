@@ -48,8 +48,8 @@ export async function requireUniversalProfile(): Promise<{
   if (!ctx.universalProfile) {
     redirect("/account/setup");
   }
-  if (ctx.universalProfile.profileType !== "HUMAN") {
-    throw new ForbiddenError("AI profiles cannot authenticate as participants");
+  if (ctx.universalProfile.profileType !== "HUMAN" && ctx.universalProfile.profileType !== "CREATOR") {
+    throw new ForbiddenError("AI and Expert profiles cannot authenticate as participants");
   }
   return {
     user: ctx.user,

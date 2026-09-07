@@ -30,6 +30,11 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
+function formatDelta(value: number | null) {
+  if (value == null) return "—";
+  return value > 0 ? `+${value}` : String(value);
+}
+
 export default async function ResultsPage({
   searchParams,
 }: {
@@ -84,7 +89,7 @@ export default async function ResultsPage({
               <Link
                 key={contest.id}
                 href={`/results?contestId=${contest.id}`}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
                   selectedId === contest.id
                     ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
@@ -117,84 +122,149 @@ export default async function ResultsPage({
                 </Badge>
                 <Link
                   href={`/rank/${toUiPosition(view.contest.position)}`}
-                  className="text-sm text-accent-ink hover:underline"
+                  className="inline-flex min-h-10 items-center text-sm text-accent-ink hover:underline"
                 >
                   Ranking board
                 </Link>
                 <Link
                   href={`/consensus?weekId=${view.contest.weekId}&position=${view.contest.position}&view=actual`}
-                  className="text-sm text-accent-ink hover:underline"
+                  className="inline-flex min-h-10 items-center text-sm text-accent-ink hover:underline"
                 >
                   Consensus
                 </Link>
               </div>
 
-              <section className="rounded-lg border border-border bg-surface-elevated">
-                <div className="border-b border-border px-5 py-4">
+              <section>
+                <div className="mb-3">
                   <h2 className="font-display text-xl font-semibold text-ink">
                     {view.contest.status === "FINAL"
                       ? "League-wide actual finishes (Top 40)"
                       : "League-wide finishes (provisional, Top 40)"}
                   </h2>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[52rem] text-left text-sm">
-                    <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
-                      <tr>
-                        <th className="px-4 py-3">Actual</th>
-                        <th className="px-4 py-3">Selected %</th>
-                        <th className="px-4 py-3">Consensus</th>
-                        <th className="px-4 py-3">Δ</th>
-                        <th className="px-4 py-3">Player</th>
-                        <th className="px-4 py-3">Pts</th>
-                        <th className="px-4 py-3">Avg sel rank</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+
+                {view.leagueResults.length === 0 ? (
+                  <EmptyState
+                    title="No finishes published yet"
+                    description="Actual fantasy-point finishes appear here after grading imports complete for this contest."
+                  />
+                ) : (
+                  <>
+                    <div className="space-y-3 md:hidden">
                       {view.leagueResults.map((entry) => (
-                          <tr
-                            key={entry.rankableEntryId}
-                            className="border-b border-border last:border-0"
-                          >
-                            <td className="px-4 py-3 font-display font-semibold text-ink">
-                              {entry.actualRank}
-                            </td>
-                            <td className="px-4 py-3 tabular-nums text-ink">
-                              {entry.selectionRate == null
-                                ? "—"
-                                : `${(entry.selectionRate * 100).toFixed(1)}%`}
-                            </td>
-                            <td className="px-4 py-3 tabular-nums text-ink">
-                              {entry.consensusRank ?? "—"}
-                            </td>
-                            <td className="px-4 py-3 tabular-nums text-ink">
-                              {entry.consensusVsActual == null
-                                ? "—"
-                                : entry.consensusVsActual > 0
-                                  ? `+${entry.consensusVsActual}`
-                                  : entry.consensusVsActual}
-                            </td>
-                            <td className="px-4 py-3 text-ink">
-                              {entry.name}{" "}
-                              <span className="text-muted">{entry.team}</span>
-                            </td>
-                            <td className="px-4 py-3 tabular-nums text-ink">
-                              {entry.fantasyPoints.toFixed(1)}
-                            </td>
-                            <td className="px-4 py-3 tabular-nums text-ink">
-                              {entry.averageSelectedRank?.toFixed(1) ?? "—"}
-                            </td>
+                        <article
+                          key={entry.rankableEntryId}
+                          className="rounded-lg border border-border bg-surface-elevated p-3.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium text-ink">
+                                <span className="font-display font-semibold text-accent-ink">
+                                  #{entry.actualRank}
+                                </span>{" "}
+                                {entry.name}
+                              </p>
+                              <p className="mt-0.5 text-sm text-muted">
+                                {entry.team} · {entry.opponent}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                                Fantasy Pts
+                              </p>
+                              <p className="font-display text-lg font-semibold tabular-nums text-ink">
+                                {entry.fantasyPoints.toFixed(1)}
+                              </p>
+                            </div>
+                          </div>
+                          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded-md bg-surface px-2 py-2">
+                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                                Selected
+                              </dt>
+                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                                {entry.selectionRate == null
+                                  ? "—"
+                                  : `${(entry.selectionRate * 100).toFixed(1)}%`}
+                              </dd>
+                            </div>
+                            <div className="rounded-md bg-surface px-2 py-2">
+                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                                Consensus
+                              </dt>
+                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                                {entry.consensusRank ?? "—"}
+                              </dd>
+                            </div>
+                            <div className="rounded-md bg-surface px-2 py-2">
+                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                                Δ
+                              </dt>
+                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
+                                {formatDelta(entry.consensusVsActual)}
+                              </dd>
+                            </div>
+                          </dl>
+                        </article>
+                      ))}
+                    </div>
+
+                    <div className="table-scroll hidden overflow-x-auto rounded-lg border border-border bg-surface-elevated md:block">
+                      <table className="w-full min-w-[52rem] text-left text-sm">
+                        <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
+                          <tr>
+                            <th className="px-4 py-3">Actual</th>
+                            <th className="px-4 py-3">Selected %</th>
+                            <th className="px-4 py-3">Consensus</th>
+                            <th className="px-4 py-3">Δ</th>
+                            <th className="px-4 py-3">Player</th>
+                            <th className="px-4 py-3">Pts</th>
+                            <th className="px-4 py-3">Avg sel rank</th>
                           </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {view.leagueResults.map((entry) => (
+                            <tr
+                              key={entry.rankableEntryId}
+                              className="border-b border-border last:border-0"
+                            >
+                              <td className="px-4 py-3 font-display font-semibold text-ink">
+                                {entry.actualRank}
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink">
+                                {entry.selectionRate == null
+                                  ? "—"
+                                  : `${(entry.selectionRate * 100).toFixed(1)}%`}
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink">
+                                {entry.consensusRank ?? "—"}
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink">
+                                {formatDelta(entry.consensusVsActual)}
+                              </td>
+                              <td className="px-4 py-3 text-ink">
+                                {entry.name}{" "}
+                                <span className="text-muted">{entry.team}</span>
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink">
+                                {entry.fantasyPoints.toFixed(1)}
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink">
+                                {entry.averageSelectedRank?.toFixed(1) ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </section>
 
               <section className="rounded-lg border border-border bg-surface-elevated">
                 <div className="border-b border-border px-5 py-4">
                   <h2 className="font-display text-xl font-semibold text-ink">
-                    Top top EYEQ performers
+                    Top EYEQ performers
                   </h2>
                 </div>
                 <ol className="divide-y divide-border">
@@ -203,7 +273,7 @@ export default async function ResultsPage({
                       key={row.universalProfileId}
                       className="flex items-center justify-between gap-3 px-5 py-3"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <span className="font-display font-semibold text-ink">
                           {row.rank}
                         </span>
@@ -242,13 +312,19 @@ export default async function ResultsPage({
                   <ScoreSummary summary={view.userScore} />
                   <div className="rounded-lg border border-border bg-surface-elevated">
                     <ol>
-                      {view.userScore.players.map((row) => (
-                        <ScoredPlayerRow
-                          key={row.playerId}
-                          row={row}
-                          fieldSize={view.userScore?.fieldSize ?? 10}
-                        />
-                      ))}
+                      {view.userScore.players.map((row) => {
+                        const meta = view.userPickMeta[row.playerId];
+                        return (
+                          <ScoredPlayerRow
+                            key={row.playerId}
+                            row={row}
+                            fieldSize={view.userScore?.fieldSize ?? 10}
+                            team={meta?.team}
+                            opponent={meta?.opponent}
+                            fantasyPoints={meta?.fantasyPoints}
+                          />
+                        );
+                      })}
                     </ol>
                   </div>
                 </section>

@@ -111,6 +111,7 @@ export default async function ProfilePage(
     expertPublicationName: view.expertPublicationName,
     creatorPersonName: view.creatorPersonName,
     creatorBrandName: view.creatorBrandName,
+    creatorVerified: view.creatorVerified,
     bio:
       profileRecord?.bio ??
       (view.status === "SUSPENDED"

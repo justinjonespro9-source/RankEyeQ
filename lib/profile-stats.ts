@@ -1,5 +1,6 @@
-import { prisma } from "@/lib/db";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { isCreatorVerified } from "@/lib/creator-verification-shared";
+import { prisma } from "@/lib/db";
 import {
   buildReceiptPickLine,
   formatActualFinishLabel,
@@ -31,6 +32,8 @@ export type RankIQProfileView = {
   expertPublicationName: string | null;
   creatorPersonName: string | null;
   creatorBrandName: string | null;
+  /** True only when profileType CREATOR and claimStatus VERIFIED. */
+  creatorVerified: boolean;
   stats: RankIQProfileStats;
   history: ProfileContestHistoryItem[];
   contestsPlayed: number;
@@ -271,6 +274,10 @@ export async function getRankIQProfileView(
     expertPublicationName: profile.expertSource?.publicationName ?? null,
     creatorPersonName: profile.creatorCompetitor?.personName ?? null,
     creatorBrandName: profile.creatorCompetitor?.brandName ?? null,
+    creatorVerified: isCreatorVerified({
+      profileType: profile.profileType,
+      claimStatus: profile.creatorCompetitor?.claimStatus ?? null,
+    }),
     contestsPlayed,
     stats: {
       overallRank,

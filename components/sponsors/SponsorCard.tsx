@@ -226,7 +226,7 @@ function HouseProductCard({
               campaignId={String(campaign.id)}
               trackingSlug={campaign.trackingSlug}
               destinationUrl={campaign.destinationUrl}
-              className={`inline-flex items-center justify-center transition-opacity ${ctaClass}`}
+              className={`inline-flex min-h-11 items-center justify-center transition-opacity ${ctaClass}`}
             >
               {campaign.ctaLabel}
             </SponsorClickLink>

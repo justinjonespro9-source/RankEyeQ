@@ -86,6 +86,13 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Prefer not to shrink text below readable mobile sizes in dense tables */
+@supports (padding: max(0px)) {
+  .safe-pb {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
 /* Marketing navy plane with faint calibration grid */
 .brand-navy-surface {
   background-color: var(--navy);

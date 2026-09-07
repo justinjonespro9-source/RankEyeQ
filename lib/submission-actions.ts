@@ -38,10 +38,13 @@ async function resolveParticipantProfileId() {
       code: "NEEDS_SETUP" as const,
     };
   }
-  if (ctx.universalProfile.profileType !== "HUMAN") {
+  if (
+    ctx.universalProfile.profileType !== "HUMAN" &&
+    ctx.universalProfile.profileType !== "CREATOR"
+  ) {
     return {
       ok: false as const,
-      error: "AI profiles cannot submit from the ranking workspace",
+      error: "AI and Expert profiles cannot submit from the ranking workspace",
       code: "FORBIDDEN" as const,
     };
   }

@@ -48,11 +48,15 @@ export function WeeklyLeaderboardPreview({
                     username={entry.username}
                     displayName={entry.displayName}
                     avatarUrl={entry.avatarUrl}
+                    profileType={entry.profileType}
                     isAi={entry.profileType === "AI"}
                     isExpert={entry.profileType === "BENCHMARK"}
                     isCreator={entry.profileType === "CREATOR"}
                     expertPublisher={entry.expertPublisher}
                     creatorBrand={entry.creatorBrand}
+                    aiModel={
+                      entry.profileType === "AI" ? entry.displayName : null
+                    }
                   />
                 </div>
                 <div className="shrink-0 text-right">
