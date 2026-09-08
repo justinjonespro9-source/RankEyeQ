@@ -231,12 +231,23 @@ async function getContestConsensusFromSnapshot(
   };
 }
 
+export type GetContestConsensusOptions = {
+  /**
+   * Skip frozen pregame snapshot and aggregate from current eligible
+   * submissions. Used for admin pre-lock preview so live Expert / Creator / AI
+   * ballots are visible even if a partial snapshot exists.
+   */
+  preferLive?: boolean;
+};
+
 /**
  * Community consensus from eligible submitted/locked/graded rankings.
  *
  * ALL segment:
- * - ballot_union (legacy): every Human + AI ballot weighted equally; Experts excluded.
- * - group_weighted (default): equal-weight blend of Human, Expert, and AI group consensus.
+ * - ballot_union (legacy): every Human + AI ballot weighted equally;
+ *   Experts and Creators excluded.
+ * - group_weighted (default): equal-weight blend of Human, Experts, Creators,
+ *   and AI group consensus (empty groups skipped).
  *
  * Configure via RANKEYEQ_CONSENSUS_ALL_MODE=ballot_union|group_weighted
  * (legacy alias: RANKEQ_CONSENSUS_ALL_MODE).
@@ -244,6 +255,7 @@ async function getContestConsensusFromSnapshot(
 export async function getContestConsensus(
   contestId: string,
   filter: ConsensusFilter = "ALL",
+  options?: GetContestConsensusOptions,
 ): Promise<{
   fieldSize: number;
   sampleSize: number;
@@ -255,8 +267,10 @@ export async function getContestConsensus(
   fromSnapshot?: boolean;
   allConsensusMode?: string;
 }> {
-  const snapshotted = await getContestConsensusFromSnapshot(contestId, filter);
-  if (snapshotted) return snapshotted;
+  if (!options?.preferLive) {
+    const snapshotted = await getContestConsensusFromSnapshot(contestId, filter);
+    if (snapshotted) return snapshotted;
+  }
 
   const contest = await loadContestForConsensus(contestId);
 
@@ -282,11 +296,13 @@ export async function getContestConsensus(
     const human = buildLiveSegmentConsensus(contest, "HUMAN");
     const ai = buildLiveSegmentConsensus(contest, "AI");
     const expert = buildLiveSegmentConsensus(contest, "EXPERT");
+    const creator = buildLiveSegmentConsensus(contest, "CREATOR");
     const merged = buildGroupWeightedAllConsensus({
       fieldSize: contest.rankingDepth,
       human,
       ai,
       expert,
+      creator,
       actualResultFinal:
         contest.status === "FINAL" || contest.status === "ARCHIVED",
     });

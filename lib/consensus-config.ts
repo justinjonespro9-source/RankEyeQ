@@ -2,11 +2,11 @@
  * How the public "All" consensus segment is composed.
  *
  * - ballot_union: every eligible HUMAN + AI ballot counts equally (legacy).
- *   Expert ballots are excluded. Selected % and Avg Selected Rank use raw ballot
- *   counts across Human + AI only.
+ *   Expert and Creator ballots are excluded. Selected % and Avg Selected Rank
+ *   use raw ballot counts across Human + AI only.
  *
- * - group_weighted (default): Human, Expert, and AI segment outputs are merged
- *   with equal weight per non-empty group (option B). Empty groups are skipped.
+ * - group_weighted (default): Human, Experts, Creators, and AI segment outputs
+ *   are merged with equal weight per non-empty group. Empty groups are skipped.
  *
  * Group-weighted All metrics per player:
  *   All Selected % = mean(segment Selected %) across represented groups
@@ -30,7 +30,7 @@ export function getConsensusAllMode(): ConsensusAllMode {
 
 export function describeConsensusAllMode(mode: ConsensusAllMode): string {
   if (mode === "ballot_union") {
-    return "All = unweighted union of every eligible Human and AI ballot. Expert sources are excluded.";
+    return "All = unweighted union of every eligible Human and AI ballot. Expert and Creator sources are excluded.";
   }
-  return "All = equally weighted blend of Human, Expert, and AI group consensus (empty groups skipped).";
+  return "All = equally weighted blend of Human, Experts, Creators, and AI group consensus (empty groups skipped).";
 }

@@ -126,6 +126,10 @@ export async function captureContestPregameSnapshotsForWeek(
       contest: contestInput,
       filter: "EXPERT",
     });
+    const creator = buildSegmentConsensus({
+      contest: contestInput,
+      filter: "CREATOR",
+    });
 
     const allMode = getConsensusAllMode();
     const all =
@@ -135,6 +139,7 @@ export async function captureContestPregameSnapshotsForWeek(
             human,
             ai,
             expert,
+            creator,
           })
         : buildSegmentConsensus({ contest: contestInput, filter: "ALL" });
 

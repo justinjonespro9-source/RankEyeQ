@@ -45,6 +45,44 @@ const FILTERS: { key: ConsensusFilter; label: string }[] = [
   { key: "AI", label: "AI" },
 ];
 
+function segmentEmptyCopy(filter: ConsensusFilter): {
+  title: string;
+  description: string;
+} {
+  switch (filter) {
+    case "HUMAN":
+      return {
+        title: "No Human consensus yet",
+        description:
+          "No official Human boards have been submitted for this position yet. Draft boards are excluded.",
+      };
+    case "EXPERT":
+      return {
+        title: "No Expert consensus yet",
+        description:
+          "No Expert boards have been submitted for this position yet.",
+      };
+    case "CREATOR":
+      return {
+        title: "No Creator consensus yet",
+        description:
+          "No Creator boards have been submitted for this position yet.",
+      };
+    case "AI":
+      return {
+        title: "No AI consensus yet",
+        description:
+          "No AI boards have been submitted for this position yet.",
+      };
+    default:
+      return {
+        title: "No consensus yet",
+        description:
+          "Official submitted weekly rankings will build the community board. Unsubmitted in-progress boards are excluded.",
+      };
+  }
+}
+
 export default async function ConsensusPage({
   searchParams,
 }: {
@@ -132,11 +170,15 @@ export default async function ConsensusPage({
 
   const consensus =
     contest && consensusVisible
-      ? await getContestConsensus(contest.id, filter)
+      ? await getContestConsensus(contest.id, filter, {
+          preferLive: isAdminPreview,
+        })
       : null;
   const expertConsensus =
     contest && consensusVisible && filter !== "EXPERT"
-      ? await getContestConsensus(contest.id, "EXPERT")
+      ? await getContestConsensus(contest.id, "EXPERT", {
+          preferLive: isAdminPreview,
+        })
       : null;
   if (consensusVisible) {
     trackEvent("consensus_viewed", { position, test: includeTest ? 1 : 0 });
@@ -167,7 +209,7 @@ export default async function ConsensusPage({
       <SectionHeading
         eyebrow="Community board"
         title="Community EYEQ"
-        description="Free after Sunday 10:00 AM America/Chicago. Compare Human, Expert, and AI pregame consensus with Selected % and average selected rank. The All view blends intelligence groups with equal weight when configured."
+        description="Free after Sunday 10:00 AM America/Chicago. Compare Human, Expert, Creator, and AI pregame consensus with Selected % and average selected rank. The All view blends intelligence groups with equal weight when configured."
       />
 
       {weeks.length === 0 ? (
@@ -300,8 +342,8 @@ export default async function ConsensusPage({
             />
           ) : !consensus || consensus.sampleSize === 0 ? (
             <EmptyState
-              title="No consensus yet"
-              description="Official submitted weekly rankings will build the community board. Unsubmitted in-progress boards are excluded."
+              title={segmentEmptyCopy(filter).title}
+              description={segmentEmptyCopy(filter).description}
               actionHref={`/rank/${position.toLowerCase()}`}
               actionLabel="Build rankings"
             />

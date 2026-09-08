@@ -7,24 +7,28 @@ export type SegmentConsensusBundle = {
 };
 
 /**
- * Equal-weight merge of Human / AI / Expert segment consensus outputs.
- * Does not fabricate Expert values when that segment has zero ballots.
+ * Equal-weight merge of Human / Experts / Creators / AI segment consensus outputs.
+ * Empty groups are skipped — never fabricated.
  */
 export function buildGroupWeightedAllConsensus(input: {
   fieldSize: number;
   human: SegmentConsensusBundle;
   ai: SegmentConsensusBundle;
   expert: SegmentConsensusBundle;
+  /** Optional for backward-compatible callers; omitted/empty is skipped. */
+  creator?: SegmentConsensusBundle;
   actualResultFinal?: boolean;
 }): {
   entries: ConsensusEntry[];
   sampleSize: number;
   groupsRepresented: number;
 } {
+  const creator = input.creator ?? { sampleSize: 0, entries: [] };
   const segments = [
     { key: "human" as const, bundle: input.human },
-    { key: "ai" as const, bundle: input.ai },
     { key: "expert" as const, bundle: input.expert },
+    { key: "creator" as const, bundle: creator },
+    { key: "ai" as const, bundle: input.ai },
   ].filter((segment) => segment.bundle.sampleSize > 0);
 
   const byPlayer = new Map<
@@ -117,5 +121,7 @@ export function buildGroupWeightedAllConsensus(input: {
 }
 
 export function consensusAllModeLabel(mode: ConsensusAllMode): string {
-  return mode === "ballot_union" ? "Ballot union (Human + AI)" : "Group weighted (Human · Expert · AI)";
+  return mode === "ballot_union"
+    ? "Ballot union (Human + AI)"
+    : "Group weighted (Human · Experts · Creators · AI)";
 }

@@ -39,6 +39,13 @@ function entry(
 }
 
 describe("consensus ALL weighting", () => {
+  it("documents group_weighted All as four equal groups including Creators", () => {
+    expect(describeConsensusAllMode("group_weighted")).toContain("Creators");
+    expect(describeConsensusAllMode("group_weighted")).toContain("Human");
+    expect(describeConsensusAllMode("group_weighted")).toContain("Experts");
+    expect(describeConsensusAllMode("group_weighted")).toContain("AI");
+  });
+
   it("documents legacy ballot_union as Human+AI only", () => {
     expect(describeConsensusAllMode("ballot_union")).toContain("Human and AI");
     expect(describeConsensusAllMode("ballot_union")).toContain("Expert");
@@ -74,6 +81,39 @@ describe("consensus ALL weighting", () => {
     expect(playerX?.averageSelectedRank).toBeCloseTo(4, 5);
     expect(merged.groupsRepresented).toBe(3);
     expect(merged.sampleSize).toBe(3);
+  });
+
+  it("includes Creators as a fourth equal group when present", () => {
+    const human = {
+      sampleSize: 100,
+      entries: [entry("x", "Player X", 1, 1, 1)],
+    };
+    const expert = {
+      sampleSize: 10,
+      entries: [entry("x", "Player X", 1, 0.8, 2)],
+    };
+    const creator = {
+      sampleSize: 4,
+      entries: [entry("x", "Player X", 1, 0.6, 3)],
+    };
+    const ai = {
+      sampleSize: 2,
+      entries: [entry("x", "Player X", 1, 0.4, 4)],
+    };
+
+    const merged = buildGroupWeightedAllConsensus({
+      fieldSize: 10,
+      human,
+      expert,
+      creator,
+      ai,
+    });
+
+    const playerX = merged.entries.find((row) => row.rankableEntryId === "x");
+    expect(playerX?.selectionRate).toBeCloseTo(0.7, 5);
+    expect(playerX?.averageSelectedRank).toBeCloseTo(2.5, 5);
+    expect(merged.groupsRepresented).toBe(4);
+    expect(merged.sampleSize).toBe(4);
   });
 
   it("builds group-weighted All without fabricating Expert when empty", () => {

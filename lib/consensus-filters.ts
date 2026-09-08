@@ -16,7 +16,7 @@ export function filterEligibleConsensusSubmissions<
     if (filter === "AI") return submission.profileType === "AI";
     if (filter === "EXPERT") return submission.profileType === "BENCHMARK";
     if (filter === "CREATOR") return submission.profileType === "CREATOR";
-    // RankIQ Community Consensus is HUMAN + AI official ballots only.
+    // ballot_union All: HUMAN + AI official ballots only (Experts/Creators via group_weighted).
     return (
       submission.profileType === "HUMAN" || submission.profileType === "AI"
     );
