@@ -556,7 +556,8 @@ model ContestPregameSnapshot {
   sampleSizeHuman  Int      @default(0)
   sampleSizeAi     Int      @default(0)
   sampleSizeExpert Int      @default(0)
-  /// ballot_union (legacy HUMAN+AI ballots) | group_weighted (equal HUMAN/AI/EXPERT groups)
+  sampleSizeCreator Int     @default(0)
+  /// ballot_union (legacy HUMAN+AI ballots) | group_weighted (equal HUMAN/AI/EXPERT/CREATOR groups)
   allConsensusMode String   @default("group_weighted")
   createdAt        DateTime @default(now())
 
@@ -578,10 +579,19 @@ model ContestPregameSnapshotEntry {
   averageSelectedRankAi   Float?
   selectionRateExpert     Float  @default(0)
   averageSelectedRankExpert Float?
+  selectionRateCreator    Float  @default(0)
+  averageSelectedRankCreator Float?
+  /// Raw individual rankings that selected this player (not group-weighted).
+  selectedCountAll        Int    @default(0)
+  selectedCountHuman      Int    @default(0)
+  selectedCountAi         Int    @default(0)
+  selectedCountExpert     Int    @default(0)
+  selectedCountCreator    Int    @default(0)
   consensusRankAll        Int?
   consensusRankHuman      Int?
   consensusRankAi         Int?
   consensusRankExpert     Int?
+  consensusRankCreator    Int?
 
   snapshot      ContestPregameSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   rankableEntry RankableEntry          @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)

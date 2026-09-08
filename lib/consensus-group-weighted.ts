@@ -13,8 +13,7 @@ export type GroupWeightedAllConsensus = {
   /** Number of non-empty groups used in equal-weight All. */
   contributingGroupCount: number;
   /**
-   * @deprecated Prefer totalEntryCount / contributingGroupCount.
-   * Kept as totalEntryCount so callers treating sampleSize as “how many boards”
+   * Mirrors totalEntryCount so callers treating sampleSize as “how many boards”
    * are not shown a group count.
    */
   sampleSize: number;
@@ -23,11 +22,23 @@ export type GroupWeightedAllConsensus = {
 };
 
 /**
+ * Recover an integer selected-count from rate × sample when exact counts are missing.
+ * Never returns 0 when rate > 0 and sampleSize > 0 (avoids Selected % > 0 with Ballots 0).
+ */
+export function selectedCountFromRate(
+  selectionRate: number,
+  sampleSize: number,
+): number {
+  if (selectionRate <= 0 || sampleSize <= 0) return 0;
+  return Math.max(1, Math.round(selectionRate * sampleSize));
+}
+
+/**
  * Equal-weight merge of Human / Experts / Creators / AI segment consensus outputs.
  * Empty groups are skipped — never fabricated.
  *
- * Weighting is by group, not by ballot count. Participation metadata is separate:
- * totalEntryCount vs contributingGroupCount.
+ * Selected % / Avg Selected Rank = equal-weight across non-empty groups.
+ * BALLOTS (timesRanked) = sum of raw individual selection counts across those groups.
  */
 export function buildGroupWeightedAllConsensus(input: {
   fieldSize: number;
@@ -52,37 +63,47 @@ export function buildGroupWeightedAllConsensus(input: {
     0,
   );
 
-  const byPlayer = new Map<
-    string,
-    {
-      base: ConsensusEntry;
-      selectionRates: number[];
-      averageRanks: number[];
-    }
-  >();
+  const bySegmentEntries = segments.map((segment) => ({
+    key: segment.key,
+    sampleSize: segment.bundle.sampleSize,
+    byId: new Map(
+      segment.bundle.entries.map((entry) => [entry.rankableEntryId, entry]),
+    ),
+  }));
 
-  for (const segment of segments) {
-    for (const entry of segment.bundle.entries) {
-      const existing = byPlayer.get(entry.rankableEntryId);
-      if (!existing) {
-        byPlayer.set(entry.rankableEntryId, {
-          base: { ...entry },
-          selectionRates: [entry.selectionRate],
-          averageRanks:
-            entry.averageSelectedRank != null ? [entry.averageSelectedRank] : [],
-        });
-        continue;
-      }
-      existing.selectionRates.push(entry.selectionRate);
-      if (entry.averageSelectedRank != null) {
-        existing.averageRanks.push(entry.averageSelectedRank);
-      }
-    }
+  const playerIds = new Set<string>();
+  for (const segment of bySegmentEntries) {
+    for (const id of segment.byId.keys()) playerIds.add(id);
   }
 
   const merged: ConsensusEntry[] = [];
 
-  for (const { base, selectionRates, averageRanks } of byPlayer.values()) {
+  for (const playerId of playerIds) {
+    const selectionRates: number[] = [];
+    const averageRanks: number[] = [];
+    let selectedCountHuman = 0;
+    let selectedCountExpert = 0;
+    let selectedCountCreator = 0;
+    let selectedCountAi = 0;
+    let base: ConsensusEntry | null = null;
+
+    for (const segment of bySegmentEntries) {
+      const entry = segment.byId.get(playerId);
+      const selectionRate = entry?.selectionRate ?? 0;
+      const timesRanked = entry?.timesRanked ?? 0;
+      selectionRates.push(selectionRate);
+      if (entry?.averageSelectedRank != null) {
+        averageRanks.push(entry.averageSelectedRank);
+      }
+      if (segment.key === "human") selectedCountHuman = timesRanked;
+      if (segment.key === "expert") selectedCountExpert = timesRanked;
+      if (segment.key === "creator") selectedCountCreator = timesRanked;
+      if (segment.key === "ai") selectedCountAi = timesRanked;
+      if (entry && !base) base = entry;
+    }
+
+    if (!base) continue;
+
     const selectionRate =
       selectionRates.length === 0
         ? 0
@@ -94,6 +115,14 @@ export function buildGroupWeightedAllConsensus(input: {
         : averageRanks.reduce((sum, value) => sum + value, 0) /
           averageRanks.length;
 
+    const totalBallotCount =
+      selectedCountHuman +
+      selectedCountExpert +
+      selectedCountCreator +
+      selectedCountAi;
+    const timesRanked =
+      selectionRate > 0 && totalBallotCount === 0 ? 1 : totalBallotCount;
+
     merged.push({
       ...base,
       actualResultFinal: input.actualResultFinal ?? base.actualResultFinal,
@@ -102,10 +131,12 @@ export function buildGroupWeightedAllConsensus(input: {
       averageSelectedRank,
       averagePredictedRank: averageSelectedRank,
       consensusRank: null,
-      // Per-entry sampleSize stays group-scoped for timesRanked display only;
-      // it does not change equal-weight Selected % / Avg Rank math above.
-      sampleSize: contributingGroupCount,
-      timesRanked: Math.round(selectionRate * contributingGroupCount),
+      sampleSize: totalEntryCount,
+      timesRanked,
+      selectedCountHuman,
+      selectedCountExpert,
+      selectedCountCreator,
+      selectedCountAi,
       percentRankedTopN: selectionRate,
       percentRankedTop3: 0,
       percentRankedOne: 0,
@@ -148,14 +179,14 @@ export function buildGroupWeightedAllConsensus(input: {
 /**
  * Resolve All participation counts from a pregame snapshot.
  * Historical snapshots stored group count in sampleSizeAll; newer ones may store
- * total entry count. Segment columns always hold per-class ballot counts
- * (Creator not stored yet — inferred when sampleSizeAll exceeds segment sum).
+ * total entry count. Prefer segment sample columns when present.
  */
 export function resolveAllParticipationFromSnapshot(snapshot: {
   sampleSizeAll: number;
   sampleSizeHuman: number;
   sampleSizeAi: number;
   sampleSizeExpert: number;
+  sampleSizeCreator?: number;
   allConsensusMode?: string | null;
 }): {
   totalEntryCount: number;
@@ -164,39 +195,63 @@ export function resolveAllParticipationFromSnapshot(snapshot: {
   const human = snapshot.sampleSizeHuman;
   const ai = snapshot.sampleSizeAi;
   const expert = snapshot.sampleSizeExpert;
-  const segmentTotal = human + ai + expert;
-  const segmentGroups = [human, ai, expert].filter((count) => count > 0).length;
+  const creator = snapshot.sampleSizeCreator ?? 0;
+  const segmentTotal = human + ai + expert + creator;
+  const segmentGroups = [human, ai, expert, creator].filter(
+    (count) => count > 0,
+  ).length;
   const stored = snapshot.sampleSizeAll;
   const mode = snapshot.allConsensusMode ?? "group_weighted";
 
   if (mode === "ballot_union") {
     return {
-      totalEntryCount: stored || segmentTotal,
-      contributingGroupCount: Math.max(segmentGroups, stored > 0 ? 1 : 0),
+      totalEntryCount: stored || human + ai,
+      contributingGroupCount: Math.max(
+        [human, ai].filter((count) => count > 0).length,
+        stored > 0 ? 1 : 0,
+      ),
     };
   }
 
+  if (segmentTotal > 0) {
+    // Prefer explicit segment samples (including Creator when stored).
+    if (stored === 0 || stored === segmentTotal || stored === segmentGroups) {
+      return {
+        totalEntryCount: segmentTotal,
+        contributingGroupCount: segmentGroups,
+      };
+    }
+  }
+
   // Historical group_weighted: sampleSizeAll was contributingGroupCount (≤4).
+  const legacySegmentTotal = human + ai + expert;
+  const legacySegmentGroups = [human, ai, expert].filter(
+    (count) => count > 0,
+  ).length;
   const looksLikeStoredGroupCount =
     stored > 0 &&
     stored <= 4 &&
-    segmentTotal > stored &&
-    stored >= segmentGroups &&
-    stored <= segmentGroups + 1;
+    legacySegmentTotal > stored &&
+    stored >= legacySegmentGroups &&
+    stored <= legacySegmentGroups + 1;
 
   if (looksLikeStoredGroupCount) {
+    const impliedCreatorEntries = Math.max(0, stored === legacySegmentGroups + 1 ? 0 : 0);
+    // When stored groups exceed H+A+E columns, treat extra as Creator ballots unknown;
+    // total still uses legacy segment sum (safest without Creator sample column).
+    void impliedCreatorEntries;
     return {
-      totalEntryCount: segmentTotal,
+      totalEntryCount: legacySegmentTotal,
       contributingGroupCount: stored,
     };
   }
 
-  const impliedCreatorEntries = Math.max(0, stored - segmentTotal);
+  const impliedCreatorEntries = Math.max(0, stored - legacySegmentTotal);
   const contributingGroupCount =
-    segmentGroups + (impliedCreatorEntries > 0 ? 1 : 0);
+    legacySegmentGroups + (impliedCreatorEntries > 0 || creator > 0 ? 1 : 0);
 
   return {
-    totalEntryCount: stored > 0 ? stored : segmentTotal,
+    totalEntryCount: stored > 0 ? stored : segmentTotal || legacySegmentTotal,
     contributingGroupCount:
       contributingGroupCount > 0 ? contributingGroupCount : stored,
   };

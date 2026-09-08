@@ -31,9 +31,18 @@ export type ConsensusEntry = {
   podiumPercentRank: number | null;
   /** Ordinal rank for average placement among boards that include this player. */
   averageRankRank: number | null;
+  /**
+   * BALLOTS — raw individual rankings that selected this player.
+   * For All (group-weighted), this is the sum across segments — not group count.
+   */
   timesRanked: number;
   /** Eligible submitted boards in this filter context. */
   sampleSize: number;
+  /** Optional per-segment raw selection counts (All / snapshot). */
+  selectedCountHuman?: number;
+  selectedCountExpert?: number;
+  selectedCountCreator?: number;
+  selectedCountAi?: number;
   /** Population stdev of predicted ranks among ballots that included the player. */
   rankStdev: number | null;
   consensusVsActual: number | null;

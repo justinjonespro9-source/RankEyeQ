@@ -462,7 +462,10 @@ export default async function ConsensusPage({
                           </dd>
                         </div>
                         <div className="rounded-md bg-surface px-2 py-2">
-                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                          <dt
+                            className="text-[10px] font-semibold uppercase tracking-wide text-muted"
+                            title="Number of individual rankings that selected this player."
+                          >
                             Ballots
                           </dt>
                           <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
@@ -487,7 +490,12 @@ export default async function ConsensusPage({
                       <th className="px-3 py-3">Avg sel rank</th>
                       <th className="px-3 py-3">Team</th>
                       <th className="px-3 py-3">Opp</th>
-                      <th className="px-3 py-3">Ballots</th>
+                      <th
+                        className="px-3 py-3"
+                        title="Number of individual rankings that selected this player."
+                      >
+                        Ballots
+                      </th>
                       {showActual ? (
                         <th className="px-3 py-3">Δ</th>
                       ) : null}

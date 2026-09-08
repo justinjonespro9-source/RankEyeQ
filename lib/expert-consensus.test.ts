@@ -14,9 +14,11 @@ import { isExpertProfile } from "@/lib/expert-identity";
 function entry(
   id: string,
   name: string,
-  consensusRank: number,
+  consensusRank: number | null,
   selectionRate: number,
-  averageSelectedRank: number,
+  averageSelectedRank: number | null,
+  timesRanked?: number,
+  sampleSize = 10,
 ): ConsensusEntry {
   return {
     rankableEntryId: id,
@@ -38,8 +40,8 @@ function entry(
     podiumPercent: 0,
     podiumPercentRank: null,
     averageRankRank: null,
-    timesRanked: Math.round(selectionRate * 10),
-    sampleSize: 10,
+    timesRanked: timesRanked ?? Math.round(selectionRate * sampleSize),
+    sampleSize,
     rankStdev: null,
     consensusVsActual: null,
   };
@@ -162,6 +164,64 @@ describe("consensus ALL weighting", () => {
     ).toBeCloseTo((1 + 0.9 + 0.8 + 0.5) / 4, 5);
   });
 
+  it("uses raw individual ballot sums for All BALLOTS (not group count)", () => {
+    // Fixture: Human 1, Expert 3, Creator 1, AI 8.
+    // Player selected by: Human 1, Experts 2, Creators 0, AI 6 → BALLOTS 9.
+    const human = {
+      sampleSize: 1,
+      entries: [entry("x", "Player X", 1, 1, 1, 1, 1)],
+    };
+    const expert = {
+      sampleSize: 3,
+      entries: [entry("x", "Player X", 1, 2 / 3, 2, 2, 3)],
+    };
+    const creator = {
+      sampleSize: 1,
+      entries: [entry("x", "Player X", null, 0, null, 0, 1)],
+    };
+    const ai = {
+      sampleSize: 8,
+      entries: [entry("x", "Player X", 1, 0.75, 3, 6, 8)],
+    };
+
+    const merged = buildGroupWeightedAllConsensus({
+      fieldSize: 10,
+      human,
+      expert,
+      creator,
+      ai,
+    });
+
+    const player = merged.entries.find((row) => row.rankableEntryId === "x");
+    expect(player?.selectedCountHuman).toBe(1);
+    expect(player?.selectedCountExpert).toBe(2);
+    expect(player?.selectedCountCreator).toBe(0);
+    expect(player?.selectedCountAi).toBe(6);
+    expect(player?.timesRanked).toBe(9);
+    expect(player?.selectionRate).toBeCloseTo((1 + 2 / 3 + 0 + 0.75) / 4, 5);
+    expect(player!.selectionRate).toBeGreaterThan(0);
+    expect(player!.timesRanked).toBeGreaterThan(0);
+    // Creator avg rank omitted from mean (null / not selected).
+    expect(player?.averageSelectedRank).toBeCloseTo((1 + 2 + 3) / 3, 5);
+  });
+
+  it("never shows Selected % > 0 with Ballots = 0", () => {
+    const human = {
+      sampleSize: 1,
+      entries: [entry("x", "X", 1, 0.1, 5, 0, 1)],
+    };
+    const merged = buildGroupWeightedAllConsensus({
+      fieldSize: 10,
+      human,
+      expert: { sampleSize: 0, entries: [] },
+      ai: { sampleSize: 0, entries: [] },
+      creator: { sampleSize: 0, entries: [] },
+    });
+    const player = merged.entries.find((row) => row.rankableEntryId === "x");
+    expect(player?.selectionRate).toBeGreaterThan(0);
+    expect(player?.timesRanked).toBeGreaterThan(0);
+  });
+
   it("builds group-weighted All without fabricating Expert when empty", () => {
     const human = {
       sampleSize: 100,
@@ -258,6 +318,7 @@ describe("All participation display counts", () => {
       sampleSizeHuman: 1,
       sampleSizeAi: 8,
       sampleSizeExpert: 3,
+      sampleSizeCreator: 1,
       allConsensusMode: "group_weighted",
     });
     expect(withCreatorTotal.totalEntryCount).toBe(13);

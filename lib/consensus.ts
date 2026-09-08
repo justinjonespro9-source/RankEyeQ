@@ -13,6 +13,7 @@ import { getConsensusAllMode } from "@/lib/consensus-config";
 import {
   buildGroupWeightedAllConsensus,
   resolveAllParticipationFromSnapshot,
+  selectedCountFromRate,
 } from "@/lib/consensus-group-weighted";
 
 export type { ConsensusFilter } from "@/lib/consensus-filters";
@@ -116,7 +117,18 @@ function snapshotEntryToConsensusEntry(input: {
   selectionRate: number;
   averageSelectedRank: number | null;
   consensusRank: number | null;
+  timesRanked?: number;
+  selectedCountHuman?: number;
+  selectedCountExpert?: number;
+  selectedCountCreator?: number;
+  selectedCountAi?: number;
 }): ConsensusEntry {
+  const derivedTimes =
+    input.timesRanked ??
+    selectedCountFromRate(input.selectionRate, input.sampleSize);
+  const timesRanked =
+    input.selectionRate > 0 && derivedTimes === 0 ? 1 : derivedTimes;
+
   return {
     rankableEntryId: input.rankableEntryId,
     name: input.name,
@@ -137,8 +149,12 @@ function snapshotEntryToConsensusEntry(input: {
     podiumPercent: 0,
     podiumPercentRank: null,
     averageRankRank: null,
-    timesRanked: Math.round(input.selectionRate * input.sampleSize),
+    timesRanked,
     sampleSize: input.sampleSize,
+    selectedCountHuman: input.selectedCountHuman,
+    selectedCountExpert: input.selectedCountExpert,
+    selectedCountCreator: input.selectedCountCreator,
+    selectedCountAi: input.selectedCountAi,
     rankStdev: null,
     consensusVsActual:
       input.actualRank != null && input.consensusRank != null
@@ -151,9 +167,6 @@ async function getContestConsensusFromSnapshot(
   contestId: string,
   filter: ConsensusFilter,
 ) {
-  // Creator segment is live-only until snapshot schema stores Creator columns.
-  if (filter === "CREATOR") return null;
-
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {
@@ -166,6 +179,11 @@ async function getContestConsensusFromSnapshot(
   if (!contest?.pregameSnapshot) return null;
 
   const snapshot = contest.pregameSnapshot;
+  // Older snapshots have no Creator columns populated — fall through to live.
+  if (filter === "CREATOR" && snapshot.sampleSizeCreator <= 0) {
+    return null;
+  }
+
   const allParticipation =
     filter === "ALL"
       ? resolveAllParticipationFromSnapshot(snapshot)
@@ -177,7 +195,9 @@ async function getContestConsensusFromSnapshot(
         ? snapshot.sampleSizeAi
         : filter === "EXPERT"
           ? snapshot.sampleSizeExpert
-          : (allParticipation?.totalEntryCount ?? snapshot.sampleSizeAll);
+          : filter === "CREATOR"
+            ? snapshot.sampleSizeCreator
+            : (allParticipation?.totalEntryCount ?? snapshot.sampleSizeAll);
 
   const actualByPlayer = new Map(
     contest.entries.map((entry) => [
@@ -201,7 +221,9 @@ async function getContestConsensusFromSnapshot(
           ? row.selectionRateAi
           : filter === "EXPERT"
             ? row.selectionRateExpert
-            : row.selectionRateAll;
+            : filter === "CREATOR"
+              ? row.selectionRateCreator
+              : row.selectionRateAll;
     const averageSelectedRank =
       filter === "HUMAN"
         ? row.averageSelectedRankHuman
@@ -209,7 +231,9 @@ async function getContestConsensusFromSnapshot(
           ? row.averageSelectedRankAi
           : filter === "EXPERT"
             ? row.averageSelectedRankExpert
-            : row.averageSelectedRankAll;
+            : filter === "CREATOR"
+              ? row.averageSelectedRankCreator
+              : row.averageSelectedRankAll;
     const consensusRank =
       filter === "HUMAN"
         ? row.consensusRankHuman
@@ -217,7 +241,60 @@ async function getContestConsensusFromSnapshot(
           ? row.consensusRankAi
           : filter === "EXPERT"
             ? row.consensusRankExpert
-            : row.consensusRankAll;
+            : filter === "CREATOR"
+              ? row.consensusRankCreator
+              : row.consensusRankAll;
+
+    const selectedCountHuman =
+      row.selectedCountHuman > 0
+        ? row.selectedCountHuman
+        : selectedCountFromRate(row.selectionRateHuman, snapshot.sampleSizeHuman);
+    const selectedCountExpert =
+      row.selectedCountExpert > 0
+        ? row.selectedCountExpert
+        : selectedCountFromRate(
+            row.selectionRateExpert,
+            snapshot.sampleSizeExpert,
+          );
+    const selectedCountAi =
+      row.selectedCountAi > 0
+        ? row.selectedCountAi
+        : selectedCountFromRate(row.selectionRateAi, snapshot.sampleSizeAi);
+    const selectedCountCreator =
+      row.selectedCountCreator > 0
+        ? row.selectedCountCreator
+        : selectedCountFromRate(
+            row.selectionRateCreator,
+            snapshot.sampleSizeCreator,
+          );
+
+    const storedAll = row.selectedCountAll;
+    const summedSegments =
+      selectedCountHuman +
+      selectedCountExpert +
+      selectedCountCreator +
+      selectedCountAi;
+    let timesRanked: number;
+    if (filter === "ALL") {
+      timesRanked =
+        storedAll > 0
+          ? storedAll
+          : summedSegments > 0
+            ? summedSegments
+            : selectedCountFromRate(selectionRate, sampleSize);
+      if (selectionRate > 0 && timesRanked === 0) timesRanked = 1;
+    } else if (filter === "HUMAN") {
+      timesRanked = selectedCountHuman;
+    } else if (filter === "EXPERT") {
+      timesRanked = selectedCountExpert;
+    } else if (filter === "CREATOR") {
+      timesRanked = selectedCountCreator;
+    } else if (filter === "AI") {
+      timesRanked = selectedCountAi;
+    } else {
+      timesRanked = selectedCountFromRate(selectionRate, sampleSize);
+    }
+    if (selectionRate > 0 && timesRanked === 0) timesRanked = 1;
 
     return snapshotEntryToConsensusEntry({
       rankableEntryId: row.rankableEntryId,
@@ -232,6 +309,11 @@ async function getContestConsensusFromSnapshot(
       selectionRate,
       averageSelectedRank,
       consensusRank,
+      timesRanked,
+      selectedCountHuman,
+      selectedCountExpert,
+      selectedCountCreator,
+      selectedCountAi,
     });
   });
 

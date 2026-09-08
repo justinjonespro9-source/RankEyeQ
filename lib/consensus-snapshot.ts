@@ -160,6 +160,7 @@ export async function captureContestPregameSnapshotsForWeek(
     const humanById = byId(human.entries);
     const aiById = byId(ai.entries);
     const expertById = byId(expert.entries);
+    const creatorById = byId(creator.entries);
 
     const playerIds = new Set([
       ...contest.entries.map((entry) => entry.rankableEntryId),
@@ -173,6 +174,7 @@ export async function captureContestPregameSnapshotsForWeek(
         sampleSizeHuman: human.sampleSize,
         sampleSizeAi: ai.sampleSize,
         sampleSizeExpert: expert.sampleSize,
+        sampleSizeCreator: creator.sampleSize,
         allConsensusMode: allMode,
         entries: {
           create: [...playerIds].map((rankableEntryId) => {
@@ -180,6 +182,7 @@ export async function captureContestPregameSnapshotsForWeek(
             const humanEntry = humanById.get(rankableEntryId);
             const aiEntry = aiById.get(rankableEntryId);
             const expertEntry = expertById.get(rankableEntryId);
+            const creatorEntry = creatorById.get(rankableEntryId);
 
             return {
               rankableEntryId,
@@ -193,10 +196,19 @@ export async function captureContestPregameSnapshotsForWeek(
               selectionRateExpert: expertEntry?.selectionRate ?? 0,
               averageSelectedRankExpert:
                 expertEntry?.averageSelectedRank ?? null,
+              selectionRateCreator: creatorEntry?.selectionRate ?? 0,
+              averageSelectedRankCreator:
+                creatorEntry?.averageSelectedRank ?? null,
+              selectedCountAll: allEntry?.timesRanked ?? 0,
+              selectedCountHuman: humanEntry?.timesRanked ?? 0,
+              selectedCountAi: aiEntry?.timesRanked ?? 0,
+              selectedCountExpert: expertEntry?.timesRanked ?? 0,
+              selectedCountCreator: creatorEntry?.timesRanked ?? 0,
               consensusRankAll: allEntry?.consensusRank ?? null,
               consensusRankHuman: humanEntry?.consensusRank ?? null,
               consensusRankAi: aiEntry?.consensusRank ?? null,
               consensusRankExpert: expertEntry?.consensusRank ?? null,
+              consensusRankCreator: creatorEntry?.consensusRank ?? null,
             };
           }),
         },
