@@ -438,12 +438,13 @@ describe("ctaForContestState", () => {
 
 describe("filterEligibleConsensusSubmissions", () => {
   const ballots = [
-    { id: "d", status: "DRAFT" as const, profileType: "HUMAN" as const },
-    { id: "h", status: "SUBMITTED" as const, profileType: "HUMAN" as const },
-    { id: "a", status: "LOCKED" as const, profileType: "AI" as const },
-    { id: "g", status: "GRADED" as const, profileType: "HUMAN" as const },
-    { id: "b", status: "LOCKED" as const, profileType: "BENCHMARK" as const },
-    { id: "c", status: "LOCKED" as const, profileType: "CREATOR" as const },
+    { id: "d", status: "DRAFT" as const, profileType: "HUMAN" as const, picks: [{ id: "1" }] },
+    { id: "h", status: "SUBMITTED" as const, profileType: "HUMAN" as const, picks: [{ id: "1" }] },
+    { id: "a", status: "LOCKED" as const, profileType: "AI" as const, picks: [{ id: "1" }] },
+    { id: "g", status: "GRADED" as const, profileType: "HUMAN" as const, picks: [{ id: "1" }] },
+    { id: "b", status: "LOCKED" as const, profileType: "BENCHMARK" as const, picks: [{ id: "1" }] },
+    { id: "c", status: "LOCKED" as const, profileType: "CREATOR" as const, picks: [{ id: "1" }] },
+    { id: "empty", status: "LOCKED" as const, profileType: "BENCHMARK" as const, picks: [] as { id: string }[] },
   ];
 
   it("excludes drafts from consensus sample", () => {
@@ -451,6 +452,18 @@ describe("filterEligibleConsensusSubmissions", () => {
     expect(eligible.map((row) => row.id)).toEqual(["h", "a", "g"]);
     expect(eligible.some((row) => row.id === "b")).toBe(false);
     expect(eligible.some((row) => row.id === "c")).toBe(false);
+  });
+
+  it("excludes empty shells even when status is eligible", () => {
+    expect(
+      filterEligibleConsensusSubmissions(ballots, "EXPERT").map((row) => row.id),
+    ).toEqual(["b"]);
+    expect(
+      filterEligibleConsensusSubmissions(
+        [{ id: "shell", status: "LOCKED" as const, profileType: "AI" as const, picks: [] }],
+        "AI",
+      ),
+    ).toHaveLength(0);
   });
 
   it("filters Human and AI official ballots", () => {

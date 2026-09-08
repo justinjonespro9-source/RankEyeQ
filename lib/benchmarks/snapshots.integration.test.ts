@@ -359,15 +359,29 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
 
     const community = filterEligibleConsensusSubmissions(
       [
-        { status: expertSub.status, profileType: "BENCHMARK" as const },
-        { status: humanSub.status, profileType: "HUMAN" as const },
+        {
+          status: expertSub.status,
+          profileType: "BENCHMARK" as const,
+          picks: expertSub.picks,
+        },
+        {
+          status: humanSub.status,
+          profileType: "HUMAN" as const,
+          picks: [{ id: "1" }],
+        },
       ],
       "ALL",
     );
     expect(community).toHaveLength(1);
     expect(
       filterEligibleConsensusSubmissions(
-        [{ status: expertSub.status, profileType: "BENCHMARK" as const }],
+        [
+          {
+            status: expertSub.status,
+            profileType: "BENCHMARK" as const,
+            picks: expertSub.picks,
+          },
+        ],
         "EXPERT",
       ),
     ).toHaveLength(1);

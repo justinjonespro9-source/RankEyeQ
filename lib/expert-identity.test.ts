@@ -161,9 +161,30 @@ describe("expert analyst identities", () => {
 
   it("Expert Consensus only counts submitted Expert ballots (no publisher double-count by default)", () => {
     const submissions = [
-      { id: "a", status: "LOCKED" as const, profileType: "BENCHMARK" as const },
-      { id: "b", status: "DRAFT" as const, profileType: "BENCHMARK" as const },
-      { id: "c", status: "LOCKED" as const, profileType: "HUMAN" as const },
+      {
+        id: "a",
+        status: "LOCKED" as const,
+        profileType: "BENCHMARK" as const,
+        picks: [{ id: "1" }],
+      },
+      {
+        id: "b",
+        status: "DRAFT" as const,
+        profileType: "BENCHMARK" as const,
+        picks: [{ id: "1" }],
+      },
+      {
+        id: "c",
+        status: "LOCKED" as const,
+        profileType: "HUMAN" as const,
+        picks: [{ id: "1" }],
+      },
+      {
+        id: "empty",
+        status: "LOCKED" as const,
+        profileType: "BENCHMARK" as const,
+        picks: [] as { id: string }[],
+      },
     ];
     const expert = filterEligibleConsensusSubmissions(submissions, "EXPERT");
     expect(expert.map((row) => row.id)).toEqual(["a"]);

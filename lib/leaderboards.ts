@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type {
   ContestPosition,
   ProfileType,
+  SubmissionStatus,
 } from "@/lib/generated/prisma/client";
 
 export type LeaderboardFilter =
@@ -29,6 +30,31 @@ export type LeaderboardRow = {
   numberOneHits: number;
   rank: number;
 };
+
+/**
+ * Official competitive leaderboards (weekly / season / class filters) only
+ * include competitors who actually competed in the selected scope.
+ *
+ * Qualification:
+ * - status GRADED
+ * - non-null normalizedScore
+ * - at least one ranking pick
+ *
+ * Profiles with no submissions, DRAFT-only boards, empty shells, or scores
+ * without picks never appear — including seeded Experts, tracked Creators,
+ * and newly created AI identities.
+ */
+export function gradedSubmissionQualifiesForLeaderboard(submission: {
+  status: SubmissionStatus;
+  normalizedScore: number | null;
+  picks: readonly unknown[];
+}): boolean {
+  return (
+    submission.status === "GRADED" &&
+    submission.normalizedScore != null &&
+    submission.picks.length > 0
+  );
+}
 
 function filterToProfileType(
   filter: LeaderboardFilter,
@@ -139,6 +165,8 @@ async function loadGradedSubmissions(where: {
     where: {
       status: "GRADED",
       normalizedScore: { not: null },
+      // Empty shells (eligible status, zero picks) never qualify.
+      picks: { some: {} },
       ...(where.profileType
         ? { universalProfile: { profileType: where.profileType } }
         : {}),
@@ -166,6 +194,7 @@ function accumulate(
   const map = new Map<string, GradedAgg>();
 
   for (const submission of submissions) {
+    if (!gradedSubmissionQualifiesForLeaderboard(submission)) continue;
     const profile = submission.universalProfile;
     const agg = map.get(profile.id) ?? emptyAgg(profile);
     agg.scores.push(submission.normalizedScore ?? 0);

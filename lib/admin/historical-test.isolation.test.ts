@@ -89,27 +89,76 @@ describe("historical test week isolation + finalize blockers", () => {
     });
     profileId = profile.id;
 
-    await prisma.rankingSubmission.createMany({
-      data: [
-        {
-          contestId: liveContestId,
-          universalProfileId: profileId,
-          status: "GRADED",
-          normalizedScore: 90,
+    const player = await prisma.rankableEntry.create({
+      data: {
+        provider: "test",
+        externalId: `hist-player-${suffix}`,
+        type: "PLAYER",
+        name: "Hist QB",
+        shortName: "Hist",
+        team: "MIN",
+        opponent: "vs GB",
+        position: "QB",
+        active: true,
+      },
+    });
+    for (const contestId of [liveContestId, testContestId]) {
+      await prisma.contestEntry.create({
+        data: {
+          contestId,
+          rankableEntryId: player.id,
+          excluded: false,
+          actualRank: 1,
         },
-        {
-          contestId: testContestId,
-          universalProfileId: profileId,
-          status: "GRADED",
-          normalizedScore: 10,
+      });
+    }
+
+    await prisma.rankingSubmission.create({
+      data: {
+        contestId: liveContestId,
+        universalProfileId: profileId,
+        status: "GRADED",
+        normalizedScore: 90,
+        picks: {
+          create: [
+            {
+              rankableEntryId: player.id,
+              predictedRank: 1,
+              actualRank: 1,
+            },
+          ],
         },
-      ],
+      },
+    });
+
+    await prisma.rankingSubmission.create({
+      data: {
+        contestId: testContestId,
+        universalProfileId: profileId,
+        status: "GRADED",
+        normalizedScore: 10,
+        picks: {
+          create: [
+            {
+              rankableEntryId: player.id,
+              predictedRank: 1,
+              actualRank: 1,
+            },
+          ],
+        },
+      },
     });
   });
 
   afterAll(async () => {
     await prisma.rankingSubmission.deleteMany({
       where: { universalProfileId: profileId },
+    });
+    await prisma.contestEntry.deleteMany({
+      where: { contestId: { in: [liveContestId, testContestId] } },
+    });
+    await prisma.rankableEntry.deleteMany({
+      where: { externalId: `hist-player-${suffix}` },
     });
     await prisma.rankIQContest.deleteMany({
       where: { id: { in: [liveContestId, testContestId] } },
