@@ -444,7 +444,9 @@ describe("Week 1 lifecycle simulation", () => {
     expect(human.sampleSize).toBe(5);
     expect(expert.sampleSize).toBe(2);
     expect(ai.sampleSize).toBe(2);
-    expect(all.sampleSize).toBe(3);
+    expect(all.totalEntryCount).toBe(9);
+    expect(all.contributingGroupCount).toBe(3);
+    expect(all.sampleSize).toBe(9);
 
     const backupHuman = human.entries.find(
       (row) => row.rankableEntryId === rbBackupId,

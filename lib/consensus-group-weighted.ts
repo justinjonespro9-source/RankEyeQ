@@ -6,9 +6,28 @@ export type SegmentConsensusBundle = {
   sampleSize: number;
 };
 
+export type GroupWeightedAllConsensus = {
+  entries: ConsensusEntry[];
+  /** Sum of qualifying ballots across non-empty groups (display / participation). */
+  totalEntryCount: number;
+  /** Number of non-empty groups used in equal-weight All. */
+  contributingGroupCount: number;
+  /**
+   * @deprecated Prefer totalEntryCount / contributingGroupCount.
+   * Kept as totalEntryCount so callers treating sampleSize as “how many boards”
+   * are not shown a group count.
+   */
+  sampleSize: number;
+  /** Alias of contributingGroupCount. */
+  groupsRepresented: number;
+};
+
 /**
  * Equal-weight merge of Human / Experts / Creators / AI segment consensus outputs.
  * Empty groups are skipped — never fabricated.
+ *
+ * Weighting is by group, not by ballot count. Participation metadata is separate:
+ * totalEntryCount vs contributingGroupCount.
  */
 export function buildGroupWeightedAllConsensus(input: {
   fieldSize: number;
@@ -18,11 +37,7 @@ export function buildGroupWeightedAllConsensus(input: {
   /** Optional for backward-compatible callers; omitted/empty is skipped. */
   creator?: SegmentConsensusBundle;
   actualResultFinal?: boolean;
-}): {
-  entries: ConsensusEntry[];
-  sampleSize: number;
-  groupsRepresented: number;
-} {
+}): GroupWeightedAllConsensus {
   const creator = input.creator ?? { sampleSize: 0, entries: [] };
   const segments = [
     { key: "human" as const, bundle: input.human },
@@ -30,6 +45,12 @@ export function buildGroupWeightedAllConsensus(input: {
     { key: "creator" as const, bundle: creator },
     { key: "ai" as const, bundle: input.ai },
   ].filter((segment) => segment.bundle.sampleSize > 0);
+
+  const contributingGroupCount = segments.length;
+  const totalEntryCount = segments.reduce(
+    (sum, segment) => sum + segment.bundle.sampleSize,
+    0,
+  );
 
   const byPlayer = new Map<
     string,
@@ -81,8 +102,10 @@ export function buildGroupWeightedAllConsensus(input: {
       averageSelectedRank,
       averagePredictedRank: averageSelectedRank,
       consensusRank: null,
-      sampleSize: segments.length,
-      timesRanked: Math.round(selectionRate * segments.length),
+      // Per-entry sampleSize stays group-scoped for timesRanked display only;
+      // it does not change equal-weight Selected % / Avg Rank math above.
+      sampleSize: contributingGroupCount,
+      timesRanked: Math.round(selectionRate * contributingGroupCount),
       percentRankedTopN: selectionRate,
       percentRankedTop3: 0,
       percentRankedOne: 0,
@@ -115,8 +138,67 @@ export function buildGroupWeightedAllConsensus(input: {
 
   return {
     entries: [...ranked, ...neverRanked],
-    sampleSize: segments.length,
-    groupsRepresented: segments.length,
+    totalEntryCount,
+    contributingGroupCount,
+    sampleSize: totalEntryCount,
+    groupsRepresented: contributingGroupCount,
+  };
+}
+
+/**
+ * Resolve All participation counts from a pregame snapshot.
+ * Historical snapshots stored group count in sampleSizeAll; newer ones may store
+ * total entry count. Segment columns always hold per-class ballot counts
+ * (Creator not stored yet — inferred when sampleSizeAll exceeds segment sum).
+ */
+export function resolveAllParticipationFromSnapshot(snapshot: {
+  sampleSizeAll: number;
+  sampleSizeHuman: number;
+  sampleSizeAi: number;
+  sampleSizeExpert: number;
+  allConsensusMode?: string | null;
+}): {
+  totalEntryCount: number;
+  contributingGroupCount: number;
+} {
+  const human = snapshot.sampleSizeHuman;
+  const ai = snapshot.sampleSizeAi;
+  const expert = snapshot.sampleSizeExpert;
+  const segmentTotal = human + ai + expert;
+  const segmentGroups = [human, ai, expert].filter((count) => count > 0).length;
+  const stored = snapshot.sampleSizeAll;
+  const mode = snapshot.allConsensusMode ?? "group_weighted";
+
+  if (mode === "ballot_union") {
+    return {
+      totalEntryCount: stored || segmentTotal,
+      contributingGroupCount: Math.max(segmentGroups, stored > 0 ? 1 : 0),
+    };
+  }
+
+  // Historical group_weighted: sampleSizeAll was contributingGroupCount (≤4).
+  const looksLikeStoredGroupCount =
+    stored > 0 &&
+    stored <= 4 &&
+    segmentTotal > stored &&
+    stored >= segmentGroups &&
+    stored <= segmentGroups + 1;
+
+  if (looksLikeStoredGroupCount) {
+    return {
+      totalEntryCount: segmentTotal,
+      contributingGroupCount: stored,
+    };
+  }
+
+  const impliedCreatorEntries = Math.max(0, stored - segmentTotal);
+  const contributingGroupCount =
+    segmentGroups + (impliedCreatorEntries > 0 ? 1 : 0);
+
+  return {
+    totalEntryCount: stored > 0 ? stored : segmentTotal,
+    contributingGroupCount:
+      contributingGroupCount > 0 ? contributingGroupCount : stored,
   };
 }
 
@@ -124,4 +206,24 @@ export function consensusAllModeLabel(mode: ConsensusAllMode): string {
   return mode === "ballot_union"
     ? "Ballot union (Human + AI)"
     : "Group weighted (Human · Experts · Creators · AI)";
+}
+
+export function formatConsensusParticipationBadge(input: {
+  filter: string;
+  sampleSize: number;
+  totalEntryCount?: number;
+  contributingGroupCount?: number;
+}): string {
+  if (input.filter === "ALL") {
+    const entries = input.totalEntryCount ?? input.sampleSize;
+    const groups = input.contributingGroupCount;
+    if (groups != null && groups > 0) {
+      return `${entries} ${entries === 1 ? "entry" : "entries"} · ${groups} ${
+        groups === 1 ? "group" : "groups"
+      }`;
+    }
+    return `${entries} ${entries === 1 ? "entry" : "entries"}`;
+  }
+  const n = input.sampleSize;
+  return `${n} ${n === 1 ? "entry" : "entries"}`;
 }

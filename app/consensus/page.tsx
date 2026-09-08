@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import {
   getContestConsensus,
+  formatConsensusParticipationBadge,
   type ConsensusFilter,
 } from "@/lib/consensus";
 import { prisma } from "@/lib/db";
@@ -353,12 +354,29 @@ export default async function ConsensusPage({
                 <Badge tone="neutral">
                   {consensus.weekLabel} · {consensus.position}
                 </Badge>
-                <Badge tone="success">
-                  Sample size {consensus.sampleSize}
-                  {filter === "EXPERT" && consensus.sampleSize === 0
-                    ? " (no expert boards)"
-                    : ""}
+                <Badge
+                  tone="success"
+                  title={
+                    filter === "ALL"
+                      ? "All consensus gives equal weight to each non-empty group."
+                      : undefined
+                  }
+                >
+                  {formatConsensusParticipationBadge({
+                    filter,
+                    sampleSize: consensus.sampleSize,
+                    totalEntryCount: consensus.totalEntryCount,
+                    contributingGroupCount: consensus.contributingGroupCount,
+                  })}
                 </Badge>
+                {filter === "ALL" ? (
+                  <Badge
+                    tone="neutral"
+                    title="All consensus gives equal weight to each non-empty group."
+                  >
+                    Equal weight by group
+                  </Badge>
+                ) : null}
                 {consensus.allConsensusMode ? (
                   <Badge tone="neutral">
                     All mode: {consensus.allConsensusMode}
@@ -545,7 +563,10 @@ export default async function ConsensusPage({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="warning">Expert sources</Badge>
                 <Badge tone="success">
-                  Sample size {expertConsensus.sampleSize}
+                  {formatConsensusParticipationBadge({
+                    filter: "EXPERT",
+                    sampleSize: expertConsensus.sampleSize,
+                  })}
                 </Badge>
               </div>
               <div className="table-scroll overflow-x-auto rounded-lg border border-border bg-surface-elevated">

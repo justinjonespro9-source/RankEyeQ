@@ -225,6 +225,8 @@ describe("admin pre-reveal consensus preview", () => {
     expect(expert.sampleSize).toBe(1);
     expect(creator.sampleSize).toBe(1);
     expect(ai.sampleSize).toBe(1);
+    expect(all.totalEntryCount).toBe(4);
+    expect(all.contributingGroupCount).toBe(4);
     expect(all.sampleSize).toBe(4);
     expect(all.allConsensusMode).toBe("group_weighted");
 

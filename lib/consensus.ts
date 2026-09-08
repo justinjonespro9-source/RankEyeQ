@@ -10,12 +10,36 @@ import {
   type PlayerConfidenceSignals,
 } from "@/lib/consensus-math";
 import { getConsensusAllMode } from "@/lib/consensus-config";
-import { buildGroupWeightedAllConsensus } from "@/lib/consensus-group-weighted";
+import {
+  buildGroupWeightedAllConsensus,
+  resolveAllParticipationFromSnapshot,
+} from "@/lib/consensus-group-weighted";
 
 export type { ConsensusFilter } from "@/lib/consensus-filters";
 export type { ConsensusCallouts, ConsensusEntry, PlayerConfidenceSignals };
 export { buildConsensusEntries, toPlayerConfidenceSignals } from "@/lib/consensus-math";
 export { filterEligibleConsensusSubmissions } from "@/lib/consensus-filters";
+export {
+  formatConsensusParticipationBadge,
+  resolveAllParticipationFromSnapshot,
+} from "@/lib/consensus-group-weighted";
+
+export type ContestConsensusResult = {
+  fieldSize: number;
+  /** Qualifying ballots in this view (for All: same as totalEntryCount). */
+  sampleSize: number;
+  contestStatus: string | null;
+  weekLabel: string | null;
+  position: string | null;
+  entries: ConsensusEntry[];
+  callouts: ConsensusCallouts;
+  fromSnapshot?: boolean;
+  allConsensusMode?: string;
+  /** All only: sum of qualifying ballots across non-empty groups. */
+  totalEntryCount?: number;
+  /** All only: number of non-empty groups in equal-weight blend. */
+  contributingGroupCount?: number;
+};
 
 type LoadedContest = NonNullable<
   Awaited<ReturnType<typeof loadContestForConsensus>>
@@ -142,6 +166,10 @@ async function getContestConsensusFromSnapshot(
   if (!contest?.pregameSnapshot) return null;
 
   const snapshot = contest.pregameSnapshot;
+  const allParticipation =
+    filter === "ALL"
+      ? resolveAllParticipationFromSnapshot(snapshot)
+      : null;
   const sampleSize =
     filter === "HUMAN"
       ? snapshot.sampleSizeHuman
@@ -149,7 +177,7 @@ async function getContestConsensusFromSnapshot(
         ? snapshot.sampleSizeAi
         : filter === "EXPERT"
           ? snapshot.sampleSizeExpert
-          : snapshot.sampleSizeAll;
+          : (allParticipation?.totalEntryCount ?? snapshot.sampleSizeAll);
 
   const actualByPlayer = new Map(
     contest.entries.map((entry) => [
@@ -228,6 +256,12 @@ async function getContestConsensusFromSnapshot(
     },
     fromSnapshot: true as const,
     allConsensusMode: snapshot.allConsensusMode,
+    ...(allParticipation
+      ? {
+          totalEntryCount: allParticipation.totalEntryCount,
+          contributingGroupCount: allParticipation.contributingGroupCount,
+        }
+      : {}),
   };
 }
 
@@ -256,17 +290,7 @@ export async function getContestConsensus(
   contestId: string,
   filter: ConsensusFilter = "ALL",
   options?: GetContestConsensusOptions,
-): Promise<{
-  fieldSize: number;
-  sampleSize: number;
-  contestStatus: string | null;
-  weekLabel: string | null;
-  position: string | null;
-  entries: ConsensusEntry[];
-  callouts: ConsensusCallouts;
-  fromSnapshot?: boolean;
-  allConsensusMode?: string;
-}> {
+): Promise<ContestConsensusResult> {
   if (!options?.preferLive) {
     const snapshotted = await getContestConsensusFromSnapshot(contestId, filter);
     if (snapshotted) return snapshotted;
@@ -309,7 +333,7 @@ export async function getContestConsensus(
 
     return {
       fieldSize: contest.rankingDepth,
-      sampleSize: merged.sampleSize,
+      sampleSize: merged.totalEntryCount,
       contestStatus: contest.status,
       weekLabel: contest.week.label,
       position: contest.position,
@@ -320,6 +344,8 @@ export async function getContestConsensus(
         mostPolarizing: null,
       },
       allConsensusMode: allMode,
+      totalEntryCount: merged.totalEntryCount,
+      contributingGroupCount: merged.contributingGroupCount,
     };
   }
 
@@ -334,5 +360,11 @@ export async function getContestConsensus(
     entries: segment.entries,
     callouts: segment.callouts,
     allConsensusMode: filter === "ALL" ? allMode : undefined,
+    ...(filter === "ALL"
+      ? {
+          totalEntryCount: segment.sampleSize,
+          contributingGroupCount: segment.sampleSize > 0 ? 1 : 0,
+        }
+      : {}),
   };
 }

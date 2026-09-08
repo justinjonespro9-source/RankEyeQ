@@ -132,21 +132,31 @@ export async function captureContestPregameSnapshotsForWeek(
     });
 
     const allMode = getConsensusAllMode();
-    const all =
-      allMode === "group_weighted"
-        ? buildGroupWeightedAllConsensus({
-            fieldSize: contest.rankingDepth,
-            human,
-            ai,
-            expert,
-            creator,
-          })
-        : buildSegmentConsensus({ contest: contestInput, filter: "ALL" });
+    let allEntries: ConsensusEntry[];
+    let sampleSizeAll: number;
+    if (allMode === "group_weighted") {
+      const all = buildGroupWeightedAllConsensus({
+        fieldSize: contest.rankingDepth,
+        human,
+        ai,
+        expert,
+        creator,
+      });
+      allEntries = all.entries;
+      sampleSizeAll = all.totalEntryCount;
+    } else {
+      const all = buildSegmentConsensus({
+        contest: contestInput,
+        filter: "ALL",
+      });
+      allEntries = all.entries;
+      sampleSizeAll = all.sampleSize;
+    }
 
     const byId = (entries: ConsensusEntry[]) =>
       new Map(entries.map((entry) => [entry.rankableEntryId, entry]));
 
-    const allById = byId(all.entries);
+    const allById = byId(allEntries);
     const humanById = byId(human.entries);
     const aiById = byId(ai.entries);
     const expertById = byId(expert.entries);
@@ -159,7 +169,7 @@ export async function captureContestPregameSnapshotsForWeek(
       data: {
         contestId: contest.id,
         lockedAt,
-        sampleSizeAll: all.sampleSize,
+        sampleSizeAll,
         sampleSizeHuman: human.sampleSize,
         sampleSizeAi: ai.sampleSize,
         sampleSizeExpert: expert.sampleSize,

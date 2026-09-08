@@ -116,7 +116,11 @@ export default async function ResultsPage({
                   {view.contest.week.label} · {view.contest.position}
                 </Badge>
                 <Badge tone="neutral">
-                  Consensus n={view.consensus.sampleSize}
+                  Consensus n=
+                  {view.consensus.totalEntryCount ?? view.consensus.sampleSize}
+                  {view.consensus.contributingGroupCount != null
+                    ? ` · ${view.consensus.contributingGroupCount} groups`
+                    : ""}
                 </Badge>
                 <Link
                   href={`/rank/${toUiPosition(view.contest.position)}`}

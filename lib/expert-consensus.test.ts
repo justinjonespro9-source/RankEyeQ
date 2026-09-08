@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildGroupWeightedAllConsensus } from "@/lib/consensus-group-weighted";
-import { describeConsensusAllMode, getConsensusAllMode } from "@/lib/consensus-config";
+import {
+  buildGroupWeightedAllConsensus,
+  formatConsensusParticipationBadge,
+  resolveAllParticipationFromSnapshot,
+} from "@/lib/consensus-group-weighted";
+import {
+  describeConsensusAllMode,
+  getConsensusAllMode,
+} from "@/lib/consensus-config";
 import type { ConsensusEntry } from "@/lib/consensus-math";
 import { isExpertProfile } from "@/lib/expert-identity";
 
@@ -80,7 +87,9 @@ describe("consensus ALL weighting", () => {
     expect(playerX?.selectionRate).toBeCloseTo(0.68333, 4);
     expect(playerX?.averageSelectedRank).toBeCloseTo(4, 5);
     expect(merged.groupsRepresented).toBe(3);
-    expect(merged.sampleSize).toBe(3);
+    expect(merged.contributingGroupCount).toBe(3);
+    expect(merged.totalEntryCount).toBe(10_000 + 10 + 5);
+    expect(merged.sampleSize).toBe(10_000 + 10 + 5);
   });
 
   it("includes Creators as a fourth equal group when present", () => {
@@ -113,7 +122,44 @@ describe("consensus ALL weighting", () => {
     expect(playerX?.selectionRate).toBeCloseTo(0.7, 5);
     expect(playerX?.averageSelectedRank).toBeCloseTo(2.5, 5);
     expect(merged.groupsRepresented).toBe(4);
-    expect(merged.sampleSize).toBe(4);
+    expect(merged.contributingGroupCount).toBe(4);
+    expect(merged.totalEntryCount).toBe(116);
+    expect(merged.sampleSize).toBe(116);
+  });
+
+  it("reports production-style All participation without changing group weights", () => {
+    const human = {
+      sampleSize: 1,
+      entries: [entry("x", "Player X", 1, 1, 2)],
+    };
+    const expert = {
+      sampleSize: 3,
+      entries: [entry("x", "Player X", 1, 0.9, 3)],
+    };
+    const creator = {
+      sampleSize: 1,
+      entries: [entry("x", "Player X", 1, 0.8, 4)],
+    };
+    const ai = {
+      sampleSize: 8,
+      entries: [entry("x", "Player X", 1, 0.5, 5)],
+    };
+
+    const merged = buildGroupWeightedAllConsensus({
+      fieldSize: 10,
+      human,
+      expert,
+      creator,
+      ai,
+    });
+
+    expect(merged.totalEntryCount).toBe(13);
+    expect(merged.contributingGroupCount).toBe(4);
+    expect(merged.sampleSize).toBe(13);
+    // Equal group weight: AI's 8 ballots do not dominate the 1 Human ballot.
+    expect(
+      merged.entries.find((row) => row.rankableEntryId === "x")?.selectionRate,
+    ).toBeCloseTo((1 + 0.9 + 0.8 + 0.5) / 4, 5);
   });
 
   it("builds group-weighted All without fabricating Expert when empty", () => {
@@ -135,7 +181,9 @@ describe("consensus ALL weighting", () => {
     });
 
     expect(merged.groupsRepresented).toBe(2);
-    expect(merged.sampleSize).toBe(2);
+    expect(merged.contributingGroupCount).toBe(2);
+    expect(merged.totalEntryCount).toBe(105);
+    expect(merged.sampleSize).toBe(105);
     const playerA = merged.entries.find((row) => row.rankableEntryId === "a");
     expect(playerA?.selectionRate).toBeCloseTo(0.9);
   });
@@ -167,6 +215,53 @@ describe("consensus ALL weighting", () => {
     const blendA = withExpert.entries.find((row) => row.rankableEntryId === "a");
     expect(humanA?.averageSelectedRank).toBe(1);
     expect(blendA?.averageSelectedRank).toBe(4.5);
+  });
+});
+
+describe("All participation display counts", () => {
+  it("formats All as entries · groups and segments as entries", () => {
+    expect(
+      formatConsensusParticipationBadge({
+        filter: "ALL",
+        sampleSize: 13,
+        totalEntryCount: 13,
+        contributingGroupCount: 4,
+      }),
+    ).toBe("13 entries · 4 groups");
+    expect(
+      formatConsensusParticipationBadge({
+        filter: "AI",
+        sampleSize: 8,
+      }),
+    ).toBe("8 entries");
+    expect(
+      formatConsensusParticipationBadge({
+        filter: "HUMAN",
+        sampleSize: 1,
+      }),
+    ).toBe("1 entry");
+  });
+
+  it("derives totals from historical snapshot group counts", () => {
+    const historical = resolveAllParticipationFromSnapshot({
+      sampleSizeAll: 3,
+      sampleSizeHuman: 5,
+      sampleSizeAi: 2,
+      sampleSizeExpert: 2,
+      allConsensusMode: "group_weighted",
+    });
+    expect(historical.totalEntryCount).toBe(9);
+    expect(historical.contributingGroupCount).toBe(3);
+
+    const withCreatorTotal = resolveAllParticipationFromSnapshot({
+      sampleSizeAll: 13,
+      sampleSizeHuman: 1,
+      sampleSizeAi: 8,
+      sampleSizeExpert: 3,
+      allConsensusMode: "group_weighted",
+    });
+    expect(withCreatorTotal.totalEntryCount).toBe(13);
+    expect(withCreatorTotal.contributingGroupCount).toBe(4);
   });
 });
 
