@@ -9,7 +9,8 @@ import { createCompetitorAction } from "@/lib/admin-competitor-actions";
 
 export const metadata: Metadata = {
   title: "Add competitor · Admin",
-  description: "Create AI, Creator, or Expert competition identities.",
+  description:
+    "Create AI, Creator, Expert, or Publisher Consensus competition identities.",
 };
 
 export const dynamic = "force-dynamic";
@@ -33,9 +34,24 @@ const TYPES = [
     href: "/admin/competitors/new?type=expert",
     blurb: "Individual analyst Expert (BENCHMARK · ANALYST). Not a publisher shell.",
   },
+  {
+    id: "publisher" as const,
+    label: "Publisher Consensus",
+    href: "/admin/competitors/new?type=publisher",
+    blurb:
+      "Pooled publisher board (BENCHMARK · PUBLISHER_CONSENSUS). Does not feed RankEyeQ All. Do not reuse legacy publisher shell usernames.",
+  },
 ];
 
 const POSITIONS = ["QB", "RB", "WR", "TE", "DEF"] as const;
+const SCORING_FORMATS = [
+  { value: "UNSPECIFIED", label: "Not specified" },
+  { value: "HALF_PPR", label: "Half PPR" },
+  { value: "FULL_PPR", label: "Full PPR" },
+  { value: "STANDARD", label: "Standard" },
+  { value: "TE_PREMIUM", label: "TE Premium" },
+  { value: "OTHER", label: "Other" },
+] as const;
 
 export default async function AdminCreateCompetitorPage({
   searchParams,
@@ -44,9 +60,11 @@ export default async function AdminCreateCompetitorPage({
 }) {
   const params = searchParams ? await searchParams : {};
   const typeParam = typeof params.type === "string" ? params.type.toLowerCase() : "ai";
-  const type = (["ai", "creator", "expert"].includes(typeParam)
-    ? typeParam
-    : "ai") as "ai" | "creator" | "expert";
+  const type = (
+    ["ai", "creator", "expert", "publisher"].includes(typeParam)
+      ? typeParam
+      : "ai"
+  ) as "ai" | "creator" | "expert" | "publisher";
   const error = typeof params.error === "string" ? params.error : null;
   const meta = TYPES.find((item) => item.id === type)!;
 
@@ -57,7 +75,7 @@ export default async function AdminCreateCompetitorPage({
       <SectionHeading
         eyebrow="Competitors"
         title="Add competitor"
-        description="Create AI, Creator, or Expert identities for RankEyeQ competition. Historical submissions stay attached to UniversalProfile — prefer deactivate over delete."
+        description="Create AI, Creator, Expert, or Publisher Consensus identities. Historical submissions stay attached to UniversalProfile — prefer deactivate over delete. Legacy publisher shells stay inactive."
       />
 
       <div className="mb-6 flex flex-wrap gap-2">
@@ -97,7 +115,9 @@ export default async function AdminCreateCompetitorPage({
                 ? "Public display name / model label"
                 : type === "creator"
                   ? "Display name (person)"
-                  : "Analyst name"}
+                  : type === "publisher"
+                    ? "Display name"
+                    : "Analyst name"}
             </span>
             <input
               name="displayName"
@@ -107,7 +127,9 @@ export default async function AdminCreateCompetitorPage({
                   ? "Claude"
                   : type === "creator"
                     ? "Tyler Cohen"
-                    : "Justin Boone"
+                    : type === "publisher"
+                      ? "Yahoo Fantasy Consensus"
+                      : "Justin Boone"
               }
               className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink"
             />
@@ -119,7 +141,13 @@ export default async function AdminCreateCompetitorPage({
               name="username"
               required={type === "ai"}
               placeholder={
-                type === "ai" ? "claude_opus" : type === "creator" ? "tyler_cohen" : "justin_boone"
+                type === "ai"
+                  ? "claude_opus"
+                  : type === "creator"
+                    ? "tyler_cohen"
+                    : type === "publisher"
+                      ? "yahoo-consensus"
+                      : "justin_boone"
               }
               className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink"
             />
@@ -187,7 +215,35 @@ export default async function AdminCreateCompetitorPage({
             </label>
           ) : null}
 
-          {type === "expert" || type === "creator" ? (
+          {type === "publisher" ? (
+            <>
+              <label className="block text-sm sm:col-span-2">
+                <span className="text-muted">Publisher name (chip: CONSENSUS · name)</span>
+                <input
+                  name="publisherName"
+                  required
+                  placeholder="Yahoo"
+                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink"
+                />
+              </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="text-muted">Source scoring format (optional)</span>
+                <select
+                  name="scoringFormat"
+                  defaultValue="UNSPECIFIED"
+                  className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink"
+                >
+                  {SCORING_FORMATS.map((format) => (
+                    <option key={format.value} value={format.value}>
+                      {format.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+
+          {type === "expert" || type === "creator" || type === "publisher" ? (
             <label className="block text-sm sm:col-span-2">
               <span className="text-muted">Source URL (optional)</span>
               <input
@@ -218,7 +274,7 @@ export default async function AdminCreateCompetitorPage({
             </label>
           )}
 
-          {type === "expert" || type === "creator" ? (
+          {type === "expert" || type === "creator" || type === "publisher" ? (
             <fieldset className="sm:col-span-2">
               <legend className="text-sm text-muted">Positions covered</legend>
               <div className="mt-2 flex flex-wrap gap-3">

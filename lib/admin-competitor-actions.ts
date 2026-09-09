@@ -19,6 +19,7 @@ import {
 import {
   ExpertIdentityError,
   createExpertAnalyst,
+  createPublisherConsensusCompetitor,
   setExpertDirectoryActive,
   updateExpertAnalystMetadata,
 } from "@/lib/expert-identity";
@@ -136,6 +137,39 @@ export async function createCompetitorAction(formData: FormData) {
       revalidateCompetitorSurfaces();
       redirect(
         `/admin/experts?created=1&username=${encodeURIComponent(profile.username)}`,
+      );
+    }
+
+    if (type === "publisher" || type === "publisher_consensus") {
+      const profile = await createPublisherConsensusCompetitor({
+        displayName: String(formData.get("displayName") || ""),
+        publisherName: String(
+          formData.get("publisherName") || formData.get("publicationName") || "",
+        ),
+        username: String(formData.get("username") || "").trim() || undefined,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        publicVisible: flag(formData, "publicVisible", true),
+        positionsCovered: parsePositions(formData),
+        competitorActive: flag(formData, "competitorActive", true),
+        scoringFormat: String(formData.get("scoringFormat") || "").trim() || null,
+        notes: String(formData.get("notes") || "").trim() || null,
+        acknowledgeDuplicate,
+      });
+      await logAdminAction({
+        adminUserId: admin.user.id,
+        action: "publisher_consensus.created",
+        entityType: "UniversalProfile",
+        entityId: profile.id,
+        metadata: {
+          username: profile.username,
+          sourceKind: "PUBLISHER_CONSENSUS",
+        },
+      });
+      revalidateCompetitorSurfaces();
+      redirect(
+        `/admin/benchmarks?created=1&username=${encodeURIComponent(profile.username)}`,
       );
     }
 

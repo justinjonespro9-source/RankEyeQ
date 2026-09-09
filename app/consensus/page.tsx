@@ -31,7 +31,8 @@ import { getWeekTimingState } from "@/lib/timing/week-windows";
 
 export const metadata: Metadata = publicPageMetadata({
   title: 'Consensus',
-  description: 'Community ranking consensus for RankEyeQ weekly contests — Public, Experts, Creators, and AI.',
+  description:
+    'Community ranking consensus for RankEyeQ weekly contests — Public, Experts, Creators, AI, and Publisher Consensus.',
   path: '/consensus',
 });
 
@@ -44,6 +45,7 @@ const FILTERS: { key: ConsensusFilter; label: string }[] = [
   { key: "EXPERT", label: "Experts" },
   { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
+  { key: "PUBLISHER", label: "Publisher Consensus" },
 ];
 
 function segmentEmptyCopy(filter: ConsensusFilter): {
@@ -75,6 +77,12 @@ function segmentEmptyCopy(filter: ConsensusFilter): {
         description:
           "No AI boards have been submitted for this position yet.",
       };
+    case "PUBLISHER":
+      return {
+        title: "No Publisher Consensus yet",
+        description:
+          "No Publisher Consensus boards have been submitted for this position yet.",
+      };
     default:
       return {
         title: "No consensus yet",
@@ -104,7 +112,14 @@ export default async function ConsensusPage({
     adminTestPreview: isAdminTestPreviewRequested(params),
     legacyTestParam: params.test === "1",
   });
-  const filter = (["ALL", "HUMAN", "AI", "EXPERT", "CREATOR"].includes(params.filter ?? "")
+  const filter = ([
+    "ALL",
+    "HUMAN",
+    "AI",
+    "EXPERT",
+    "CREATOR",
+    "PUBLISHER",
+  ].includes(params.filter ?? "")
     ? params.filter
     : "ALL") as ConsensusFilter;
   const view = params.view === "actual" ? "actual" : "consensus";
@@ -210,7 +225,7 @@ export default async function ConsensusPage({
       <SectionHeading
         eyebrow="Community board"
         title="Community EYEQ"
-        description="Free after Sunday 10:00 AM America/Chicago. Compare Human, Expert, Creator, and AI pregame consensus with Selected % and average selected rank. The All view blends intelligence groups with equal weight when configured."
+        description="Free after Sunday 10:00 AM America/Chicago. Compare Human, Expert, Creator, and AI pregame consensus with Selected % and average selected rank. Publisher Consensus is a separate benchmark lane and is not included in All. The All view blends intelligence groups with equal weight when configured."
       />
 
       {weeks.length === 0 ? (

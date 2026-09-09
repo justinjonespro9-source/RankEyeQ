@@ -55,7 +55,7 @@ async function loadContestForConsensus(contestId: string) {
       submissions: {
         include: {
           picks: true,
-          universalProfile: true,
+          universalProfile: { include: { expertSource: true } },
         },
       },
     },
@@ -70,6 +70,7 @@ function buildLiveSegmentConsensus(
     contest.submissions.map((submission) => ({
       ...submission,
       profileType: submission.universalProfile.profileType,
+      sourceKind: submission.universalProfile.expertSource?.sourceKind ?? null,
     })),
     filter,
   );
@@ -179,8 +180,11 @@ async function getContestConsensusFromSnapshot(
   if (!contest?.pregameSnapshot) return null;
 
   const snapshot = contest.pregameSnapshot;
-  // Older snapshots have no Creator columns populated — fall through to live.
+  // Older snapshots have no Creator/Publisher columns — fall through to live.
   if (filter === "CREATOR" && snapshot.sampleSizeCreator <= 0) {
+    return null;
+  }
+  if (filter === "PUBLISHER" && snapshot.sampleSizePublisher <= 0) {
     return null;
   }
 
@@ -197,7 +201,9 @@ async function getContestConsensusFromSnapshot(
           ? snapshot.sampleSizeExpert
           : filter === "CREATOR"
             ? snapshot.sampleSizeCreator
-            : (allParticipation?.totalEntryCount ?? snapshot.sampleSizeAll);
+            : filter === "PUBLISHER"
+              ? snapshot.sampleSizePublisher
+              : (allParticipation?.totalEntryCount ?? snapshot.sampleSizeAll);
 
   const actualByPlayer = new Map(
     contest.entries.map((entry) => [
@@ -223,7 +229,9 @@ async function getContestConsensusFromSnapshot(
             ? row.selectionRateExpert
             : filter === "CREATOR"
               ? row.selectionRateCreator
-              : row.selectionRateAll;
+              : filter === "PUBLISHER"
+                ? row.selectionRatePublisher
+                : row.selectionRateAll;
     const averageSelectedRank =
       filter === "HUMAN"
         ? row.averageSelectedRankHuman
@@ -233,7 +241,9 @@ async function getContestConsensusFromSnapshot(
             ? row.averageSelectedRankExpert
             : filter === "CREATOR"
               ? row.averageSelectedRankCreator
-              : row.averageSelectedRankAll;
+              : filter === "PUBLISHER"
+                ? row.averageSelectedRankPublisher
+                : row.averageSelectedRankAll;
     const consensusRank =
       filter === "HUMAN"
         ? row.consensusRankHuman
@@ -243,7 +253,9 @@ async function getContestConsensusFromSnapshot(
             ? row.consensusRankExpert
             : filter === "CREATOR"
               ? row.consensusRankCreator
-              : row.consensusRankAll;
+              : filter === "PUBLISHER"
+                ? row.consensusRankPublisher
+                : row.consensusRankAll;
 
     const selectedCountHuman =
       row.selectedCountHuman > 0
@@ -267,8 +279,16 @@ async function getContestConsensusFromSnapshot(
             row.selectionRateCreator,
             snapshot.sampleSizeCreator,
           );
+    const selectedCountPublisher =
+      row.selectedCountPublisher > 0
+        ? row.selectedCountPublisher
+        : selectedCountFromRate(
+            row.selectionRatePublisher,
+            snapshot.sampleSizePublisher,
+          );
 
     const storedAll = row.selectedCountAll;
+    // All ballots exclude Publisher Consensus (not in group-weighted blend).
     const summedSegments =
       selectedCountHuman +
       selectedCountExpert +
@@ -289,6 +309,8 @@ async function getContestConsensusFromSnapshot(
       timesRanked = selectedCountExpert;
     } else if (filter === "CREATOR") {
       timesRanked = selectedCountCreator;
+    } else if (filter === "PUBLISHER") {
+      timesRanked = selectedCountPublisher;
     } else if (filter === "AI") {
       timesRanked = selectedCountAi;
     } else {

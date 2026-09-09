@@ -30,6 +30,8 @@ export type RankIQProfileView = {
   avatarUrl: string | null;
   expertAnalystName: string | null;
   expertPublicationName: string | null;
+  expertSourceKind: string | null;
+  expertScoringFormat: string | null;
   creatorPersonName: string | null;
   creatorBrandName: string | null;
   /** True only when profileType CREATOR and claimStatus VERIFIED. */
@@ -272,6 +274,8 @@ export async function getRankIQProfileView(
     }),
     expertAnalystName: profile.expertSource?.analystName ?? null,
     expertPublicationName: profile.expertSource?.publicationName ?? null,
+    expertSourceKind: profile.expertSource?.sourceKind ?? null,
+    expertScoringFormat: profile.expertSource?.scoringFormat ?? null,
     creatorPersonName: profile.creatorCompetitor?.personName ?? null,
     creatorBrandName: profile.creatorCompetitor?.brandName ?? null,
     creatorVerified: isCreatorVerified({

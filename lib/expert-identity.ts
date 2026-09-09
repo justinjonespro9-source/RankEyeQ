@@ -8,15 +8,102 @@ export const EXPERT_PROFILE_TYPE: ProfileType = "BENCHMARK";
 
 export const EXPERT_SOURCE_KIND = {
   ANALYST: "ANALYST",
+  /** Legacy inactive affiliation shells (espn-fantasy, yahoo-fantasy, …). */
   PUBLISHER: "PUBLISHER",
+  /** Active pooled publisher boards (Yahoo Consensus, FantasyPros ECR, …). */
+  PUBLISHER_CONSENSUS: "PUBLISHER_CONSENSUS",
   SITE_CONSENSUS: "SITE_CONSENSUS",
 } as const;
 
 export type ExpertSourceKind =
   (typeof EXPERT_SOURCE_KIND)[keyof typeof EXPERT_SOURCE_KIND];
 
+/** Optional disclosed scoring assumptions from the original publisher. */
+export const BENCHMARK_SCORING_FORMAT = {
+  HALF_PPR: "HALF_PPR",
+  FULL_PPR: "FULL_PPR",
+  STANDARD: "STANDARD",
+  TE_PREMIUM: "TE_PREMIUM",
+  OTHER: "OTHER",
+  UNSPECIFIED: "UNSPECIFIED",
+} as const;
+
+export type BenchmarkScoringFormat =
+  (typeof BENCHMARK_SCORING_FORMAT)[keyof typeof BENCHMARK_SCORING_FORMAT];
+
+export const BENCHMARK_SCORING_FORMAT_LABELS: Record<
+  BenchmarkScoringFormat,
+  string
+> = {
+  HALF_PPR: "Half PPR",
+  FULL_PPR: "Full PPR",
+  STANDARD: "Standard",
+  TE_PREMIUM: "TE Premium",
+  OTHER: "Other",
+  UNSPECIFIED: "Not specified",
+};
+
+export function parseBenchmarkScoringFormat(
+  raw: string | null | undefined,
+): BenchmarkScoringFormat | null {
+  if (!raw) return null;
+  const normalized = raw.trim().toUpperCase().replace(/\s+/g, "_");
+  if (
+    normalized === "HALF_PPR" ||
+    normalized === "FULL_PPR" ||
+    normalized === "STANDARD" ||
+    normalized === "TE_PREMIUM" ||
+    normalized === "OTHER" ||
+    normalized === "UNSPECIFIED"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 export function isExpertProfile(profileType: ProfileType): boolean {
   return profileType === "BENCHMARK";
+}
+
+/** Individual analyst Experts (not publisher shells / consensus boards). */
+export function isAnalystExpertSource(
+  sourceKind: string | null | undefined,
+): boolean {
+  return (
+    sourceKind === EXPERT_SOURCE_KIND.ANALYST ||
+    sourceKind == null ||
+    sourceKind === ""
+  );
+}
+
+/** Active Publisher Consensus benchmark class. */
+export function isPublisherConsensusSource(
+  sourceKind: string | null | undefined,
+): boolean {
+  return (
+    sourceKind === EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS ||
+    sourceKind === EXPERT_SOURCE_KIND.SITE_CONSENSUS
+  );
+}
+
+/** Legacy inactive publisher affiliation shells. */
+export function isLegacyPublisherShellSource(
+  sourceKind: string | null | undefined,
+): boolean {
+  return sourceKind === EXPERT_SOURCE_KIND.PUBLISHER;
+}
+
+export const BENCHMARK_TRACKING_DISCLAIMER =
+  "Tracked from public rankings and evaluated using RankEyeQ’s scoring standard. Original source scoring assumptions may differ.";
+
+export function formatBenchmarkScoringDisclosure(input: {
+  scoringFormat?: string | null;
+}): string {
+  const parsed = parseBenchmarkScoringFormat(input.scoringFormat);
+  if (!parsed || parsed === "UNSPECIFIED") {
+    return BENCHMARK_TRACKING_DISCLAIMER;
+  }
+  return `${BENCHMARK_TRACKING_DISCLAIMER} Source format: ${BENCHMARK_SCORING_FORMAT_LABELS[parsed]}.`;
 }
 
 export type ExpertIdentityRow = {
@@ -51,8 +138,10 @@ export function formatExpertPrimaryName(input: ExpertDisplayInput): string {
 }
 
 /**
- * Secondary affiliation badge, e.g. "EXPERT · Yahoo Fantasy".
- * Publisher-only / staff consensus shells still get EXPERT · {publication|display}.
+ * Secondary affiliation badge.
+ * Analysts: EXPERT · {publication}
+ * Publisher Consensus: CONSENSUS · {publication}
+ * Legacy shells: EXPERT · {publication} (inactive directory only)
  */
 export function formatExpertAffiliationBadge(
   input: ExpertDisplayInput,
@@ -62,6 +151,12 @@ export function formatExpertAffiliationBadge(
     (input.sourceKind === EXPERT_SOURCE_KIND.ANALYST
       ? null
       : input.displayName.trim());
+
+  if (isPublisherConsensusSource(input.sourceKind)) {
+    if (!publication) return "CONSENSUS";
+    return `CONSENSUS · ${publication}`;
+  }
+
   if (!publication) return "EXPERT";
   return `EXPERT · ${publication}`;
 }
@@ -150,6 +245,7 @@ export async function upsertExpertSourceProfile(input: {
   analystName?: string | null;
   sourceUrl?: string | null;
   sourceKind?: string;
+  scoringFormat?: string | null;
   positionsCovered?: ContestPosition[] | null;
   active?: boolean;
   notes?: string | null;
@@ -161,6 +257,12 @@ export async function upsertExpertSourceProfile(input: {
         ? []
         : undefined;
 
+  const scoringFormat =
+    input.scoringFormat === undefined
+      ? undefined
+      : parseBenchmarkScoringFormat(input.scoringFormat) ??
+        BENCHMARK_SCORING_FORMAT.UNSPECIFIED;
+
   return prisma.expertSourceProfile.upsert({
     where: { universalProfileId: input.universalProfileId },
     update: {
@@ -168,6 +270,7 @@ export async function upsertExpertSourceProfile(input: {
       analystName: input.analystName ?? undefined,
       sourceUrl: input.sourceUrl ?? undefined,
       sourceKind: input.sourceKind ?? undefined,
+      scoringFormat,
       positionsCovered: positionsJson,
       active: input.active ?? undefined,
       notes: input.notes ?? undefined,
@@ -178,6 +281,7 @@ export async function upsertExpertSourceProfile(input: {
       analystName: input.analystName ?? null,
       sourceUrl: input.sourceUrl ?? null,
       sourceKind: input.sourceKind ?? EXPERT_SOURCE_KIND.PUBLISHER,
+      scoringFormat: scoringFormat ?? null,
       positionsCovered: positionsJson ?? undefined,
       active: input.active ?? true,
       notes: input.notes ?? null,
@@ -509,4 +613,238 @@ export async function updateExpertAnalystMetadata(input: {
     where: { id: profile.id },
     include: { expertSource: true },
   });
+}
+
+/**
+ * Create an active Publisher Consensus competitor (BENCHMARK + PUBLISHER_CONSENSUS).
+ * Does not convert or reactivate legacy official publisher shells.
+ */
+export async function createPublisherConsensusCompetitor(input: {
+  displayName: string;
+  publisherName: string;
+  username?: string;
+  sourceUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
+  positionsCovered?: ContestPosition[];
+  competitorActive?: boolean;
+  scoringFormat?: string | null;
+  notes?: string | null;
+  acknowledgeDuplicate?: boolean;
+}) {
+  const result = await upsertPublisherConsensusCompetitor(input);
+  if (result.action !== "created") {
+    throw new ExpertIdentityError(
+      `Username @${result.profile.username} is already taken`,
+    );
+  }
+  return result.profile;
+}
+
+export type UpsertPublisherConsensusResult = {
+  action: "created" | "updated" | "unchanged";
+  profile: {
+    id: string;
+    username: string;
+    displayName: string;
+    profileType: ProfileType;
+    competitorActive: boolean;
+  };
+};
+
+export async function upsertPublisherConsensusCompetitor(input: {
+  displayName: string;
+  publisherName: string;
+  username?: string;
+  sourceUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
+  positionsCovered?: ContestPosition[];
+  competitorActive?: boolean;
+  scoringFormat?: string | null;
+  notes?: string | null;
+  acknowledgeDuplicate?: boolean;
+}): Promise<UpsertPublisherConsensusResult> {
+  const nameResult = validateDisplayName(input.displayName);
+  if (!nameResult.ok) throw new ExpertIdentityError(nameResult.error);
+  const publication = input.publisherName.trim();
+  if (publication.length < 2) {
+    throw new ExpertIdentityError("Publisher name is required");
+  }
+
+  const username =
+    input.username?.trim()
+      ? slugifyExpertUsername(input.username)
+      : slugifyExpertUsername(
+          `${publication}-consensus`.replace(/consensus-consensus/g, "consensus"),
+        );
+  if (username.length < 3) {
+    throw new ExpertIdentityError(
+      "Username must be at least 3 characters after normalization",
+    );
+  }
+  if (isOfficialBenchmarkUsername(username)) {
+    throw new ExpertIdentityError(
+      "That username is reserved for a legacy publisher shell. Use a distinct Publisher Consensus username (e.g. yahoo-consensus).",
+    );
+  }
+
+  const competitorActive = input.competitorActive ?? true;
+  const publicVisible = input.publicVisible ?? true;
+  const sourceUrl = input.sourceUrl?.trim() || null;
+  const avatarUrl = input.avatarUrl?.trim() || null;
+  const bio = input.bio?.trim() ?? input.notes?.trim() ?? null;
+  const positions = input.positionsCovered ?? [];
+  const notes = input.notes ?? null;
+  const scoringFormat =
+    parseBenchmarkScoringFormat(input.scoringFormat) ??
+    BENCHMARK_SCORING_FORMAT.UNSPECIFIED;
+
+  const existing = await prisma.universalProfile.findUnique({
+    where: { username },
+    include: { expertSource: true },
+  });
+
+  if (existing) {
+    if (existing.profileType !== "BENCHMARK") {
+      throw new ExpertIdentityError(`Username @${username} is already taken`);
+    }
+    if (isOfficialBenchmarkUsername(existing.username)) {
+      throw new ExpertIdentityError(
+        `Refusing to convert legacy publisher shell @${existing.username} into Publisher Consensus`,
+      );
+    }
+    if (
+      existing.expertSource?.sourceKind === EXPERT_SOURCE_KIND.ANALYST
+    ) {
+      throw new ExpertIdentityError(
+        `Refusing to convert Expert analyst @${existing.username} into Publisher Consensus`,
+      );
+    }
+
+    const currentPositions = parsePositionsCovered(
+      existing.expertSource?.positionsCovered,
+    );
+    const positionsEqual =
+      currentPositions.length === positions.length &&
+      currentPositions.every((position) => positions.includes(position));
+
+    const unchanged =
+      existing.displayName === nameResult.username &&
+      existing.competitorActive === competitorActive &&
+      existing.publicVisible === publicVisible &&
+      existing.status === "ACTIVE" &&
+      (existing.avatarUrl ?? null) === avatarUrl &&
+      (existing.bio ?? null) === bio &&
+      (existing.expertSource?.publicationName ?? null) === publication &&
+      (existing.expertSource?.sourceUrl ?? null) === sourceUrl &&
+      (existing.expertSource?.sourceKind ?? null) ===
+        EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS &&
+      (existing.expertSource?.scoringFormat ?? null) === scoringFormat &&
+      (existing.expertSource?.active ?? true) === true &&
+      positionsEqual &&
+      (existing.expertSource?.notes ?? null) === notes;
+
+    if (unchanged) {
+      return {
+        action: "unchanged",
+        profile: {
+          id: existing.id,
+          username: existing.username,
+          displayName: existing.displayName,
+          profileType: existing.profileType,
+          competitorActive: existing.competitorActive,
+        },
+      };
+    }
+
+    await prisma.universalProfile.update({
+      where: { id: existing.id },
+      data: {
+        displayName: nameResult.username,
+        status: "ACTIVE",
+        competitorActive,
+        publicVisible,
+        avatarUrl,
+        bio,
+      },
+    });
+    await upsertExpertSourceProfile({
+      universalProfileId: existing.id,
+      analystName: null,
+      publicationName: publication,
+      sourceUrl,
+      sourceKind: EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS,
+      scoringFormat,
+      positionsCovered: positions,
+      active: true,
+      notes,
+    });
+
+    return {
+      action: "updated",
+      profile: {
+        id: existing.id,
+        username: existing.username,
+        displayName: nameResult.username,
+        profileType: "BENCHMARK",
+        competitorActive,
+      },
+    };
+  }
+
+  const nameConflicts = await prisma.universalProfile.findMany({
+    where: {
+      profileType: "BENCHMARK",
+      displayName: { equals: nameResult.username, mode: "insensitive" },
+    },
+    select: { username: true },
+    take: 5,
+  });
+  if (nameConflicts.length > 0 && !input.acknowledgeDuplicate) {
+    throw new ExpertIdentityError(
+      `A similar publisher board already exists (${nameConflicts
+        .map((row) => `@${row.username}`)
+        .join(", ")}). Check “Acknowledge existing name” to create anyway.`,
+    );
+  }
+
+  const profile = await prisma.universalProfile.create({
+    data: {
+      username,
+      displayName: nameResult.username,
+      profileType: "BENCHMARK",
+      status: "ACTIVE",
+      competitorActive,
+      universalUserId: `uu_publisher_consensus_${username}`,
+      publicVisible,
+      avatarUrl,
+      bio,
+    },
+  });
+
+  await upsertExpertSourceProfile({
+    universalProfileId: profile.id,
+    analystName: null,
+    publicationName: publication,
+    sourceUrl,
+    sourceKind: EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS,
+    scoringFormat,
+    positionsCovered: positions,
+    active: true,
+    notes,
+  });
+
+  return {
+    action: "created",
+    profile: {
+      id: profile.id,
+      username: profile.username,
+      displayName: nameResult.username,
+      profileType: "BENCHMARK",
+      competitorActive,
+    },
+  };
 }

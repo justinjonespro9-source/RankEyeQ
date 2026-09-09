@@ -30,6 +30,7 @@ function lb(
     avatarUrl: null,
     profileType: "HUMAN",
     expertPublisher: null,
+    expertSourceKind: null,
     creatorBrand: null,
     contestsPlayed,
     averageScore,

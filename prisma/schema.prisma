@@ -196,8 +196,10 @@ model ExpertSourceProfile {
   /// Optional analyst name when the source is an individual.
   analystName        String?
   sourceUrl          String?
-  /// PUBLISHER | ANALYST | SITE_CONSENSUS
+  /// PUBLISHER (legacy inactive shell) | ANALYST | PUBLISHER_CONSENSUS | SITE_CONSENSUS
   sourceKind         String   @default("PUBLISHER")
+  /// Optional disclosed source scoring assumptions (HALF_PPR | FULL_PPR | STANDARD | TE_PREMIUM | OTHER | UNSPECIFIED).
+  scoringFormat      String?
   /// Contest positions this source typically publishes (empty = all).
   positionsCovered Json?
   active             Boolean  @default(true)
@@ -557,7 +559,8 @@ model ContestPregameSnapshot {
   sampleSizeAi     Int      @default(0)
   sampleSizeExpert Int      @default(0)
   sampleSizeCreator Int     @default(0)
-  /// ballot_union (legacy HUMAN+AI ballots) | group_weighted (equal HUMAN/AI/EXPERT/CREATOR groups)
+  sampleSizePublisher Int   @default(0)
+  /// ballot_union (legacy HUMAN+AI ballots) | group_weighted (equal HUMAN/ANALYST-EXPERT/CREATOR/AI groups)
   allConsensusMode String   @default("group_weighted")
   createdAt        DateTime @default(now())
 
@@ -581,17 +584,21 @@ model ContestPregameSnapshotEntry {
   averageSelectedRankExpert Float?
   selectionRateCreator    Float  @default(0)
   averageSelectedRankCreator Float?
+  selectionRatePublisher  Float  @default(0)
+  averageSelectedRankPublisher Float?
   /// Raw individual rankings that selected this player (not group-weighted).
   selectedCountAll        Int    @default(0)
   selectedCountHuman      Int    @default(0)
   selectedCountAi         Int    @default(0)
   selectedCountExpert     Int    @default(0)
   selectedCountCreator    Int    @default(0)
+  selectedCountPublisher  Int    @default(0)
   consensusRankAll        Int?
   consensusRankHuman      Int?
   consensusRankAi         Int?
   consensusRankExpert     Int?
   consensusRankCreator    Int?
+  consensusRankPublisher  Int?
 
   snapshot      ContestPregameSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   rankableEntry RankableEntry          @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)

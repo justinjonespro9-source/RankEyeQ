@@ -8,6 +8,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { getAuthContext } from "@/lib/auth/session";
+import { isPublisherConsensusSource } from "@/lib/expert-identity";
 import { formatRankIqScore } from "@/lib/scoring";
 import {
   DISCOVERY_MIN_CONTESTS,
@@ -21,7 +22,8 @@ import { publicPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = publicPageMetadata({
   title: 'Rankers',
-  description: 'Browse RankEyeQ competitors across Public, Experts, Creators, and AI.',
+  description:
+    'Browse RankEyeQ competitors across Public, Experts, Creators, AI, and Publisher Consensus.',
   path: '/rankers',
 });
 
@@ -42,6 +44,7 @@ const FILTERS = [
   { key: "EXPERT", label: "Experts" },
   { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
+  { key: "PUBLISHER", label: "Publisher Consensus" },
 ] as const;
 
 export default async function RankersPage({
@@ -146,9 +149,13 @@ export default async function RankersPage({
                       avatarUrl={row.avatarUrl}
                       profileType={row.profileType}
                       isAi={row.profileType === "AI"}
-                      isExpert={row.profileType === "BENCHMARK"}
+                      isExpert={
+                        row.profileType === "BENCHMARK" &&
+                        !isPublisherConsensusSource(row.expertSourceKind)
+                      }
                       isCreator={row.profileType === "CREATOR"}
                       expertPublisher={row.expertPublisher}
+                      expertSourceKind={row.expertSourceKind}
                       creatorBrand={row.creatorBrand}
                       aiModel={
                         row.profileType === "AI" ? row.displayName : null

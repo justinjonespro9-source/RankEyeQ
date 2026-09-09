@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/db";
+import {
+  EXPERT_SOURCE_KIND,
+  isPublisherConsensusSource,
+} from "@/lib/expert-identity";
 import type {
   ContestPosition,
   ProfileType,
@@ -10,7 +14,8 @@ export type LeaderboardFilter =
   | "HUMAN"
   | "AI"
   | "EXPERT"
-  | "CREATOR";
+  | "CREATOR"
+  | "PUBLISHER";
 
 export type LeaderboardRow = {
   universalProfileId: string;
@@ -19,6 +24,7 @@ export type LeaderboardRow = {
   avatarUrl: string | null;
   profileType: ProfileType;
   expertPublisher: string | null;
+  expertSourceKind: string | null;
   creatorBrand: string | null;
   contestsPlayed: number;
   averageScore: number;
@@ -42,7 +48,7 @@ export type LeaderboardRow = {
  *
  * Profiles with no submissions, DRAFT-only boards, empty shells, or scores
  * without picks never appear — including seeded Experts, tracked Creators,
- * and newly created AI identities.
+ * newly created AI identities, and empty Publisher Consensus profiles.
  */
 export function gradedSubmissionQualifiesForLeaderboard(submission: {
   status: SubmissionStatus;
@@ -56,13 +62,32 @@ export function gradedSubmissionQualifiesForLeaderboard(submission: {
   );
 }
 
-function filterToProfileType(
-  filter: LeaderboardFilter,
-): ProfileType | undefined {
-  if (filter === "HUMAN") return "HUMAN";
-  if (filter === "AI") return "AI";
-  if (filter === "EXPERT") return "BENCHMARK";
-  if (filter === "CREATOR") return "CREATOR";
+function profileWhereForFilter(filter: LeaderboardFilter) {
+  if (filter === "HUMAN") return { profileType: "HUMAN" as const };
+  if (filter === "AI") return { profileType: "AI" as const };
+  if (filter === "CREATOR") return { profileType: "CREATOR" as const };
+  if (filter === "EXPERT") {
+    return {
+      profileType: "BENCHMARK" as const,
+      OR: [
+        { expertSource: { sourceKind: EXPERT_SOURCE_KIND.ANALYST } },
+        { expertSource: null },
+      ],
+    };
+  }
+  if (filter === "PUBLISHER") {
+    return {
+      profileType: "BENCHMARK" as const,
+      expertSource: {
+        sourceKind: {
+          in: [
+            EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS,
+            EXPERT_SOURCE_KIND.SITE_CONSENSUS,
+          ],
+        },
+      },
+    };
+  }
   return undefined;
 }
 
@@ -73,6 +98,7 @@ type GradedAgg = {
   avatarUrl: string | null;
   profileType: ProfileType;
   expertPublisher: string | null;
+  expertSourceKind: string | null;
   creatorBrand: string | null;
   scores: number[];
   topNHits: number;
@@ -95,6 +121,7 @@ function toRows(aggs: GradedAgg[]): LeaderboardRow[] {
         avatarUrl: agg.avatarUrl,
         profileType: agg.profileType,
         expertPublisher: agg.expertPublisher,
+        expertSourceKind: agg.expertSourceKind,
         creatorBrand: agg.creatorBrand,
         contestsPlayed: agg.scores.length,
         averageScore,
@@ -131,20 +158,31 @@ function emptyAgg(profile: {
   displayName: string;
   avatarUrl: string | null;
   profileType: ProfileType;
-  expertSource?: { publicationName: string | null; analystName: string | null } | null;
-  creatorCompetitor?: { personName: string | null; brandName: string | null } | null;
+  expertSource?: {
+    publicationName: string | null;
+    analystName: string | null;
+    sourceKind: string;
+  } | null;
+  creatorCompetitor?: {
+    personName: string | null;
+    brandName: string | null;
+  } | null;
 }): GradedAgg {
   const creatorPerson = profile.creatorCompetitor?.personName?.trim();
+  const sourceKind = profile.expertSource?.sourceKind ?? null;
   return {
     universalProfileId: profile.id,
     username: profile.username,
     displayName:
       creatorPerson ||
-      profile.expertSource?.analystName?.trim() ||
+      (isPublisherConsensusSource(sourceKind)
+        ? profile.displayName
+        : profile.expertSource?.analystName?.trim()) ||
       profile.displayName,
     avatarUrl: profile.avatarUrl,
     profileType: profile.profileType,
     expertPublisher: profile.expertSource?.publicationName ?? null,
+    expertSourceKind: sourceKind,
     creatorBrand: profile.creatorCompetitor?.brandName ?? null,
     scores: [],
     topNHits: 0,
@@ -158,18 +196,17 @@ async function loadGradedSubmissions(where: {
   weekId?: string;
   seasonId?: string;
   position?: ContestPosition;
-  profileType?: ProfileType;
+  filter?: LeaderboardFilter;
   includeTest?: boolean;
 }) {
+  const profileWhere = profileWhereForFilter(where.filter ?? "ALL");
+
   return prisma.rankingSubmission.findMany({
     where: {
       status: "GRADED",
       normalizedScore: { not: null },
-      // Empty shells (eligible status, zero picks) never qualify.
       picks: { some: {} },
-      ...(where.profileType
-        ? { universalProfile: { profileType: where.profileType } }
-        : {}),
+      ...(profileWhere ? { universalProfile: profileWhere } : {}),
       contest: {
         status: { in: ["FINAL", "ARCHIVED"] },
         week: where.includeTest ? undefined : { isTest: false },
@@ -196,6 +233,10 @@ function accumulate(
   for (const submission of submissions) {
     if (!gradedSubmissionQualifiesForLeaderboard(submission)) continue;
     const profile = submission.universalProfile;
+    // Legacy publisher shells stay off competitive boards even if somehow graded.
+    if (profile.expertSource?.sourceKind === EXPERT_SOURCE_KIND.PUBLISHER) {
+      continue;
+    }
     const agg = map.get(profile.id) ?? emptyAgg(profile);
     agg.scores.push(submission.normalizedScore ?? 0);
 
@@ -238,11 +279,10 @@ export async function getWeeklyLeaderboard(input: {
   minContests?: number;
   includeTest?: boolean;
 }): Promise<LeaderboardRow[]> {
-  const profileType = filterToProfileType(input.filter ?? "ALL");
   const submissions = await loadGradedSubmissions({
     weekId: input.weekId,
     position: input.position,
-    profileType,
+    filter: input.filter ?? "ALL",
     includeTest: input.includeTest,
   });
   const rows = toRows(accumulate(submissions));
@@ -257,11 +297,10 @@ export async function getSeasonLeaderboard(input: {
   minContests?: number;
   includeTest?: boolean;
 }): Promise<LeaderboardRow[]> {
-  const profileType = filterToProfileType(input.filter ?? "ALL");
   const submissions = await loadGradedSubmissions({
     seasonId: input.seasonId,
     position: input.position,
-    profileType,
+    filter: input.filter ?? "ALL",
     includeTest: input.includeTest,
   });
   const rows = toRows(accumulate(submissions));

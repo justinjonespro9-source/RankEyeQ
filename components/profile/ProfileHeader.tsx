@@ -24,6 +24,8 @@ export function ProfileHeader({
   follow,
   creator,
   badges = [],
+  scoringDisclosure = null,
+  expertSourceKind = null,
 }: {
   profile: UniversalProfile;
   isOwner?: boolean;
@@ -40,12 +42,16 @@ export function ProfileHeader({
     qualified: boolean;
   };
   badges?: EarnedBadge[];
+  /** Benchmark scoring disclosure (publisher consensus / expert sources). */
+  scoringDisclosure?: string | null;
+  expertSourceKind?: string | null;
 }) {
   const expertPrimary = profile.isBenchmark
     ? formatExpertPrimaryName({
         displayName: profile.displayName,
         analystName: profile.expertAnalystName,
         publicationName: profile.expertPublicationName,
+        sourceKind: expertSourceKind,
       })
     : profile.isCreator
       ? formatCreatorPrimaryName({
@@ -59,7 +65,9 @@ export function ProfileHeader({
         displayName: profile.displayName,
         analystName: profile.expertAnalystName,
         publicationName: profile.expertPublicationName,
-        sourceKind: profile.expertAnalystName ? "ANALYST" : "PUBLISHER",
+        sourceKind:
+          expertSourceKind ??
+          (profile.expertAnalystName ? "ANALYST" : "PUBLISHER"),
       })
     : null;
   const creatorCompetitorBadge = profile.isCreator
@@ -101,9 +109,10 @@ export function ProfileHeader({
               <p className="mt-1 text-sm text-muted">{profile.creatorBrandName}</p>
             ) : null}
             {profile.isBenchmark ? (
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-                {benchmarkAffiliationDisclaimer(disclaimerSource)}
-              </p>
+              <div className="mt-3 max-w-2xl space-y-2 text-sm leading-relaxed text-muted">
+                <p>{benchmarkAffiliationDisclaimer(disclaimerSource)}</p>
+                {scoringDisclosure ? <p>{scoringDisclosure}</p> : null}
+              </div>
             ) : profile.isCreator ? (
               <div className="mt-3 space-y-2">
                 {profile.creatorVerified ? (

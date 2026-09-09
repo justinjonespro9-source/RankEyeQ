@@ -62,7 +62,15 @@ describe("leaderboard class filters", () => {
       "AI",
       "EXPERT",
       "CREATOR",
+      "PUBLISHER",
     ];
-    expect(filters).toEqual(["ALL", "HUMAN", "AI", "EXPERT", "CREATOR"]);
+    expect(filters).toEqual([
+      "ALL",
+      "HUMAN",
+      "AI",
+      "EXPERT",
+      "CREATOR",
+      "PUBLISHER",
+    ]);
   });
 });

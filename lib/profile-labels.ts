@@ -1,4 +1,7 @@
 import type { ProfileType } from "@/lib/generated/prisma/client";
+import {
+  isPublisherConsensusSource,
+} from "@/lib/expert-identity";
 
 export type CompetitorIdentityTone =
   | "neutral"
@@ -13,26 +16,29 @@ export type CompetitorIdentityChip = {
   tone: CompetitorIdentityTone;
 };
 
-/** User-facing competitor class. DB enum BENCHMARK is shown as Expert. */
+/** User-facing competitor class. DB enum BENCHMARK is Expert or Publisher Consensus. */
 export function competitorClassLabel(
   profileType: ProfileType | null | undefined,
-): "Human" | "AI" | "Expert" | "Creator" {
+  sourceKind?: string | null,
+): "Human" | "AI" | "Expert" | "Creator" | "Publisher Consensus" {
   if (profileType === "AI") return "AI";
-  if (profileType === "BENCHMARK") return "Expert";
   if (profileType === "CREATOR") return "Creator";
+  if (profileType === "BENCHMARK") {
+    return isPublisherConsensusSource(sourceKind)
+      ? "Publisher Consensus"
+      : "Expert";
+  }
   return "Human";
 }
 
 /**
  * Compact identity chip for leaderboards / links / profiles.
- * PUBLIC | EXPERT · {publisher} | CREATOR · {brand} | AI · {model}
- *
- * Verified Creator is a subtle profile-page indicator only — do not bloat
- * leaderboard chips with internal claim status.
+ * PUBLIC | EXPERT · {publisher} | CONSENSUS · {publisher} | CREATOR · {brand} | AI · {model}
  */
 export function competitorIdentityChip(input: {
   profileType: ProfileType | null | undefined;
   expertPublisher?: string | null;
+  expertSourceKind?: string | null;
   creatorBrand?: string | null;
   aiModel?: string | null;
 }): CompetitorIdentityChip {
@@ -46,6 +52,12 @@ export function competitorIdentityChip(input: {
   }
   if (profileType === "BENCHMARK") {
     const publisher = input.expertPublisher?.trim();
+    if (isPublisherConsensusSource(input.expertSourceKind)) {
+      return {
+        label: publisher ? `CONSENSUS · ${publisher}` : "CONSENSUS",
+        tone: "accent",
+      };
+    }
     return {
       label: publisher ? `EXPERT · ${publisher}` : "EXPERT",
       tone: "warning",

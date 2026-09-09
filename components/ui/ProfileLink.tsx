@@ -13,6 +13,7 @@ export function ProfileLink({
   isExpert = false,
   isCreator = false,
   expertPublisher = null,
+  expertSourceKind = null,
   creatorBrand = null,
   aiModel = null,
   showAvatar = true,
@@ -30,6 +31,8 @@ export function ProfileLink({
   isCreator?: boolean;
   /** Publisher affiliation for Experts, e.g. "Yahoo Fantasy" → EXPERT · Yahoo Fantasy */
   expertPublisher?: string | null;
+  /** ExpertSourceProfile.sourceKind — distinguishes Analyst vs Publisher Consensus. */
+  expertSourceKind?: string | null;
   /** Brand affiliation for Creators, e.g. "TCO Fantasy Show" → CREATOR · TCO Fantasy Show */
   creatorBrand?: string | null;
   /** Model name for AI competitors, e.g. "Claude" → AI · Claude */
@@ -53,6 +56,7 @@ export function ProfileLink({
     ? competitorIdentityChip({
         profileType: resolvedType,
         expertPublisher,
+        expertSourceKind,
         creatorBrand,
         aiModel: aiModel ?? (resolvedType === "AI" ? displayName : null),
       })

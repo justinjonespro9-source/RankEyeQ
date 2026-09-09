@@ -6,6 +6,7 @@ import {
 import { COMPETITOR_BADGE_THRESHOLDS } from "@/lib/badges/thresholds";
 import type { EarnedBadge } from "@/lib/badges/types";
 import type { ContestPosition, ProfileType } from "@/lib/generated/prisma/client";
+import { isPublisherConsensusSource } from "@/lib/expert-identity";
 import {
   getSeasonLeaderboard,
   type LeaderboardFilter,
@@ -16,8 +17,15 @@ import type { ProfileContestHistoryItem } from "@/types/profile";
 import type { RankIQProfileStats } from "@/types/user";
 import { PERCENTILE_CUTOFFS } from "@/lib/badges/thresholds";
 
-function classFilterForProfile(profileType: ProfileType): LeaderboardFilter {
-  if (profileType === "BENCHMARK") return "EXPERT";
+function classFilterForProfile(
+  profileType: ProfileType,
+  expertSourceKind?: string | null,
+): LeaderboardFilter {
+  if (profileType === "BENCHMARK") {
+    return isPublisherConsensusSource(expertSourceKind)
+      ? "PUBLISHER"
+      : "EXPERT";
+  }
   if (profileType === "CREATOR") return "CREATOR";
   if (profileType === "AI") return "AI";
   return "ALL";
@@ -243,6 +251,7 @@ export function evaluateCompetitorBadges(input: {
 export async function getCompetitorBadgesForProfile(input: {
   profileId: string;
   profileType: ProfileType;
+  expertSourceKind?: string | null;
   stats: RankIQProfileStats;
   history: ProfileContestHistoryItem[];
   includeTest?: boolean;
@@ -257,7 +266,10 @@ export async function getCompetitorBadgesForProfile(input: {
     });
   }
 
-  const filter = classFilterForProfile(input.profileType);
+  const filter = classFilterForProfile(
+    input.profileType,
+    input.expertSourceKind,
+  );
   const overallBoard = await getSeasonLeaderboard({
     seasonId: activeSeason.id,
     filter,

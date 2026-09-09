@@ -9,6 +9,10 @@ import {
 } from "@/lib/consensus-filters";
 import { getConsensusAllMode } from "@/lib/consensus-config";
 import { buildGroupWeightedAllConsensus } from "@/lib/consensus-group-weighted";
+import {
+  isAnalystExpertSource,
+  isPublisherConsensusSource,
+} from "@/lib/expert-identity";
 import type { ProfileType, SubmissionStatus } from "@/lib/generated/prisma/client";
 
 export type SegmentMetrics = {
@@ -17,14 +21,6 @@ export type SegmentMetrics = {
   averageSelectedRank: number | null;
   consensusRank: number | null;
 };
-
-function segmentForProfile(profileType: ProfileType): "HUMAN" | "AI" | "EXPERT" | "CREATOR" | null {
-  if (profileType === "HUMAN") return "HUMAN";
-  if (profileType === "AI") return "AI";
-  if (profileType === "BENCHMARK") return "EXPERT";
-  if (profileType === "CREATOR") return "CREATOR";
-  return null;
-}
 
 function buildSegmentConsensus(input: {
   contest: {
@@ -38,6 +34,7 @@ function buildSegmentConsensus(input: {
     submissions: {
       status: SubmissionStatus;
       profileType: ProfileType;
+      sourceKind?: string | null;
       picks: { rankableEntryId: string; predictedRank: number }[];
     }[];
   };
@@ -90,7 +87,7 @@ export async function captureContestPregameSnapshotsForWeek(
       submissions: {
         include: {
           picks: true,
-          universalProfile: true,
+          universalProfile: { include: { expertSource: true } },
         },
       },
     },
@@ -116,6 +113,7 @@ export async function captureContestPregameSnapshotsForWeek(
       submissions: contest.submissions.map((submission) => ({
         status: submission.status,
         profileType: submission.universalProfile.profileType,
+        sourceKind: submission.universalProfile.expertSource?.sourceKind ?? null,
         picks: submission.picks,
       })),
     };
@@ -129,6 +127,10 @@ export async function captureContestPregameSnapshotsForWeek(
     const creator = buildSegmentConsensus({
       contest: contestInput,
       filter: "CREATOR",
+    });
+    const publisher = buildSegmentConsensus({
+      contest: contestInput,
+      filter: "PUBLISHER",
     });
 
     const allMode = getConsensusAllMode();
@@ -161,6 +163,7 @@ export async function captureContestPregameSnapshotsForWeek(
     const aiById = byId(ai.entries);
     const expertById = byId(expert.entries);
     const creatorById = byId(creator.entries);
+    const publisherById = byId(publisher.entries);
 
     const playerIds = new Set([
       ...contest.entries.map((entry) => entry.rankableEntryId),
@@ -175,6 +178,7 @@ export async function captureContestPregameSnapshotsForWeek(
         sampleSizeAi: ai.sampleSize,
         sampleSizeExpert: expert.sampleSize,
         sampleSizeCreator: creator.sampleSize,
+        sampleSizePublisher: publisher.sampleSize,
         allConsensusMode: allMode,
         entries: {
           create: [...playerIds].map((rankableEntryId) => {
@@ -183,6 +187,7 @@ export async function captureContestPregameSnapshotsForWeek(
             const aiEntry = aiById.get(rankableEntryId);
             const expertEntry = expertById.get(rankableEntryId);
             const creatorEntry = creatorById.get(rankableEntryId);
+            const publisherEntry = publisherById.get(rankableEntryId);
 
             return {
               rankableEntryId,
@@ -199,16 +204,21 @@ export async function captureContestPregameSnapshotsForWeek(
               selectionRateCreator: creatorEntry?.selectionRate ?? 0,
               averageSelectedRankCreator:
                 creatorEntry?.averageSelectedRank ?? null,
+              selectionRatePublisher: publisherEntry?.selectionRate ?? 0,
+              averageSelectedRankPublisher:
+                publisherEntry?.averageSelectedRank ?? null,
               selectedCountAll: allEntry?.timesRanked ?? 0,
               selectedCountHuman: humanEntry?.timesRanked ?? 0,
               selectedCountAi: aiEntry?.timesRanked ?? 0,
               selectedCountExpert: expertEntry?.timesRanked ?? 0,
               selectedCountCreator: creatorEntry?.timesRanked ?? 0,
+              selectedCountPublisher: publisherEntry?.timesRanked ?? 0,
               consensusRankAll: allEntry?.consensusRank ?? null,
               consensusRankHuman: humanEntry?.consensusRank ?? null,
               consensusRankAi: aiEntry?.consensusRank ?? null,
               consensusRankExpert: expertEntry?.consensusRank ?? null,
               consensusRankCreator: creatorEntry?.consensusRank ?? null,
+              consensusRankPublisher: publisherEntry?.consensusRank ?? null,
             };
           }),
         },
@@ -222,3 +232,18 @@ export async function captureContestPregameSnapshotsForWeek(
 }
 
 export { segmentForProfile };
+
+function segmentForProfile(
+  profileType: ProfileType,
+  sourceKind?: string | null,
+): "HUMAN" | "AI" | "EXPERT" | "CREATOR" | "PUBLISHER" | null {
+  if (profileType === "HUMAN") return "HUMAN";
+  if (profileType === "AI") return "AI";
+  if (profileType === "CREATOR") return "CREATOR";
+  if (profileType === "BENCHMARK") {
+    if (isPublisherConsensusSource(sourceKind)) return "PUBLISHER";
+    if (isAnalystExpertSource(sourceKind)) return "EXPERT";
+    return null;
+  }
+  return null;
+}

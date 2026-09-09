@@ -15,7 +15,11 @@ import {
   NO_INDEX,
   publicPageMetadata,
 } from "@/lib/seo";
-import { EXPERT_SOURCE_KIND } from "@/lib/expert-identity";
+import {
+  EXPERT_SOURCE_KIND,
+  formatBenchmarkScoringDisclosure,
+  isPublisherConsensusSource,
+} from "@/lib/expert-identity";
 import { getRankIQProfileView } from "@/lib/profile-stats";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
@@ -55,24 +59,38 @@ export async function generateMetadata(
     };
   }
 
-  const isLegacyPublisherShell =
+  const sourceKind = visibility?.expertSource?.sourceKind ?? null;
+  const isIndexableBenchmark =
     visibility?.profileType === "BENCHMARK" &&
-    (isOfficialBenchmarkUsername(view.username) ||
-      !visibility.competitorActive ||
-      visibility.expertSource?.sourceKind !== EXPERT_SOURCE_KIND.ANALYST);
+    visibility.publicVisible &&
+    visibility.competitorActive &&
+    !isOfficialBenchmarkUsername(view.username) &&
+    (sourceKind === EXPERT_SOURCE_KIND.ANALYST ||
+      isPublisherConsensusSource(sourceKind));
+
+  const isLegacyPublisherShell =
+    visibility?.profileType === "BENCHMARK" && !isIndexableBenchmark;
 
   if (isLegacyPublisherShell) {
     return {
       title: view.displayName,
-      description: "Legacy RankEyeQ publisher shell — not an active Expert competitor.",
+      description:
+        "Legacy RankEyeQ publisher shell — not an active Expert or Publisher Consensus competitor.",
       ...NO_INDEX,
     };
   }
 
   const name = view.displayName;
+  const classLabel = isPublisherConsensusSource(sourceKind)
+    ? "Publisher Consensus"
+    : visibility?.profileType === "BENCHMARK"
+      ? "Expert"
+      : null;
   return publicPageMetadata({
     title: `${name} Fantasy Rankings & EYEQ Score`,
-    description: `${name} on RankEyeQ — weekly fantasy rankings, EYEQ Score, and contest results versus the Public, Experts, Creators, and AI.`,
+    description: classLabel
+      ? `${name} on RankEyeQ — ${classLabel} weekly fantasy rankings, EYEQ Score, and contest results.`
+      : `${name} on RankEyeQ — weekly fantasy rankings, EYEQ Score, and contest results versus the Public, Experts, Creators, and AI.`,
     path: `/profile/${view.username}`,
   });
 }
@@ -133,11 +151,20 @@ export default async function ProfilePage(
       getCompetitorBadgesForProfile({
         profileId: view.profileId,
         profileType: view.profileType,
+        expertSourceKind: view.expertSourceKind,
         stats: view.stats,
         history: view.history,
         includeTest,
       }),
     ]);
+
+  const isPublisherConsensus = isPublisherConsensusSource(view.expertSourceKind);
+  const scoringDisclosure =
+    view.profileType === "BENCHMARK"
+      ? formatBenchmarkScoringDisclosure({
+          scoringFormat: view.expertScoringFormat,
+        })
+      : null;
 
   const profile: UniversalProfile = {
     universalUserId: view.universalUserId,
@@ -160,7 +187,9 @@ export default async function ProfilePage(
         : view.profileType === "AI"
           ? "AI competitor — rankings are submitted through RankEyeQ's administrative workflow."
           : view.profileType === "BENCHMARK"
-            ? "Independent RankEyeQ Expert."
+            ? isPublisherConsensus
+              ? "Publisher Consensus benchmark on RankEyeQ."
+              : "Independent RankEyeQ Expert."
             : view.profileType === "CREATOR"
               ? "Independent RankEyeQ Creator competitor."
               : undefined),
@@ -186,6 +215,8 @@ export default async function ProfilePage(
         isOwner={isOwner}
         followerCount={followCounts.followers}
         followingCount={followCounts.following}
+        scoringDisclosure={scoringDisclosure}
+        expertSourceKind={view.expertSourceKind}
         follow={{
           signedIn: Boolean(authCtx),
           viewerIsFollowing,

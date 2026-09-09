@@ -13,6 +13,7 @@ import {
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import { isPublisherConsensusSource } from "@/lib/expert-identity";
 import {
   getActiveSeasonAndWeek,
   getSeasonLeaderboard,
@@ -29,7 +30,8 @@ import { logServerEvent } from "@/lib/log";
 
 export const metadata: Metadata = publicPageMetadata({
   title: 'Leaderboards',
-  description: 'Weekly and season EYEQ leaderboards — Public, Experts, Creators, and AI on RankEyeQ.',
+  description:
+    'Weekly and season EYEQ leaderboards — Public, Experts, Creators, AI, and Publisher Consensus on RankEyeQ.',
   path: '/leaderboards',
 });
 
@@ -50,6 +52,7 @@ const FILTERS: { key: LeaderboardFilter; label: string }[] = [
   { key: "EXPERT", label: "Experts" },
   { key: "CREATOR", label: "Creators" },
   { key: "AI", label: "AI" },
+  { key: "PUBLISHER", label: "Publisher Consensus" },
 ];
 
 function BoardTable({
@@ -94,9 +97,13 @@ function BoardTable({
                 avatarUrl={entry.avatarUrl}
                 profileType={entry.profileType}
                 isAi={entry.profileType === "AI"}
-                isExpert={entry.profileType === "BENCHMARK"}
+                isExpert={
+                  entry.profileType === "BENCHMARK" &&
+                  !isPublisherConsensusSource(entry.expertSourceKind)
+                }
                 isCreator={entry.profileType === "CREATOR"}
                 expertPublisher={entry.expertPublisher}
+                expertSourceKind={entry.expertSourceKind}
                 creatorBrand={entry.creatorBrand}
                 aiModel={
                   entry.profileType === "AI" ? entry.displayName : null
@@ -202,7 +209,14 @@ export default async function LeaderboardsPage({
   const positionParam = (params.position?.toUpperCase() ?? "ALL") as
     | "ALL"
     | ContestPosition;
-  const filter = (["ALL", "HUMAN", "AI", "EXPERT", "CREATOR"].includes(params.filter ?? "")
+  const filter = ([
+    "ALL",
+    "HUMAN",
+    "AI",
+    "EXPERT",
+    "CREATOR",
+    "PUBLISHER",
+  ].includes(params.filter ?? "")
     ? params.filter
     : "ALL") as LeaderboardFilter;
 

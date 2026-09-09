@@ -111,7 +111,8 @@ export function filterDiscoveryByProfileType(
     filter === "HUMAN" ||
     filter === "AI" ||
     filter === "EXPERT" ||
-    filter === "CREATOR"
+    filter === "CREATOR" ||
+    filter === "PUBLISHER"
   ) {
     return filter;
   }

@@ -70,6 +70,27 @@ describe("sitemap profile inclusion", () => {
       ).toBe(false);
     }
   });
+
+  it("includes active publisher consensus benchmarks", () => {
+    expect(
+      shouldIncludeProfileInSitemap({
+        username: "yahoo-consensus",
+        updatedAt: new Date(),
+        profileType: "BENCHMARK",
+        competitorActive: true,
+        expertSourceKind: "PUBLISHER_CONSENSUS",
+      }),
+    ).toBe(true);
+    expect(
+      shouldIncludeProfileInSitemap({
+        username: "fantasypros-ecr-board",
+        updatedAt: new Date(),
+        profileType: "BENCHMARK",
+        competitorActive: true,
+        expertSourceKind: "SITE_CONSENSUS",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("position-balanced player sitemap selection", () => {

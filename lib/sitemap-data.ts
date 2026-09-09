@@ -5,7 +5,10 @@ import type {
   ContestPosition,
   ProfileType,
 } from "@/lib/generated/prisma/client";
-import { EXPERT_SOURCE_KIND } from "@/lib/expert-identity";
+import {
+  EXPERT_SOURCE_KIND,
+  isPublisherConsensusSource,
+} from "@/lib/expert-identity";
 import { publicPlayerPathId } from "@/lib/player-detail-queries";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 import { absoluteUrl } from "@/lib/seo";
@@ -33,8 +36,8 @@ export type SitemapProfileCandidate = {
 /**
  * Profiles suitable for the public sitemap.
  * Excludes inactive legacy publisher shells (official BENCHMARK usernames /
- * non-ANALYST expert sources) while keeping active Humans, Creators, AI,
- * and individual Expert analysts.
+ * PUBLISHER shells) while keeping active Humans, Creators, AI, individual
+ * Expert analysts, and active Publisher Consensus / Site Consensus benchmarks.
  */
 export function shouldIncludeProfileInSitemap(
   profile: SitemapProfileCandidate,
@@ -45,10 +48,11 @@ export function shouldIncludeProfileInSitemap(
     if (!profile.competitorActive) return false;
     if (isOfficialBenchmarkUsername(profile.username)) return false;
     const kind = profile.expertSourceKind?.trim().toUpperCase() ?? "";
-    // Competing Experts are individual analysts — not publisher shells.
-    if (kind && kind !== EXPERT_SOURCE_KIND.ANALYST) return false;
     if (!kind) return false;
-    return true;
+    if (kind === EXPERT_SOURCE_KIND.ANALYST) return true;
+    if (isPublisherConsensusSource(kind)) return true;
+    // Legacy PUBLISHER shells and unknown kinds stay out.
+    return false;
   }
 
   if (
