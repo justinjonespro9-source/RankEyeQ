@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { provisionalRanksFromPoints } from "@/lib/live-rankiq";
-import { scoreContest } from "@/lib/scoring";
+import { scoreProvisionalEyeq } from "@/lib/live-provisional";
 
 describe("live / provisional RankIQ", () => {
   it("builds provisional standings from fantasy points with competition ranking", () => {
@@ -19,26 +19,27 @@ describe("live / provisional RankIQ", () => {
     ]);
   });
 
-  it("computes live RankIQ separately from official normalizedScore", () => {
+  it("computes live EYEQ separately from official normalizedScore", () => {
     const officialNormalizedScore = 88.2;
-    const live = scoreContest(
+    const live = scoreProvisionalEyeq(
       [
         {
           playerId: "a",
           playerName: "A",
           predictedRank: 1,
-          actualRank: 1,
+          provisionalActualRank: 1,
         },
         {
           playerId: "b",
           playerName: "B",
           predictedRank: 2,
-          actualRank: 3,
+          provisionalActualRank: 3,
         },
       ],
-      2,
+      10,
     );
-    expect(live.rankIqScore).toBeGreaterThan(0);
-    expect(live.rankIqScore).not.toBe(officialNormalizedScore);
+    expect(live.liveEyeqScore).toBeGreaterThan(0);
+    expect(live.liveEyeqScore).not.toBe(officialNormalizedScore);
+    expect(live).not.toHaveProperty("normalizedScore");
   });
 });

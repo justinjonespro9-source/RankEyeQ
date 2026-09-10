@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { ResultsSubnav } from "@/components/layout/ResultsSubnav";
+import { LiveEyeqScore } from "@/components/live/LiveEyeqScore";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { prisma } from "@/lib/db";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { getLiveWeekRankerBoard } from "@/lib/live-rankiq";
-import { formatRankIqScore } from "@/lib/scoring";
 import { toUiPosition } from "@/lib/contest-defaults";
 import { isManualNflMode } from "@/lib/providers/nfl";
 import { privatePageMetadata } from "@/lib/seo";
@@ -93,8 +93,8 @@ export default async function LiveLeaderboardPage({
         title="LIVE — Unofficial EYEQ"
         description={
           manualMode
-            ? "Projected EYEQ from operator-entered provisional fantasy points. Scores are not auto-updating from a live sports API. Official scores are unchanged until Finalize Week."
-            : "Projected EYEQ from current provisional fantasy points. Official scores are unchanged until Finalize Week."
+            ? "Provisional LIVE EYEQ from operator-entered live stats. Unplayed picks are unresolved — not misses. Official scores are unchanged until Finalize Week."
+            : "Provisional LIVE EYEQ from current fantasy points. Unplayed picks are unresolved — not misses. Official scores are unchanged until Finalize Week."
         }
         action={
           <Link
@@ -183,23 +183,26 @@ export default async function LiveLeaderboardPage({
                   }
                 />
               </div>
-              <div className="grid grid-cols-3 gap-3 text-xs text-muted sm:text-right">
-                <span>
-                  Live EYEQ Score{" "}
-                  <strong className="font-display text-base text-ink">
-                    {formatRankIqScore(row.liveRankIqScore)}
-                  </strong>
-                </span>
-                <span>
-                  Top-N hits{" "}
-                  <strong className="text-ink">{row.topNHits}</strong>
-                </span>
-                <span>
-                  #1 hit{" "}
-                  <strong className="text-ink">
-                    {row.numberOneHit ? "Yes" : "No"}
-                  </strong>
-                </span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
+                <LiveEyeqScore
+                  score={row.liveRankIqScore}
+                  resolvedCount={row.resolvedPicks}
+                  totalPicks={row.totalPicks}
+                  align="end"
+                  size="sm"
+                />
+                <div className="grid grid-cols-2 gap-3 text-xs text-muted sm:text-right">
+                  <span>
+                    Top-N hits{" "}
+                    <strong className="text-ink">{row.topNHits}</strong>
+                  </span>
+                  <span>
+                    #1 hit{" "}
+                    <strong className="text-ink">
+                      {row.numberOneHit ? "Yes" : "No"}
+                    </strong>
+                  </span>
+                </div>
               </div>
             </li>
           ))}

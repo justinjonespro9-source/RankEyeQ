@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
-import { scoreContest } from "@/lib/scoring";
+import { scoreProvisionalEyeq } from "@/lib/live-provisional";
 import type { ContestPosition, ProfileType } from "@/lib/generated/prisma/client";
 
 export type LiveRankerRow = {
@@ -14,6 +14,8 @@ export type LiveRankerRow = {
   topNHits: number;
   numberOneHit: boolean;
   contestsCounted: number;
+  resolvedPicks: number;
+  totalPicks: number;
   rank: number;
 };
 
@@ -107,16 +109,18 @@ export async function getLiveContestRankerBoard(contestId: string) {
     if (!submissionIsEligible(submission.status)) continue;
     if (submission.picks.length !== contest.rankingDepth) continue;
 
-    const summary = scoreContest(
+    const summary = scoreProvisionalEyeq(
       submission.picks.map((pick) => ({
         playerId: pick.rankableEntryId,
         playerName: pick.rankableEntryId,
         predictedRank: pick.predictedRank,
-        actualRank:
-          actualById.get(pick.rankableEntryId) ?? contest.rankingDepth + 100,
+        provisionalActualRank: actualById.get(pick.rankableEntryId) ?? null,
       })),
       contest.rankingDepth,
     );
+
+    // No resolvable live info yet — stay off the live board.
+    if (summary.resolvedCount === 0) continue;
 
     rows.push({
       universalProfileId: submission.universalProfileId,
@@ -124,10 +128,12 @@ export async function getLiveContestRankerBoard(contestId: string) {
       displayName: submission.universalProfile.displayName,
       avatarUrl: submission.universalProfile.avatarUrl,
       profileType: submission.universalProfile.profileType,
-      liveRankIqScore: summary.rankIqScore,
+      liveRankIqScore: summary.liveEyeqScore,
       topNHits: summary.topNHits,
       numberOneHit: summary.numberOneHit,
       contestsCounted: 1,
+      resolvedPicks: summary.resolvedCount,
+      totalPicks: summary.totalPicks,
     });
   }
 
@@ -161,6 +167,8 @@ export async function getLiveWeekRankerBoard(weekId: string, position?: ContestP
           topNHits: row.topNHits,
           numberOneHit: row.numberOneHit,
           contestsCounted: 1,
+          resolvedPicks: row.resolvedPicks,
+          totalPicks: row.totalPicks,
           scores: [row.liveRankIqScore],
         });
       } else {
@@ -168,6 +176,8 @@ export async function getLiveWeekRankerBoard(weekId: string, position?: ContestP
         current.topNHits += row.topNHits;
         current.numberOneHit = current.numberOneHit || row.numberOneHit;
         current.contestsCounted += 1;
+        current.resolvedPicks += row.resolvedPicks;
+        current.totalPicks += row.totalPicks;
       }
     }
   }

@@ -1,5 +1,6 @@
 import { trackEvent } from "@/lib/analytics";
 import { prisma } from "@/lib/db";
+import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
 import type {
   BoardRevealPreference,
@@ -21,9 +22,16 @@ import {
 } from "@/lib/timing/board-access";
 import { ensureWeekFullLock } from "@/lib/timing/apply-locks";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
+import { provisionalRanksFromPoints } from "@/lib/live-rankiq";
+import {
+  provisionalStandingStatus,
+  scoreProvisionalEyeq,
+  type ProvisionalStandingStatus,
+} from "@/lib/live-provisional";
 
 export type PublicBoardPick = {
   predictedRank: number;
+  rankableEntryId: string | null;
   name: string;
   team: string;
   opponent: string;
@@ -31,6 +39,17 @@ export type PublicBoardPick = {
   lockedAt: Date | null;
   lockedRank: number | null;
   committedAt: Date | null;
+  /** Current positional standing (provisional live or final actual). */
+  currentActualRank: number | null;
+  standingStatus: ProvisionalStandingStatus;
+  /** Final-only exact-hit celebration. */
+  showExactHit: boolean;
+};
+
+export type PublicBoardLiveEyeq = {
+  score: number;
+  resolvedCount: number;
+  totalPicks: number;
 };
 
 export type PublicBoardView = {
@@ -55,6 +74,12 @@ export type PublicBoardView = {
   capturedAt: Date | null;
   captureAttribution: string | null;
   publicBoardRestricted: boolean;
+  /** Live/unofficial mode (contest not graded final). */
+  isLiveProvisional: boolean;
+  /** Official graded EYEQ when available. */
+  finalEyeqScore: number | null;
+  /** Provisional LIVE EYEQ — never written as normalizedScore. */
+  liveEyeq: PublicBoardLiveEyeq | null;
 };
 
 export type ProfileBoardAccessSummary = {
@@ -260,6 +285,10 @@ export async function getPublicProfileBoard(input: {
         ? "Source ranking captured by RankEYEQ"
         : null,
     publicBoardRestricted,
+    isLiveProvisional:
+      contest.status !== "FINAL" && contest.status !== "ARCHIVED",
+    finalEyeqScore: submission?.normalizedScore ?? null,
+    liveEyeq: null,
   };
 
   if (!allowed) return base;
@@ -309,10 +338,44 @@ export async function getPublicProfileBoard(input: {
     }
   }
 
-  return {
-    ...base,
-    picks: submission.picks.map((pick) => ({
+  const contestEntries = await prisma.contestEntry.findMany({
+    where: { contestId: contest.id, excluded: false },
+    select: {
+      rankableEntryId: true,
+      fantasyPoints: true,
+      actualRank: true,
+    },
+  });
+
+  const contestIsFinal =
+    contest.status === "FINAL" || contest.status === "ARCHIVED";
+  const provisional = provisionalRanksFromPoints(contestEntries);
+  const provisionalById = new Map(
+    provisional.map((row) => [row.item.rankableEntryId, row.rank]),
+  );
+  const finalActualById = new Map(
+    contestEntries
+      .filter((entry) => entry.actualRank != null)
+      .map((entry) => [entry.rankableEntryId, entry.actualRank!]),
+  );
+
+  const picks: PublicBoardPick[] = submission.picks.map((pick) => {
+    const currentActualRank = contestIsFinal
+      ? (finalActualById.get(pick.rankableEntryId) ?? null)
+      : (provisionalById.get(pick.rankableEntryId) ?? null);
+    const standingStatus = provisionalStandingStatus(
+      currentActualRank,
+      contest.rankingDepth,
+    );
+    const showExactHit =
+      contestIsFinal &&
+      currentActualRank != null &&
+      currentActualRank === pick.predictedRank &&
+      currentActualRank <= contest.rankingDepth;
+
+    return {
       predictedRank: pick.predictedRank,
+      rankableEntryId: pick.rankableEntryId,
       name: pick.rankableEntry.name,
       team: pick.rankableEntry.team,
       opponent: pick.rankableEntry.opponent,
@@ -320,6 +383,38 @@ export async function getPublicProfileBoard(input: {
       lockedAt: pick.lockedAt,
       lockedRank: pick.lockedRank,
       committedAt: pick.committedAt,
-    })),
+      currentActualRank,
+      standingStatus,
+      showExactHit,
+    };
+  });
+
+  let liveEyeq: PublicBoardLiveEyeq | null = null;
+  if (!contestIsFinal && submissionIsEligible(submission.status)) {
+    const summary = scoreProvisionalEyeq(
+      submission.picks.map((pick) => ({
+        playerId: pick.rankableEntryId,
+        playerName: pick.rankableEntry.name,
+        predictedRank: pick.predictedRank,
+        provisionalActualRank:
+          provisionalById.get(pick.rankableEntryId) ?? null,
+      })),
+      contest.rankingDepth,
+    );
+    if (summary.resolvedCount > 0) {
+      liveEyeq = {
+        score: summary.liveEyeqScore,
+        resolvedCount: summary.resolvedCount,
+        totalPicks: summary.totalPicks,
+      };
+    }
+  }
+
+  return {
+    ...base,
+    picks,
+    liveEyeq,
+    isLiveProvisional: !contestIsFinal,
+    finalEyeqScore: submission.normalizedScore,
   };
 }

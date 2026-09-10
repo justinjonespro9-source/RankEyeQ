@@ -158,8 +158,11 @@ function ReceiptCard({
                         <td className="px-3 py-2 tabular-nums text-ink">
                           {pick.actualLabel}
                         </td>
-                        <td className="px-3 py-2">
-                          <ReceiptOutcomeChip outcome={pick.outcome} />
+          <td className="px-3 py-2">
+                          <ReceiptOutcomeChip
+                            outcome={pick.outcome}
+                            showExactHit={pick.outcome.key === "EXACT"}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -196,7 +199,10 @@ function ReceiptPickMobileCard({ pick }: { pick: ReceiptPickLine }) {
         </div>
       </dl>
       <div className="mt-2">
-        <ReceiptOutcomeChip outcome={pick.outcome} />
+        <ReceiptOutcomeChip
+          outcome={pick.outcome}
+          showExactHit={pick.outcome.key === "EXACT"}
+        />
       </div>
     </article>
   );

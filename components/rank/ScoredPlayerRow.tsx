@@ -5,8 +5,10 @@ import { ReceiptOutcomeChip } from "@/components/rank/ReceiptOutcomeChip";
 import { classifyReceiptOutcome } from "@/lib/profile-receipt";
 import type { PlayerScoreBreakdown } from "@/types/scoring";
 
-function rowTone(row: PlayerScoreBreakdown) {
-  if (row.exactHit) return "border-accent/30 bg-accent-soft/50";
+function rowTone(row: PlayerScoreBreakdown, showExactHit: boolean) {
+  if (showExactHit) {
+    return "border-accent/40 bg-accent-soft/60 ring-2 ring-accent/40 shadow-[0_0_12px_rgba(20,184,166,0.22)]";
+  }
   if (!row.topNHit) return "border-rose-200 bg-rose-50";
   if (row.rankDifference < 0) return "border-sky-200 bg-sky-50";
   if (row.rankDifference > 0) return "border-amber-200 bg-amber-50";
@@ -54,12 +56,15 @@ export function ScoredPlayerRow({
   team,
   opponent,
   fantasyPoints,
+  /** When true (final graded only), celebrate exact hits. Default true for graded results UIs. */
+  contestIsFinal = true,
 }: {
   row: PlayerScoreBreakdown;
   fieldSize?: number;
   team?: string;
   opponent?: string;
   fantasyPoints?: number | null;
+  contestIsFinal?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const scoreLines = formatPlayerScoreLines(row, fieldSize);
@@ -67,9 +72,10 @@ export function ScoredPlayerRow({
   const fieldLabel = fieldSize === 15 ? "Top 15" : "Top 10";
   const outcome = classifyReceiptOutcome(row, fieldSize);
   const meta = [team, opponent].filter(Boolean).join(" · ");
+  const showExactHit = contestIsFinal && row.exactHit;
 
   return (
-    <li className={`border-b border-border last:border-0 ${rowTone(row)}`}>
+    <li className={`border-b border-border last:border-0 ${rowTone(row, showExactHit)}`}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -77,7 +83,14 @@ export function ScoredPlayerRow({
         aria-expanded={open}
       >
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-ink">{row.playerName}</p>
+          <p className="font-medium text-ink">
+            {showExactHit ? (
+              <span className="mr-1 text-accent" aria-hidden="true">
+                ★
+              </span>
+            ) : null}
+            {row.playerName}
+          </p>
           {meta ? (
             <p className="mt-0.5 text-sm text-muted">{meta}</p>
           ) : null}
@@ -106,7 +119,7 @@ export function ScoredPlayerRow({
           </dl>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <ReceiptOutcomeChip outcome={outcome} />
+            <ReceiptOutcomeChip outcome={outcome} showExactHit={showExactHit} />
             <span className="text-sm font-semibold tabular-nums text-ink sm:hidden">
               {row.totalPoints} pts
             </span>
@@ -156,7 +169,7 @@ export function ScoredPlayerRow({
               <dd className="font-medium text-ink">
                 {[
                   row.topNHit ? fieldLabel : null,
-                  row.exactHit ? "Exact" : null,
+                  showExactHit ? "Exact" : null,
                   row.podiumCallHit ? "Podium Call" : null,
                   row.actualPodiumPoints > 0 && !row.podiumCallHit
                     ? "Actual Podium"

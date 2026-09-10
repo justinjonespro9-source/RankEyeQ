@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/admin/preview", label: "Test Preview" },
   { href: "/admin/diagnostics", label: "Diagnostics" },
   { href: "/admin/ops", label: "Weekly Ops" },
+  { href: "/admin/live-scoring", label: "Live Scoring" },
   { href: "/admin/seasons", label: "Seasons & Weeks" },
   { href: "/admin/data", label: "NFL Data" },
   { href: "/admin/players", label: "Players" },
