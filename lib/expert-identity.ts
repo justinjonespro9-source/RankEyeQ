@@ -397,7 +397,8 @@ export async function upsertExpertAnalyst(input: {
   }
 
   const competitorActive = input.competitorActive ?? true;
-  const publicVisible = input.publicVisible ?? true;
+  // Conservative default: private-tracked until admin explicitly authorizes public.
+  const publicVisible = input.publicVisible ?? false;
   const sourceUrl = input.sourceUrl?.trim() || null;
   const avatarUrl = input.avatarUrl?.trim() || null;
   const bio = input.bio?.trim() ?? input.notes?.trim() ?? null;

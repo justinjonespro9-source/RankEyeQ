@@ -1,5 +1,10 @@
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import {
+  profileContributesToPublicConsensus,
+  weekIsPubliclyVisibleForProfile,
+  type WeekVisibilityFields,
+} from "@/lib/competitor-visibility";
+import {
   isAnalystExpertSource,
   isPublisherConsensusSource,
 } from "@/lib/expert-identity";
@@ -20,6 +25,11 @@ export type ConsensusFilter =
  * Official ballots only — drafts and empty shells never count toward consensus.
  * Qualifying statuses: SUBMITTED | LOCKED | GRADED, with at least one pick.
  *
+ * PRIVATE_TRACKED Experts/Creators (competitorActive && !publicVisible) never
+ * contribute to any public consensus segment.
+ *
+ * When publicFromWeekId is set, only weeks on/after that gate contribute.
+ *
  * EXPERT = individual analyst BENCHMARK boards only.
  * PUBLISHER = Publisher Consensus boards only.
  * Publisher Consensus never feeds ballot_union All (HUMAN+AI) or group-weighted All.
@@ -30,6 +40,11 @@ export function filterEligibleConsensusSubmissions<
     profileType: ProfileType;
     sourceKind?: string | null;
     picks?: readonly unknown[];
+    competitorActive?: boolean;
+    publicVisible?: boolean;
+    publicFromWeekId?: string | null;
+    publicFromWeek?: WeekVisibilityFields | null;
+    week?: WeekVisibilityFields | null;
   },
 >(submissions: T[], filter: ConsensusFilter = "ALL"): T[] {
   return submissions.filter((submission) => {
@@ -41,6 +56,27 @@ export function filterEligibleConsensusSubmissions<
         return false;
       }
     }
+
+    // Default missing flags to public-eligible for legacy unit fixtures.
+    const competitorActive = submission.competitorActive ?? true;
+    const publicVisible = submission.publicVisible ?? true;
+    const visibility = {
+      profileType: submission.profileType,
+      competitorActive,
+      publicVisible,
+      publicFromWeekId: submission.publicFromWeekId ?? null,
+      publicFromWeek: submission.publicFromWeek ?? null,
+    };
+    if (!profileContributesToPublicConsensus(visibility)) {
+      return false;
+    }
+    if (visibility.publicFromWeekId) {
+      if (!submission.week) return false;
+      if (!weekIsPubliclyVisibleForProfile(visibility, submission.week)) {
+        return false;
+      }
+    }
+
     if (filter === "HUMAN") return submission.profileType === "HUMAN";
     if (filter === "AI") return submission.profileType === "AI";
     if (filter === "CREATOR") return submission.profileType === "CREATOR";

@@ -16,14 +16,25 @@ export const LIVE_MANUAL_PROVIDER = "manual";
 export type LivePlayerStatsInput = PlayerStatLine;
 export type LiveDefenseStatsInput = DefenseStatLine;
 
+/** Admin-facing game lifecycle for live scoring (not weekly contest FINAL). */
+export type LiveScoringAdminGameStatus =
+  | "NOT_STARTED"
+  | "LIVE"
+  | "FINALIZED";
+
 export type LiveScoringGameSummary = {
   id: string;
   awayTeam: string;
   homeTeam: string;
   startsAt: Date;
   status: NflGameStatus;
+  adminStatus: LiveScoringAdminGameStatus;
   scoredEntries: number;
   totalEntries: number;
+  playerStatLines: number;
+  defenseStatLines: number;
+  lastStatUpdateAt: Date | null;
+  statsFinalizedAt: Date | null;
 };
 
 export type LiveScoringEntryRow = {
@@ -39,12 +50,16 @@ export type LiveScoringEntryRow = {
   position: ContestPosition;
   fantasyPoints: number | null;
   hasLiveStatRecord: boolean;
+  /** Manual WeekStat isProvisional=false for this game (verified game line). */
+  statsVerified: boolean;
   actualRank: number | null;
   updatedAt: Date;
   gameId: string | null;
   gameStatus: NflGameStatus | null;
   startsAt: Date | null;
   lockedByFinal: boolean;
+  /** Locked because this game's stats were admin-finalized (reopenable). */
+  lockedByGameFinalize: boolean;
   scoringVersion: string;
   playerStats: Required<PlayerStatLine> | null;
   defenseStats: Required<DefenseStatLine> | null;
@@ -87,4 +102,18 @@ export function calculateDefenseLiveFantasyPoints(
   scoringVersion: string = DEFAULT_FANTASY_SCORING_VERSION,
 ) {
   return scoreWeeklyDefenseFantasy(stats, scoringVersion).fantasyPoints;
+}
+
+export function resolveLiveScoringAdminGameStatus(input: {
+  status: NflGameStatus;
+  statsFinalizedAt: Date | null;
+  scoredEntries: number;
+}): LiveScoringAdminGameStatus {
+  if (input.statsFinalizedAt != null || input.status === "FINAL") {
+    return "FINALIZED";
+  }
+  if (input.status === "IN_PROGRESS" || input.scoredEntries > 0) {
+    return "LIVE";
+  }
+  return "NOT_STARTED";
 }

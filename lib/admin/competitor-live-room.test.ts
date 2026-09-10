@@ -14,9 +14,10 @@ describe("admin competitor live control room", () => {
         profileId: "prof1",
         position: "WR",
         filter: "EXPERT",
+        visibility: "PRIVATE_TRACKED",
       }),
     ).toBe(
-      "/admin/competitors/live?weekId=week1&profileId=prof1&position=wr&filter=EXPERT",
+      "/admin/competitors/live?weekId=week1&profileId=prof1&position=wr&filter=EXPERT&visibility=PRIVATE_TRACKED",
     );
   });
 

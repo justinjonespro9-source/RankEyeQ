@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/db";
 import {
+  profileAppearsOnPublicSurfaces,
+  weekIsPubliclyVisibleForProfile,
+} from "@/lib/competitor-visibility";
+import {
   EXPERT_SOURCE_KIND,
   isPublisherConsensusSource,
 } from "@/lib/expert-identity";
@@ -217,9 +221,13 @@ async function loadGradedSubmissions(where: {
     },
     include: {
       universalProfile: {
-        include: { expertSource: true, creatorCompetitor: true },
+        include: {
+          expertSource: true,
+          creatorCompetitor: true,
+          publicFromWeek: true,
+        },
       },
-      contest: true,
+      contest: { include: { week: true } },
       picks: true,
     },
   });
@@ -235,6 +243,25 @@ function accumulate(
     const profile = submission.universalProfile;
     // Legacy publisher shells stay off competitive boards even if somehow graded.
     if (profile.expertSource?.sourceKind === EXPERT_SOURCE_KIND.PUBLISHER) {
+      continue;
+    }
+    const visibility = {
+      profileType: profile.profileType,
+      competitorActive: profile.competitorActive,
+      publicVisible: profile.publicVisible,
+      publicFromWeekId: profile.publicFromWeekId,
+      publicFromWeek: profile.publicFromWeek,
+    };
+    if (!profileAppearsOnPublicSurfaces(visibility)) continue;
+    const week = submission.contest.week;
+    if (
+      !weekIsPubliclyVisibleForProfile(visibility, {
+        id: week.id,
+        seasonId: week.seasonId,
+        weekNumber: week.weekNumber,
+        startsAt: week.startsAt,
+      })
+    ) {
       continue;
     }
     const agg = map.get(profile.id) ?? emptyAgg(profile);

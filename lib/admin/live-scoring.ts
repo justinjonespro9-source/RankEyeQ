@@ -7,6 +7,7 @@ import {
   calculateDefenseLiveFantasyPoints,
   calculatePlayerLiveFantasyPoints,
   LIVE_MANUAL_PROVIDER,
+  resolveLiveScoringAdminGameStatus,
   type LiveScoringEntryRow,
   type LiveScoringGameSummary,
 } from "@/lib/admin/live-scoring-shared";
@@ -17,11 +18,20 @@ export {
   EMPTY_DEFENSE,
   EMPTY_PLAYER,
   LIVE_MANUAL_PROVIDER,
+  resolveLiveScoringAdminGameStatus,
   type LiveDefenseStatsInput,
   type LivePlayerStatsInput,
+  type LiveScoringAdminGameStatus,
   type LiveScoringEntryRow,
   type LiveScoringGameSummary,
 } from "@/lib/admin/live-scoring-shared";
+
+export class LiveScoringGameError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LiveScoringGameError";
+  }
+}
 
 function weekScoringVersion(week: {
   fantasyScoringVersion: string | null;
@@ -64,6 +74,35 @@ async function isLockedByFinalOfficial(input: {
   return Boolean(playerFinal || defenseFinal);
 }
 
+async function isLockedByGameFinalize(input: {
+  weekId: string;
+  rankableEntryId: string;
+  gameStatsFinalizedAt: Date | null;
+}) {
+  if (input.gameStatsFinalizedAt != null) return true;
+  const [player, defense] = await Promise.all([
+    prisma.playerWeekStat.findFirst({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        rankableEntryId: input.rankableEntryId,
+        isProvisional: false,
+      },
+      select: { id: true },
+    }),
+    prisma.defenseWeekStat.findFirst({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        rankableEntryId: input.rankableEntryId,
+        isProvisional: false,
+      },
+      select: { id: true },
+    }),
+  ]);
+  return Boolean(player || defense);
+}
+
 export async function listLiveScoringGames(
   weekId: string,
 ): Promise<LiveScoringGameSummary[]> {
@@ -84,6 +123,27 @@ export async function listLiveScoringGames(
     },
   });
 
+  const [playerStats, defenseStats] = await Promise.all([
+    prisma.playerWeekStat.findMany({
+      where: { provider: LIVE_MANUAL_PROVIDER, weekId },
+      select: {
+        gameId: true,
+        updatedAt: true,
+        isProvisional: true,
+        rankableEntryId: true,
+      },
+    }),
+    prisma.defenseWeekStat.findMany({
+      where: { provider: LIVE_MANUAL_PROVIDER, weekId },
+      select: {
+        gameId: true,
+        updatedAt: true,
+        isProvisional: true,
+        rankableEntryId: true,
+      },
+    }),
+  ]);
+
   return games.map((game) => {
     const teams = new Set([game.awayTeam, game.homeTeam]);
     const gameEntries = entries.filter(
@@ -92,15 +152,35 @@ export async function listLiveScoringGames(
         entry.rankableEntry.gameId === game.id ||
         (entry.gameId == null && teams.has(entry.rankableEntry.team)),
     );
+    const scoredEntries = gameEntries.filter(
+      (entry) => entry.fantasyPoints != null,
+    ).length;
+    const gamePlayerStats = playerStats.filter((row) => row.gameId === game.id);
+    const gameDefenseStats = defenseStats.filter(
+      (row) => row.gameId === game.id,
+    );
+    const lastStatUpdateAt =
+      [...gamePlayerStats, ...gameDefenseStats]
+        .map((row) => row.updatedAt)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+
     return {
       id: game.id,
       awayTeam: game.awayTeam,
       homeTeam: game.homeTeam,
       startsAt: game.startsAt,
       status: game.status,
-      scoredEntries: gameEntries.filter((entry) => entry.fantasyPoints != null)
-        .length,
+      adminStatus: resolveLiveScoringAdminGameStatus({
+        status: game.status,
+        statsFinalizedAt: game.statsFinalizedAt,
+        scoredEntries,
+      }),
+      scoredEntries,
       totalEntries: gameEntries.length,
+      playerStatLines: gamePlayerStats.length,
+      defenseStatLines: gameDefenseStats.length,
+      lastStatUpdateAt,
+      statsFinalizedAt: game.statsFinalizedAt,
     };
   });
 }
@@ -156,7 +236,6 @@ export async function listLiveScoringEntriesForGame(input: {
         provider: LIVE_MANUAL_PROVIDER,
         weekId: input.weekId,
         rankableEntryId: { in: rankableIds },
-        isProvisional: true,
       },
     }),
     prisma.defenseWeekStat.findMany({
@@ -164,7 +243,6 @@ export async function listLiveScoringEntriesForGame(input: {
         provider: LIVE_MANUAL_PROVIDER,
         weekId: input.weekId,
         rankableEntryId: { in: rankableIds },
-        isProvisional: true,
       },
     }),
   ]);
@@ -184,10 +262,18 @@ export async function listLiveScoringEntriesForGame(input: {
       actualRank: entry.actualRank,
       contestStatus: entry.contest.status,
     });
+    const lockedByGameFinalize = await isLockedByGameFinalize({
+      weekId: input.weekId,
+      rankableEntryId: entry.rankableEntryId,
+      gameStatsFinalizedAt: game.statsFinalizedAt,
+    });
     const isDef = entry.contest.position === "DEF";
     const playerRow = playerByRankable.get(entry.rankableEntryId) ?? null;
     const defenseRow = defenseByRankable.get(entry.rankableEntryId) ?? null;
     const hasLiveStatRecord = isDef ? Boolean(defenseRow) : Boolean(playerRow);
+    const statsVerified = isDef
+      ? Boolean(defenseRow && !defenseRow.isProvisional)
+      : Boolean(playerRow && !playerRow.isProvisional);
 
     rows.push({
       contestEntryId: entry.id,
@@ -202,6 +288,7 @@ export async function listLiveScoringEntriesForGame(input: {
       position: entry.contest.position,
       fantasyPoints: entry.fantasyPoints,
       hasLiveStatRecord,
+      statsVerified,
       actualRank: entry.actualRank,
       updatedAt:
         (isDef ? defenseRow?.updatedAt : playerRow?.updatedAt) ??
@@ -210,6 +297,7 @@ export async function listLiveScoringEntriesForGame(input: {
       gameStatus: entry.game?.status ?? game.status,
       startsAt: entry.game?.startsAt ?? game.startsAt,
       lockedByFinal,
+      lockedByGameFinalize,
       scoringVersion,
       playerStats: playerRow
         ? {
@@ -250,6 +338,209 @@ export async function listLiveScoringEntriesForGame(input: {
   });
 
   return rows;
+}
+
+/**
+ * Promote this game's manual provisional WeekStat rows to verified/final
+ * (isProvisional=false) and mark NflGame FINAL + statsFinalizedAt.
+ * Does NOT grade contests, set actualRank, or write normalized EYEQ.
+ */
+export async function finalizeLiveGame(input: {
+  weekId: string;
+  gameId: string;
+  adminUserId: string;
+}): Promise<{
+  gameId: string;
+  matchup: string;
+  playerStatLines: number;
+  defenseStatLines: number;
+  statsFinalizedAt: Date;
+  contestStatuses: string[];
+}> {
+  void input.adminUserId;
+  const game = await prisma.nflGame.findFirst({
+    where: { id: input.gameId, weekId: input.weekId },
+  });
+  if (!game) {
+    throw new LiveScoringGameError("Game not found for this week");
+  }
+  if (game.statsFinalizedAt != null) {
+    throw new LiveScoringGameError("Game stats are already finalized");
+  }
+
+  const entries = await listLiveScoringEntriesForGame({
+    weekId: input.weekId,
+    gameId: input.gameId,
+  });
+  if (entries.length === 0) {
+    throw new LiveScoringGameError("No contest entries for this game");
+  }
+
+  const scored = entries.filter((entry) => entry.fantasyPoints != null);
+  if (scored.length === 0) {
+    throw new LiveScoringGameError(
+      "Save at least one live stat line before finalizing this game",
+    );
+  }
+
+  const missing = scored.filter((entry) => !entry.hasLiveStatRecord);
+  if (missing.length > 0) {
+    throw new LiveScoringGameError(
+      `Missing saved WeekStat rows for: ${missing.map((e) => e.name).join(", ")}`,
+    );
+  }
+
+  if (
+    entries.some(
+      (entry) =>
+        entry.contestStatus === "FINAL" || entry.contestStatus === "ARCHIVED",
+    )
+  ) {
+    throw new LiveScoringGameError(
+      "Weekly contest is already FINAL — use week correction tools instead",
+    );
+  }
+
+  const playerRankableIds = scored
+    .filter((entry) => entry.position !== "DEF")
+    .map((entry) => entry.rankableEntryId);
+  const defenseRankableIds = scored
+    .filter((entry) => entry.position === "DEF")
+    .map((entry) => entry.rankableEntryId);
+
+  const [playerUpdate, defenseUpdate] = await prisma.$transaction([
+    prisma.playerWeekStat.updateMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        rankableEntryId: { in: playerRankableIds },
+      },
+      data: { isProvisional: false },
+    }),
+    prisma.defenseWeekStat.updateMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        rankableEntryId: { in: defenseRankableIds },
+      },
+      data: { isProvisional: false },
+    }),
+  ]);
+
+  await prisma.playerWeekStat.updateMany({
+    where: {
+      provider: LIVE_MANUAL_PROVIDER,
+      weekId: input.weekId,
+      rankableEntryId: { in: playerRankableIds },
+      gameId: null,
+    },
+    data: { gameId: game.id },
+  });
+  await prisma.defenseWeekStat.updateMany({
+    where: {
+      provider: LIVE_MANUAL_PROVIDER,
+      weekId: input.weekId,
+      rankableEntryId: { in: defenseRankableIds },
+      gameId: null,
+    },
+    data: { gameId: game.id },
+  });
+
+  const finalizedAt = new Date();
+  await prisma.nflGame.update({
+    where: { id: game.id },
+    data: {
+      status: "FINAL",
+      statsFinalizedAt: finalizedAt,
+    },
+  });
+
+  return {
+    gameId: game.id,
+    matchup: `${game.awayTeam} @ ${game.homeTeam}`,
+    playerStatLines: playerUpdate.count,
+    defenseStatLines: defenseUpdate.count,
+    statsFinalizedAt: finalizedAt,
+    contestStatuses: [...new Set(entries.map((entry) => entry.contestStatus))],
+  };
+}
+
+/**
+ * Reopen a finalized game so Admin can correct official/stat-entry mistakes.
+ * Flips manual WeekStat rows back to provisional; clears statsFinalizedAt.
+ * Does not delete history rows.
+ */
+export async function reopenLiveGame(input: {
+  weekId: string;
+  gameId: string;
+  adminUserId: string;
+}): Promise<{
+  gameId: string;
+  matchup: string;
+  playerStatLines: number;
+  defenseStatLines: number;
+}> {
+  void input.adminUserId;
+  const game = await prisma.nflGame.findFirst({
+    where: { id: input.gameId, weekId: input.weekId },
+  });
+  if (!game) {
+    throw new LiveScoringGameError("Game not found for this week");
+  }
+  if (game.statsFinalizedAt == null && game.status !== "FINAL") {
+    throw new LiveScoringGameError("Game is not finalized");
+  }
+
+  const entries = await listLiveScoringEntriesForGame({
+    weekId: input.weekId,
+    gameId: input.gameId,
+  });
+  if (
+    entries.some(
+      (entry) =>
+        entry.actualRank != null ||
+        entry.contestStatus === "FINAL" ||
+        entry.contestStatus === "ARCHIVED",
+    )
+  ) {
+    throw new LiveScoringGameError(
+      "Cannot reopen — weekly positional finishes or contests are already FINAL",
+    );
+  }
+
+  const rankableIds = entries.map((entry) => entry.rankableEntryId);
+  const [playerUpdate, defenseUpdate] = await Promise.all([
+    prisma.playerWeekStat.updateMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        OR: [{ gameId: game.id }, { rankableEntryId: { in: rankableIds } }],
+      },
+      data: { isProvisional: true },
+    }),
+    prisma.defenseWeekStat.updateMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId: input.weekId,
+        OR: [{ gameId: game.id }, { rankableEntryId: { in: rankableIds } }],
+      },
+      data: { isProvisional: true },
+    }),
+  ]);
+  await prisma.nflGame.update({
+    where: { id: game.id },
+    data: {
+      status: "IN_PROGRESS",
+      statsFinalizedAt: null,
+    },
+  });
+
+  return {
+    gameId: game.id,
+    matchup: `${game.awayTeam} @ ${game.homeTeam}`,
+    playerStatLines: playerUpdate.count,
+    defenseStatLines: defenseUpdate.count,
+  };
 }
 
 function normalizePlayerStats(input: PlayerStatLine): Required<PlayerStatLine> {
@@ -330,7 +621,8 @@ export async function saveLivePlayerStats(input: {
       contestEntryId: entry.id,
       fantasyPoints: entry.fantasyPoints ?? 0,
       skipped: true,
-      reason: "Locked by final official results",
+      reason:
+        "Locked — game stats finalized or week results are final (reopen game to correct)",
       updatedAt: entry.updatedAt,
     };
   }
@@ -350,7 +642,7 @@ export async function saveLivePlayerStats(input: {
     },
     update: {
       rankableEntryId: entry.rankableEntryId,
-      gameId: entry.gameId,
+      gameId: entry.gameId ?? entry.rankableEntry.gameId,
       scoringVersion,
       ...stats,
       fantasyPoints,
@@ -361,7 +653,7 @@ export async function saveLivePlayerStats(input: {
       provider: LIVE_MANUAL_PROVIDER,
       weekId: week.id,
       rankableEntryId: entry.rankableEntryId,
-      gameId: entry.gameId,
+      gameId: entry.gameId ?? entry.rankableEntry.gameId,
       externalPlayerId: entry.rankableEntry.externalId,
       scoringVersion,
       ...stats,
@@ -435,7 +727,8 @@ export async function saveLiveDefenseStats(input: {
       contestEntryId: entry.id,
       fantasyPoints: entry.fantasyPoints ?? 0,
       skipped: true,
-      reason: "Locked by final official results",
+      reason:
+        "Locked — game stats finalized or week results are final (reopen game to correct)",
       updatedAt: entry.updatedAt,
     };
   }
@@ -458,7 +751,7 @@ export async function saveLiveDefenseStats(input: {
     },
     update: {
       rankableEntryId: entry.rankableEntryId,
-      gameId: entry.gameId,
+      gameId: entry.gameId ?? entry.rankableEntry.gameId,
       externalId: entry.rankableEntry.externalId,
       scoringVersion,
       ...stats,
@@ -470,7 +763,7 @@ export async function saveLiveDefenseStats(input: {
       provider: LIVE_MANUAL_PROVIDER,
       weekId: week.id,
       rankableEntryId: entry.rankableEntryId,
-      gameId: entry.gameId,
+      gameId: entry.gameId ?? entry.rankableEntry.gameId,
       team: entry.rankableEntry.team,
       externalId: entry.rankableEntry.externalId,
       scoringVersion,

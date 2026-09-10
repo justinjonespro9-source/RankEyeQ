@@ -1,4 +1,8 @@
 import { trackEvent } from "@/lib/analytics";
+import {
+  profileAppearsOnPublicSurfaces,
+  weekIsPubliclyVisibleForProfile,
+} from "@/lib/competitor-visibility";
 import { prisma } from "@/lib/db";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
@@ -140,9 +144,24 @@ export async function getPublicProfileBoard(input: {
   const now = input.now ?? new Date();
   const profile = await prisma.universalProfile.findUnique({
     where: { username: input.username },
-    include: { creatorProfile: true },
+    include: { creatorProfile: true, publicFromWeek: true },
   });
   if (!profile) return null;
+
+  const visibility = {
+    profileType: profile.profileType,
+    competitorActive: profile.competitorActive,
+    publicVisible: profile.publicVisible,
+    publicFromWeekId: profile.publicFromWeekId,
+    publicFromWeek: profile.publicFromWeek,
+  };
+  // Private-tracked / inactive competitors never expose identity on public board routes.
+  if (
+    !input.viewer.isAdmin &&
+    !profileAppearsOnPublicSurfaces(visibility)
+  ) {
+    return null;
+  }
 
   const week = await prisma.week.findFirst({
     where: {
@@ -152,6 +171,18 @@ export async function getPublicProfileBoard(input: {
     include: { season: true },
   });
   if (!week) return null;
+
+  if (
+    !input.viewer.isAdmin &&
+    !weekIsPubliclyVisibleForProfile(visibility, {
+      id: week.id,
+      seasonId: week.seasonId,
+      weekNumber: week.weekNumber,
+      startsAt: week.startsAt,
+    })
+  ) {
+    return null;
+  }
 
   await ensureWeekFullLock(week.id, now);
 

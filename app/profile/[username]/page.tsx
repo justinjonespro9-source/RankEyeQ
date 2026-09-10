@@ -37,13 +37,8 @@ export async function generateMetadata(
   props: PageProps<"/profile/[username]">,
 ): Promise<Metadata> {
   const { username } = await props.params;
-  const view = await getRankIQProfileView(username);
-  if (!view) {
-    return { title: "Profile", ...NO_INDEX };
-  }
-
   const visibility = await prisma.universalProfile.findUnique({
-    where: { username: view.username },
+    where: { username },
     select: {
       publicVisible: true,
       competitorActive: true,
@@ -51,9 +46,24 @@ export async function generateMetadata(
       expertSource: { select: { sourceKind: true } },
     },
   });
+  if (
+    visibility &&
+    !visibility.publicVisible &&
+    (visibility.profileType === "BENCHMARK" ||
+      visibility.profileType === "CREATOR" ||
+      visibility.profileType === "AI")
+  ) {
+    return { title: "Profile", ...NO_INDEX };
+  }
+
+  const view = await getRankIQProfileView(username);
+  if (!view) {
+    return { title: "Profile", ...NO_INDEX };
+  }
+
   if (visibility && !visibility.publicVisible) {
     return {
-      title: view.displayName,
+      title: "Profile",
       description: "Private RankEyeQ profile.",
       ...NO_INDEX,
     };
@@ -117,13 +127,16 @@ export default async function ProfilePage(
     ),
   });
 
-  const view = await getRankIQProfileView(username, { includeTest });
+  const isAdmin = authCtx?.user.role === "ADMIN";
+  const view = await getRankIQProfileView(username, {
+    includeTest,
+    allowPrivate: isAdmin,
+  });
   if (!view) notFound();
 
   const viewerProfile = authCtx?.universalProfile ?? null;
   const isOwner =
     viewerProfile?.id != null && viewerProfile.id === view.profileId;
-  const isAdmin = authCtx?.user.role === "ADMIN";
 
   const profileRecord = await prisma.universalProfile.findUnique({
     where: { username },

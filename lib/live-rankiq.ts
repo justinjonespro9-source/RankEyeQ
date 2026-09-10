@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { profileAppearsOnPublicSurfaces } from "@/lib/competitor-visibility";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
 import { scoreProvisionalEyeq } from "@/lib/live-provisional";
@@ -108,6 +109,15 @@ export async function getLiveContestRankerBoard(contestId: string) {
   for (const submission of contest.submissions) {
     if (!submissionIsEligible(submission.status)) continue;
     if (submission.picks.length !== contest.rankingDepth) continue;
+    if (
+      !profileAppearsOnPublicSurfaces({
+        profileType: submission.universalProfile.profileType,
+        competitorActive: submission.universalProfile.competitorActive,
+        publicVisible: submission.universalProfile.publicVisible,
+      })
+    ) {
+      continue;
+    }
 
     const summary = scoreProvisionalEyeq(
       submission.picks.map((pick) => ({

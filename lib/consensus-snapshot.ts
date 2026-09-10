@@ -82,12 +82,15 @@ export async function captureContestPregameSnapshotsForWeek(
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId },
     include: {
+      week: true,
       pregameSnapshot: true,
       entries: { include: { rankableEntry: true } },
       submissions: {
         include: {
           picks: true,
-          universalProfile: { include: { expertSource: true } },
+          universalProfile: {
+            include: { expertSource: true, publicFromWeek: true },
+          },
         },
       },
     },
@@ -114,6 +117,23 @@ export async function captureContestPregameSnapshotsForWeek(
         status: submission.status,
         profileType: submission.universalProfile.profileType,
         sourceKind: submission.universalProfile.expertSource?.sourceKind ?? null,
+        competitorActive: submission.universalProfile.competitorActive,
+        publicVisible: submission.universalProfile.publicVisible,
+        publicFromWeekId: submission.universalProfile.publicFromWeekId,
+        publicFromWeek: submission.universalProfile.publicFromWeek
+          ? {
+              id: submission.universalProfile.publicFromWeek.id,
+              seasonId: submission.universalProfile.publicFromWeek.seasonId,
+              weekNumber: submission.universalProfile.publicFromWeek.weekNumber,
+              startsAt: submission.universalProfile.publicFromWeek.startsAt,
+            }
+          : null,
+        week: {
+          id: contest.week.id,
+          seasonId: contest.week.seasonId,
+          weekNumber: contest.week.weekNumber,
+          startsAt: contest.week.startsAt,
+        },
         picks: submission.picks,
       })),
     };

@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/db";
+import {
+  profileAppearsOnPublicSurfaces,
+  weekIsPubliclyVisibleForProfile,
+} from "@/lib/competitor-visibility";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { canViewCurrentWeekBoard } from "@/lib/timing/board-access";
 
@@ -19,10 +23,34 @@ export async function getBoardIndexability(input: {
   const now = input.now ?? new Date();
   const profile = await prisma.universalProfile.findUnique({
     where: { username: input.username },
-    select: { id: true, username: true },
+    select: {
+      id: true,
+      username: true,
+      profileType: true,
+      competitorActive: true,
+      publicVisible: true,
+      publicFromWeekId: true,
+      publicFromWeek: true,
+    },
   });
   if (!profile) {
     return { exists: false, public: false, isTest: false, username: null };
+  }
+
+  const visibility = {
+    profileType: profile.profileType,
+    competitorActive: profile.competitorActive,
+    publicVisible: profile.publicVisible,
+    publicFromWeekId: profile.publicFromWeekId,
+    publicFromWeek: profile.publicFromWeek,
+  };
+  if (!profileAppearsOnPublicSurfaces(visibility)) {
+    return {
+      exists: false,
+      public: false,
+      isTest: false,
+      username: null,
+    };
   }
 
   const week = await prisma.week.findFirst({
@@ -38,6 +66,22 @@ export async function getBoardIndexability(input: {
       public: false,
       isTest: false,
       username: profile.username,
+    };
+  }
+
+  if (
+    !weekIsPubliclyVisibleForProfile(visibility, {
+      id: week.id,
+      seasonId: week.seasonId,
+      weekNumber: week.weekNumber,
+      startsAt: week.startsAt,
+    })
+  ) {
+    return {
+      exists: false,
+      public: false,
+      isTest: false,
+      username: null,
     };
   }
 

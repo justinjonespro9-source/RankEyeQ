@@ -30,6 +30,8 @@ export type SitemapProfileCandidate = {
   updatedAt: Date;
   profileType: ProfileType;
   competitorActive: boolean;
+  /** When provided, private-tracked profiles are excluded. */
+  publicVisible?: boolean;
   expertSourceKind: string | null;
 };
 
@@ -38,11 +40,13 @@ export type SitemapProfileCandidate = {
  * Excludes inactive legacy publisher shells (official BENCHMARK usernames /
  * PUBLISHER shells) while keeping active Humans, Creators, AI, individual
  * Expert analysts, and active Publisher Consensus / Site Consensus benchmarks.
+ * PRIVATE_TRACKED (publicVisible=false) never appears.
  */
 export function shouldIncludeProfileInSitemap(
   profile: SitemapProfileCandidate,
 ): boolean {
   if (!profile.username.trim()) return false;
+  if (profile.publicVisible === false) return false;
 
   if (profile.profileType === "BENCHMARK") {
     if (!profile.competitorActive) return false;
@@ -250,6 +254,7 @@ export async function loadSitemapProfiles(): Promise<MetadataRoute.Sitemap> {
       updatedAt: profile.updatedAt,
       profileType: profile.profileType,
       competitorActive: profile.competitorActive,
+      publicVisible: true as const,
       expertSourceKind: profile.expertSource?.sourceKind ?? null,
     }))
     .filter(shouldIncludeProfileInSitemap)

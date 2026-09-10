@@ -55,7 +55,7 @@ async function loadContestForConsensus(contestId: string) {
       submissions: {
         include: {
           picks: true,
-          universalProfile: { include: { expertSource: true } },
+          universalProfile: { include: { expertSource: true, publicFromWeek: true } },
         },
       },
     },
@@ -71,6 +71,18 @@ function buildLiveSegmentConsensus(
       ...submission,
       profileType: submission.universalProfile.profileType,
       sourceKind: submission.universalProfile.expertSource?.sourceKind ?? null,
+      competitorActive: submission.universalProfile.competitorActive,
+      publicVisible: submission.universalProfile.publicVisible,
+      publicFromWeekId: submission.universalProfile.publicFromWeekId,
+      publicFromWeek: submission.universalProfile.publicFromWeek ?? null,
+      week: contest.week
+        ? {
+            id: contest.week.id,
+            seasonId: contest.week.seasonId,
+            weekNumber: contest.week.weekNumber,
+            startsAt: contest.week.startsAt,
+          }
+        : null,
     })),
     filter,
   );

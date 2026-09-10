@@ -91,6 +91,29 @@ describe("sitemap profile inclusion", () => {
       }),
     ).toBe(true);
   });
+
+  it("excludes private-tracked Experts and Creators", () => {
+    expect(
+      shouldIncludeProfileInSitemap({
+        username: "private_expert",
+        updatedAt: new Date(),
+        profileType: "BENCHMARK",
+        competitorActive: true,
+        publicVisible: false,
+        expertSourceKind: "ANALYST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldIncludeProfileInSitemap({
+        username: "private_creator",
+        updatedAt: new Date(),
+        profileType: "CREATOR",
+        competitorActive: true,
+        publicVisible: false,
+        expertSourceKind: null,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("position-balanced player sitemap selection", () => {

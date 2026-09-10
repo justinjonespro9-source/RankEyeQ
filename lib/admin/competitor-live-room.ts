@@ -1,6 +1,11 @@
 import { listActiveAiCompetitors } from "@/lib/ai-competitors-sync";
 import { CONTEST_POSITIONS, toUiPosition } from "@/lib/contest-defaults";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
+import {
+  competitorVisibilityBadgeLabel,
+  resolveCompetitorVisibility,
+  type CompetitorVisibilityState,
+} from "@/lib/competitor-visibility";
 import { listActiveCreatorCompetitors } from "@/lib/creator-identity";
 import { prisma } from "@/lib/db";
 import {
@@ -25,6 +30,11 @@ export type CompetitorLiveClass =
   | "PUBLISHER_CONSENSUS";
 
 export type CompetitorLiveFilter = "ALL" | CompetitorLiveClass;
+
+export type CompetitorVisibilityFilter =
+  | "ALL"
+  | "PUBLIC"
+  | "PRIVATE_TRACKED";
 
 export type CompetitorPositionLiveCell = {
   position: ContestPosition;
@@ -51,6 +61,9 @@ export type CompetitorLiveRow = {
   bio: string | null;
   competitorActive: boolean;
   publicVisible: boolean;
+  publicFromWeekId: string | null;
+  visibilityState: CompetitorVisibilityState;
+  visibilityBadge: string;
   positions: CompetitorPositionLiveCell[];
   submittedCount: number;
   expectedCount: number;
@@ -67,6 +80,24 @@ export type CompetitorLiveSummary = {
   boardsSubmitted: number;
   boardsMissing: number;
 };
+
+function seedVisibilityFields(seed: {
+  competitorClass: CompetitorLiveClass;
+  competitorActive: boolean;
+  publicVisible: boolean;
+}) {
+  const profileType =
+    seed.competitorClass === "CREATOR"
+      ? ("CREATOR" as const)
+      : seed.competitorClass === "AI"
+        ? ("AI" as const)
+        : ("BENCHMARK" as const);
+  return {
+    profileType,
+    competitorActive: seed.competitorActive,
+    publicVisible: seed.publicVisible,
+  };
+}
 
 function classLabel(cls: CompetitorLiveClass): string {
   switch (cls) {
@@ -109,11 +140,13 @@ function manageHref(input: {
 export async function listCompetitorLiveRoom(input: {
   weekId: string;
   filter?: CompetitorLiveFilter;
+  visibilityFilter?: CompetitorVisibilityFilter;
 }): Promise<{
   summary: CompetitorLiveSummary;
   rows: CompetitorLiveRow[];
 }> {
   const filter = input.filter ?? "ALL";
+  const visibilityFilter = input.visibilityFilter ?? "ALL";
   const [ais, creators, benchmarks, contests] = await Promise.all([
     listActiveAiCompetitors(),
     listActiveCreatorCompetitors(),
@@ -144,6 +177,7 @@ export async function listCompetitorLiveRoom(input: {
     bio: string | null;
     competitorActive: boolean;
     publicVisible: boolean;
+    publicFromWeekId: string | null;
     competitorClass: CompetitorLiveClass;
     affiliation: string;
     sourceUrl: string | null;
@@ -162,6 +196,7 @@ export async function listCompetitorLiveRoom(input: {
         bio: row.bio,
         competitorActive: row.competitorActive,
         publicVisible: row.publicVisible,
+        publicFromWeekId: row.publicFromWeekId ?? null,
         competitorClass: "AI",
         affiliation: row.displayName,
         sourceUrl: null,
@@ -180,6 +215,7 @@ export async function listCompetitorLiveRoom(input: {
         bio: row.bio,
         competitorActive: row.competitorActive,
         publicVisible: row.publicVisible,
+        publicFromWeekId: row.publicFromWeekId ?? null,
         competitorClass: "CREATOR",
         affiliation: row.creatorCompetitor?.brandName?.trim() || "Creator",
         sourceUrl: row.creatorCompetitor?.sourceUrl ?? null,
@@ -198,6 +234,7 @@ export async function listCompetitorLiveRoom(input: {
         bio: row.bio,
         competitorActive: row.competitorActive,
         publicVisible: row.publicVisible,
+        publicFromWeekId: row.publicFromWeekId ?? null,
         competitorClass: "EXPERT",
         affiliation: row.expertSource?.publicationName?.trim() || "Expert",
         sourceUrl: row.expertSource?.sourceUrl ?? null,
@@ -216,6 +253,7 @@ export async function listCompetitorLiveRoom(input: {
         bio: row.bio,
         competitorActive: row.competitorActive,
         publicVisible: row.publicVisible,
+        publicFromWeekId: row.publicFromWeekId ?? null,
         competitorClass: "PUBLISHER_CONSENSUS",
         affiliation: row.expertSource?.publicationName?.trim() || "Publisher",
         sourceUrl: row.expertSource?.sourceUrl ?? null,
@@ -224,7 +262,16 @@ export async function listCompetitorLiveRoom(input: {
     }
   }
 
-  const profileIds = seeds.map((seed) => seed.profileId);
+  const filteredSeeds = seeds.filter((seed) => {
+    const state = resolveCompetitorVisibility(seedVisibilityFields(seed));
+    if (visibilityFilter === "PUBLIC") return state === "AUTHORIZED_PUBLIC";
+    if (visibilityFilter === "PRIVATE_TRACKED") {
+      return state === "PRIVATE_TRACKED";
+    }
+    return true;
+  });
+
+  const profileIds = filteredSeeds.map((seed) => seed.profileId);
   const contestIds = contests.map((contest) => contest.id);
   const contestByPosition = new Map(
     contests.map((contest) => [contest.position, contest]),
@@ -306,7 +353,10 @@ export async function listCompetitorLiveRoom(input: {
     ]),
   );
 
-  const rows: CompetitorLiveRow[] = seeds.map((seed) => {
+  const rows: CompetitorLiveRow[] = filteredSeeds.map((seed) => {
+    const visibilityState = resolveCompetitorVisibility(
+      seedVisibilityFields(seed),
+    );
     const positions: CompetitorPositionLiveCell[] = CONTEST_POSITIONS.map(
       (position) => {
         const contest = contestByPosition.get(position) ?? null;
@@ -392,6 +442,8 @@ export async function listCompetitorLiveRoom(input: {
 
     return {
       ...seed,
+      visibilityState,
+      visibilityBadge: competitorVisibilityBadgeLabel(visibilityState),
       positions,
       submittedCount,
       expectedCount,
@@ -497,6 +549,7 @@ export function competitorLiveBoardHref(input: {
   profileId: string;
   position?: ContestPosition;
   filter?: CompetitorLiveFilter;
+  visibility?: CompetitorVisibilityFilter;
 }) {
   const params = new URLSearchParams({
     weekId: input.weekId,
@@ -507,6 +560,9 @@ export function competitorLiveBoardHref(input: {
   }
   if (input.filter && input.filter !== "ALL") {
     params.set("filter", input.filter);
+  }
+  if (input.visibility && input.visibility !== "ALL") {
+    params.set("visibility", input.visibility);
   }
   return `/admin/competitors/live?${params.toString()}`;
 }

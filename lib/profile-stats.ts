@@ -1,4 +1,8 @@
 import { resolveAvatarUrl } from "@/lib/avatar";
+import {
+  profileAppearsOnPublicSurfaces,
+  weekIsPubliclyVisibleForProfile,
+} from "@/lib/competitor-visibility";
 import { isCreatorVerified } from "@/lib/creator-verification-shared";
 import { prisma } from "@/lib/db";
 import {
@@ -50,7 +54,7 @@ function rankOnBoard(
 
 export async function getRankIQProfileView(
   username: string,
-  options?: { includeTest?: boolean },
+  options?: { includeTest?: boolean; allowPrivate?: boolean },
 ): Promise<RankIQProfileView | null> {
   const profile = await prisma.universalProfile.findUnique({
     where: { username },
@@ -58,16 +62,28 @@ export async function getRankIQProfileView(
       expertSource: true,
       creatorCompetitor: true,
       authUser: { select: { image: true } },
+      publicFromWeek: true,
     },
   });
   if (!profile) return null;
   if (!profile.publicVisible && profile.status === "SUSPENDED") return null;
 
+  const visibility = {
+    profileType: profile.profileType,
+    competitorActive: profile.competitorActive,
+    publicVisible: profile.publicVisible,
+    publicFromWeekId: profile.publicFromWeekId,
+    publicFromWeek: profile.publicFromWeek,
+  };
+  if (!options?.allowPrivate && !profileAppearsOnPublicSurfaces(visibility)) {
+    return null;
+  }
+
   const activeSeason = await prisma.season.findFirst({
     where: { active: true },
   });
 
-  const submissions = await prisma.rankingSubmission.findMany({
+  const submissionsRaw = await prisma.rankingSubmission.findMany({
     where: {
       universalProfileId: profile.id,
       status: "GRADED",
@@ -87,6 +103,19 @@ export async function getRankIQProfileView(
       { updatedAt: "desc" },
     ],
   });
+
+  // Public viewers only see weeks authorized for public exposure.
+  const submissions =
+    options?.allowPrivate || !visibility.publicFromWeekId
+      ? submissionsRaw
+      : submissionsRaw.filter((submission) =>
+          weekIsPubliclyVisibleForProfile(visibility, {
+            id: submission.contest.week.id,
+            seasonId: submission.contest.week.seasonId,
+            weekNumber: submission.contest.week.weekNumber,
+            startsAt: submission.contest.week.startsAt,
+          }),
+        );
 
   const scores = submissions
     .map((s) => s.normalizedScore)

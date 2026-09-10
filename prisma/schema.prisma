@@ -164,6 +164,9 @@ model UniversalProfile {
   /// When false, AI/BENCHMARK/CREATOR profiles are excluded from active competitor roster / coverage.
   /// Humans ignore this flag. Prefer this over SUSPENDED for retired bots/sources.
   competitorActive Boolean      @default(true)
+  /// When publicVisible=true, optional gate: only weeks on/after this week are public.
+  /// null = full public history (or not publicly authorized).
+  publicFromWeekId String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -184,6 +187,9 @@ model UniversalProfile {
   ledgerAsCreator  CreatorLedgerEntry[] @relation("LedgerCreator")
   ledgerAsViewer   CreatorLedgerEntry[] @relation("LedgerViewer")
   expertSource     ExpertSourceProfile?
+  publicFromWeek   Week?                @relation("ProfilePublicFromWeek", fields: [publicFromWeekId], references: [id], onDelete: SetNull)
+
+  @@index([publicFromWeekId])
 }
 
 /// Persistent expert / third-party ranking source identity (profileType BENCHMARK).
@@ -483,6 +489,7 @@ model Week {
   entitlements     BoardEntitlement[]
   benchmarkSnapshots BenchmarkSnapshot[]
   manualImports    ManualImportLog[]
+  publicFromProfiles UniversalProfile[] @relation("ProfilePublicFromWeek")
 
   @@unique([seasonId, weekNumber])
 }
@@ -500,6 +507,8 @@ model NflGame {
   awayTeam   String
   startsAt   DateTime
   status     NflGameStatus @default(SCHEDULED)
+  /// When admin verifies/finalizes this game's manual live WeekStat lines (not week contest FINAL).
+  statsFinalizedAt DateTime?
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 

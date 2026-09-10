@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { logAdminAction } from "@/lib/admin/audit";
 import {
   clearLiveStats,
+  finalizeLiveGame,
+  reopenLiveGame,
   saveLiveDefenseStats,
   saveLivePlayerStats,
   type LiveDefenseStatsInput,
@@ -154,6 +156,73 @@ export async function saveAllLiveStatsAction(input: {
     return {
       ok: false as const,
       error: error instanceof Error ? error.message : "Batch save failed",
+    };
+  }
+}
+
+export async function finalizeLiveGameAction(input: {
+  weekId: string;
+  gameId: string;
+}) {
+  const admin = await assertAdmin();
+  try {
+    const result = await finalizeLiveGame({
+      weekId: input.weekId,
+      gameId: input.gameId,
+      adminUserId: admin.user.id,
+    });
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: "live_scoring.game_finalized",
+      entityType: "NflGame",
+      entityId: input.gameId,
+      metadata: {
+        weekId: input.weekId,
+        matchup: result.matchup,
+        playerStatLines: result.playerStatLines,
+        defenseStatLines: result.defenseStatLines,
+        statsFinalizedAt: result.statsFinalizedAt.toISOString(),
+      },
+    });
+    revalidateLiveScoring(input.weekId);
+    return { ok: true as const, result };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : "Finalize failed",
+    };
+  }
+}
+
+export async function reopenLiveGameAction(input: {
+  weekId: string;
+  gameId: string;
+}) {
+  const admin = await assertAdmin();
+  try {
+    const result = await reopenLiveGame({
+      weekId: input.weekId,
+      gameId: input.gameId,
+      adminUserId: admin.user.id,
+    });
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: "live_scoring.game_reopened",
+      entityType: "NflGame",
+      entityId: input.gameId,
+      metadata: {
+        weekId: input.weekId,
+        matchup: result.matchup,
+        playerStatLines: result.playerStatLines,
+        defenseStatLines: result.defenseStatLines,
+      },
+    });
+    revalidateLiveScoring(input.weekId);
+    return { ok: true as const, result };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : "Reopen failed",
     };
   }
 }

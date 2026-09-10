@@ -312,9 +312,14 @@ export default async function AdminCreateCompetitorPage({
               type="checkbox"
               name="publicVisible"
               value="true"
-              defaultChecked
+              defaultChecked={type === "ai" || type === "publisher"}
             />
             Public profile visible
+            {type === "creator" || type === "expert" ? (
+              <span className="text-xs text-muted">
+                (default off — private tracked until authorized)
+              </span>
+            ) : null}
           </label>
           <label className="flex items-center gap-2 text-sm text-ink sm:col-span-2">
             <input type="checkbox" name="acknowledgeDuplicate" value="true" />

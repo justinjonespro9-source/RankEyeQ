@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { logAdminAction } from "@/lib/admin/audit";
 import {
+  CompetitorAuthorizationError,
+  authorizeCompetitorPublic,
+  setCompetitorVisibilityState,
+} from "@/lib/admin/competitor-authorization";
+import {
   AiIdentityError,
   createAiCompetitor,
   setAiDirectoryActive,
@@ -16,6 +21,7 @@ import {
   setCreatorDirectoryActive,
   updateCreatorCompetitorMetadata,
 } from "@/lib/creator-identity";
+import type { AuthorizeHistoryMode } from "@/lib/competitor-visibility";
 import {
   ExpertIdentityError,
   createExpertAnalyst,
@@ -25,6 +31,7 @@ import {
   updatePublisherConsensusMetadata,
 } from "@/lib/expert-identity";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import type { CompetitorVisibilityState } from "@/lib/competitor-visibility";
 
 function revalidateCompetitorSurfaces() {
   revalidatePath("/admin/competitors/new");
@@ -98,7 +105,7 @@ export async function createCompetitorAction(formData: FormData) {
         avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
         bio: String(formData.get("bio") || "").trim() || null,
         competitorActive: flag(formData, "competitorActive", true),
-        publicVisible: flag(formData, "publicVisible", true),
+        publicVisible: flag(formData, "publicVisible", false),
         positionsCovered: parsePositions(formData),
         acknowledgeDuplicate,
       });
@@ -123,7 +130,7 @@ export async function createCompetitorAction(formData: FormData) {
         sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
         avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
         bio: String(formData.get("bio") || "").trim() || null,
-        publicVisible: flag(formData, "publicVisible", true),
+        publicVisible: flag(formData, "publicVisible", false),
         positionsCovered: parsePositions(formData),
         competitorActive: flag(formData, "competitorActive", true),
         notes: String(formData.get("notes") || "").trim() || null,
@@ -331,6 +338,105 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
       error instanceof ExpertIdentityError
         ? error.message
         : "Unable to update competitor";
+    redirect(`${returnTo}?error=${encodeURIComponent(message)}`);
+  }
+  revalidateCompetitorSurfaces();
+  redirect(`${returnTo}?updated=1`);
+}
+
+/**
+ * Explicit Make Public / Authorize — never silent.
+ * historyMode: from_now (default) | expose_history
+ */
+export async function authorizeCompetitorPublicAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const profileId = String(formData.get("universalProfileId") || "");
+  const returnTo = String(formData.get("returnTo") || "/admin/competitors/live");
+  const confirmed = formData.get("confirmAuthorize") === "true";
+  const historyModeRaw = String(formData.get("historyMode") || "from_now");
+  const historyMode: AuthorizeHistoryMode =
+    historyModeRaw === "expose_history" ? "expose_history" : "from_now";
+  const weekId = String(formData.get("weekId") || "").trim() || null;
+
+  if (!confirmed) {
+    redirect(
+      `${returnTo}?error=${encodeURIComponent("Authorization requires explicit confirmation")}`,
+    );
+  }
+  if (!profileId) {
+    redirect(`${returnTo}?error=${encodeURIComponent("Missing profile")}`);
+  }
+
+  try {
+    await authorizeCompetitorPublic({
+      universalProfileId: profileId,
+      historyMode,
+      currentWeekId: weekId,
+    });
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: "competitor.authorized_public",
+      entityType: "UniversalProfile",
+      entityId: profileId,
+      metadata: { historyMode, weekId },
+    });
+  } catch (error) {
+    const message =
+      error instanceof CompetitorAuthorizationError
+        ? error.message
+        : "Unable to authorize competitor";
+    redirect(`${returnTo}?error=${encodeURIComponent(message)}`);
+  }
+  revalidateCompetitorSurfaces();
+  redirect(`${returnTo}?authorized=1`);
+}
+
+export async function setCompetitorVisibilityAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const profileId = String(formData.get("universalProfileId") || "");
+  const returnTo = String(formData.get("returnTo") || "/admin/competitors/live");
+  const stateRaw = String(formData.get("visibilityState") || "");
+  const state = stateRaw as CompetitorVisibilityState;
+  if (
+    state !== "PRIVATE_TRACKED" &&
+    state !== "AUTHORIZED_PUBLIC" &&
+    state !== "INACTIVE"
+  ) {
+    redirect(
+      `${returnTo}?error=${encodeURIComponent("Invalid visibility state")}`,
+    );
+  }
+  const historyModeRaw = String(formData.get("historyMode") || "from_now");
+  const historyMode: AuthorizeHistoryMode =
+    historyModeRaw === "expose_history" ? "expose_history" : "from_now";
+  const weekId = String(formData.get("weekId") || "").trim() || null;
+  const confirmed = formData.get("confirmAuthorize") === "true";
+
+  if (state === "AUTHORIZED_PUBLIC" && !confirmed) {
+    redirect(
+      `${returnTo}?error=${encodeURIComponent("Making public requires explicit confirmation")}`,
+    );
+  }
+
+  try {
+    await setCompetitorVisibilityState({
+      universalProfileId: profileId,
+      state,
+      historyMode,
+      currentWeekId: weekId,
+    });
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: "competitor.visibility_updated",
+      entityType: "UniversalProfile",
+      entityId: profileId,
+      metadata: { state, historyMode },
+    });
+  } catch (error) {
+    const message =
+      error instanceof CompetitorAuthorizationError
+        ? error.message
+        : "Unable to update visibility";
     redirect(`${returnTo}?error=${encodeURIComponent(message)}`);
   }
   revalidateCompetitorSurfaces();

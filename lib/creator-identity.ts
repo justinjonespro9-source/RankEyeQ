@@ -273,7 +273,7 @@ export async function upsertCreatorCompetitor(input: {
   }
 
   const competitorActive = input.competitorActive ?? true;
-  const publicVisible = input.publicVisible ?? true;
+  const publicVisible = input.publicVisible ?? false;
   const sourceUrl = input.sourceUrl?.trim() || null;
   const creatorSiteUrl = input.creatorSiteUrl?.trim() || null;
   const socialHandle = input.socialHandle?.trim() || null;

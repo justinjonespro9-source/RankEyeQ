@@ -4,7 +4,10 @@ import {
   calculateDefenseLiveFantasyPoints,
   calculatePlayerLiveFantasyPoints,
   clearLiveStats,
+  finalizeLiveGame,
   LIVE_MANUAL_PROVIDER,
+  reopenLiveGame,
+  resolveLiveScoringAdminGameStatus,
   saveLiveDefenseStats,
   saveLivePlayerStats,
 } from "@/lib/admin/live-scoring";
@@ -15,6 +18,32 @@ import { getLivePlayerStandings } from "@/lib/live-rankiq";
 import { zonedLocalToUtc } from "@/lib/timing/chicago";
 
 const suffix = `live${Date.now()}`;
+
+describe("live scoring admin game status", () => {
+  it("maps NOT_STARTED / LIVE / FINALIZED", () => {
+    expect(
+      resolveLiveScoringAdminGameStatus({
+        status: "SCHEDULED",
+        statsFinalizedAt: null,
+        scoredEntries: 0,
+      }),
+    ).toBe("NOT_STARTED");
+    expect(
+      resolveLiveScoringAdminGameStatus({
+        status: "IN_PROGRESS",
+        statsFinalizedAt: null,
+        scoredEntries: 2,
+      }),
+    ).toBe("LIVE");
+    expect(
+      resolveLiveScoringAdminGameStatus({
+        status: "FINAL",
+        statsFinalizedAt: new Date(),
+        scoredEntries: 2,
+      }),
+    ).toBe("FINALIZED");
+  });
+});
 
 describe("live scoring — canonical V2 from raw stats", () => {
   it("scores pass yards / TD / INT with 299 vs 300 bonus threshold", () => {
@@ -292,11 +321,18 @@ describe("live scoring persistence + public visibility", () => {
     await prisma.nflGame.deleteMany({ where: { weekId } });
     await prisma.week.deleteMany({ where: { id: weekId } });
     await prisma.rankableEntry.deleteMany({
-      where: { externalId: { startsWith: `live-` } },
+      where: {
+        externalId: {
+          in: [
+            `live-qb-${suffix}`,
+            `live-qb-bench-${suffix}`,
+            `live-def-${suffix}`,
+          ],
+        },
+      },
     });
     await prisma.user.deleteMany({ where: { id: adminUserId } });
     await prisma.season.deleteMany({ where: { id: seasonId } });
-    await prisma.$disconnect();
   });
 
   it("hides unplayed players until a live stat record is saved", async () => {
@@ -472,5 +508,362 @@ describe("live scoring persistence + public visibility", () => {
     });
     expect(manual?.isProvisional).toBe(true);
     expect(provider?.fantasyPoints).toBe(23);
+  });
+});
+
+describe("live scoring game finalize / reopen", () => {
+  let seasonId = "";
+  let weekId = "";
+  let gameId = "";
+  let sundayGameId = "";
+  let qbContestId = "";
+  let qbEntryId = "";
+  let sundayQbEntryId = "";
+  let qbRankableId = "";
+  let sundayQbRankableId = "";
+  let defEntryId = "";
+  let defRankableId = "";
+  let adminUserId = "";
+  let profileId = "";
+  let submissionId = "";
+
+  beforeAll(async () => {
+    const season = await prisma.season.create({
+      data: {
+        year: 2097,
+        sport: `LIVEFIN-${suffix}`,
+        active: false,
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
+      },
+    });
+    seasonId = season.id;
+
+    const week = await prisma.week.create({
+      data: {
+        seasonId,
+        weekNumber: 1,
+        label: "Live Finalize W1",
+        startsAt: zonedLocalToUtc(2026, 9, 7, 12, 0),
+        endsAt: zonedLocalToUtc(2026, 9, 11, 23, 0),
+        status: "OPEN",
+        fantasyScoringVersion: FANTASYTRACK_NFL_HALF_PPR_V2,
+      },
+    });
+    weekId = week.id;
+
+    const game = await prisma.nflGame.create({
+      data: {
+        provider: "manual",
+        externalId: `live-fin-game-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2097,
+        weekNumber: 1,
+        homeTeam: "BUF",
+        awayTeam: "MIA",
+        startsAt: zonedLocalToUtc(2026, 9, 7, 12, 0),
+        status: "SCHEDULED",
+      },
+    });
+    gameId = game.id;
+
+    const sundayGame = await prisma.nflGame.create({
+      data: {
+        provider: "manual",
+        externalId: `live-fin-sunday-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2097,
+        weekNumber: 1,
+        homeTeam: "KC",
+        awayTeam: "BAL",
+        startsAt: zonedLocalToUtc(2026, 9, 10, 12, 0),
+        status: "SCHEDULED",
+      },
+    });
+    sundayGameId = sundayGame.id;
+
+    const admin = await prisma.user.create({
+      data: { email: `live-fin-admin-${suffix}@example.com`, role: "ADMIN" },
+    });
+    adminUserId = admin.id;
+
+    const profile = await prisma.universalProfile.create({
+      data: {
+        username: `livefin_${suffix}`,
+        displayName: "Live Fin Tester",
+        profileType: "HUMAN",
+        status: "ACTIVE",
+      },
+    });
+    profileId = profile.id;
+
+    const qb = await prisma.rankableEntry.create({
+      data: {
+        provider: "manual",
+        externalId: `live-fin-qb-${suffix}`,
+        name: "Finalize QB",
+        shortName: "F. QB",
+        team: "BUF",
+        opponent: "MIA",
+        position: "QB",
+        type: "PLAYER",
+        gameId,
+      },
+    });
+    qbRankableId = qb.id;
+
+    const sundayQb = await prisma.rankableEntry.create({
+      data: {
+        provider: "manual",
+        externalId: `live-fin-sunday-qb-${suffix}`,
+        name: "Sunday QB",
+        shortName: "S. QB",
+        team: "KC",
+        opponent: "BAL",
+        position: "QB",
+        type: "PLAYER",
+        gameId: sundayGameId,
+      },
+    });
+    sundayQbRankableId = sundayQb.id;
+
+    const def = await prisma.rankableEntry.create({
+      data: {
+        provider: "manual",
+        externalId: `live-fin-def-${suffix}`,
+        name: "Bills D/ST",
+        shortName: "BUF DEF",
+        team: "BUF",
+        opponent: "MIA",
+        position: "DEF",
+        type: "DEFENSE",
+        gameId,
+      },
+    });
+    defRankableId = def.id;
+
+    const qbContest = await prisma.rankIQContest.create({
+      data: {
+        seasonId,
+        weekId,
+        position: "QB",
+        title: `QB Finalize ${suffix}`,
+        status: "OPEN",
+        rankingDepth: 10,
+      },
+    });
+    qbContestId = qbContest.id;
+
+    const defContest = await prisma.rankIQContest.create({
+      data: {
+        seasonId,
+        weekId,
+        position: "DEF",
+        title: `DEF Finalize ${suffix}`,
+        status: "OPEN",
+        rankingDepth: 10,
+      },
+    });
+
+    const qbEntry = await prisma.contestEntry.create({
+      data: {
+        contestId: qbContestId,
+        rankableEntryId: qbRankableId,
+        gameId,
+      },
+    });
+    qbEntryId = qbEntry.id;
+
+    const sundayEntry = await prisma.contestEntry.create({
+      data: {
+        contestId: qbContestId,
+        rankableEntryId: sundayQbRankableId,
+        gameId: sundayGameId,
+      },
+    });
+    sundayQbEntryId = sundayEntry.id;
+
+    const defEntry = await prisma.contestEntry.create({
+      data: {
+        contestId: defContest.id,
+        rankableEntryId: defRankableId,
+        gameId,
+      },
+    });
+    defEntryId = defEntry.id;
+
+    const submission = await prisma.rankingSubmission.create({
+      data: {
+        contestId: qbContestId,
+        universalProfileId: profileId,
+        status: "SUBMITTED",
+        picks: {
+          create: [
+            {
+              rankableEntryId: qbRankableId,
+              predictedRank: 1,
+            },
+            {
+              rankableEntryId: sundayQbRankableId,
+              predictedRank: 2,
+            },
+          ],
+        },
+      },
+    });
+    submissionId = submission.id;
+  });
+
+  afterAll(async () => {
+    await prisma.rankingPick.deleteMany({
+      where: { submission: { contest: { weekId } } },
+    });
+    await prisma.rankingSubmission.deleteMany({
+      where: { contest: { weekId } },
+    });
+    await prisma.playerWeekStat.deleteMany({ where: { weekId } });
+    await prisma.defenseWeekStat.deleteMany({ where: { weekId } });
+    await prisma.contestEntry.deleteMany({
+      where: { contest: { weekId } },
+    });
+    await prisma.rankIQContest.deleteMany({ where: { weekId } });
+    await prisma.nflGame.deleteMany({ where: { weekId } });
+    await prisma.week.deleteMany({ where: { id: weekId } });
+    await prisma.rankableEntry.deleteMany({
+      where: { externalId: { startsWith: `live-fin-` } },
+    });
+    await prisma.universalProfile.deleteMany({ where: { id: profileId } });
+    await prisma.user.deleteMany({ where: { id: adminUserId } });
+    await prisma.season.deleteMany({ where: { id: seasonId } });
+    await prisma.$disconnect();
+  });
+
+  it("finalizes one completed game without week contest FINAL or actualRank", async () => {
+    await saveLivePlayerStats({
+      contestEntryId: qbEntryId,
+      adminUserId,
+      stats: { passingYards: 250, passingTds: 2 },
+    });
+    await saveLiveDefenseStats({
+      contestEntryId: defEntryId,
+      adminUserId,
+      stats: { sacks: 2, pointsAllowed: 17 },
+    });
+
+    const beforeFp = (
+      await prisma.contestEntry.findUniqueOrThrow({ where: { id: qbEntryId } })
+    ).fantasyPoints;
+
+    const result = await finalizeLiveGame({
+      weekId,
+      gameId,
+      adminUserId,
+    });
+    expect(result.playerStatLines).toBe(1);
+    expect(result.defenseStatLines).toBe(1);
+    expect(result.statsFinalizedAt).toBeInstanceOf(Date);
+
+    const game = await prisma.nflGame.findUniqueOrThrow({ where: { id: gameId } });
+    expect(game.status).toBe("FINAL");
+    expect(game.statsFinalizedAt).not.toBeNull();
+
+    const manualRows = await prisma.playerWeekStat.findMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId,
+        rankableEntryId: qbRankableId,
+      },
+    });
+    expect(manualRows).toHaveLength(1);
+    expect(manualRows[0]?.isProvisional).toBe(false);
+    expect(manualRows[0]?.fantasyPoints).toBe(beforeFp);
+
+    const entry = await prisma.contestEntry.findUniqueOrThrow({
+      where: { id: qbEntryId },
+    });
+    expect(entry.fantasyPoints).toBe(beforeFp);
+    expect(entry.actualRank).toBeNull();
+
+    const contest = await prisma.rankIQContest.findUniqueOrThrow({
+      where: { id: qbContestId },
+    });
+    expect(contest.status).toBe("OPEN");
+
+    const submission = await prisma.rankingSubmission.findUniqueOrThrow({
+      where: { id: submissionId },
+    });
+    expect(submission.status).toBe("SUBMITTED");
+    expect(submission.normalizedScore).toBeNull();
+
+    const blocked = await saveLivePlayerStats({
+      contestEntryId: qbEntryId,
+      adminUserId,
+      stats: { passingYards: 300, passingTds: 3 },
+    });
+    expect(blocked.skipped).toBe(true);
+
+    const standings = await getLivePlayerStandings(qbContestId);
+    expect(standings.map((row) => row.rankableEntryId)).toContain(qbRankableId);
+    expect(standings.map((row) => row.rankableEntryId)).not.toContain(
+      sundayQbRankableId,
+    );
+
+    // Sunday player remains unresolved / not on live board.
+    const sundayEntry = await prisma.contestEntry.findUniqueOrThrow({
+      where: { id: sundayQbEntryId },
+    });
+    expect(sundayEntry.fantasyPoints).toBeNull();
+    expect(sundayEntry.actualRank).toBeNull();
+
+    const reopen = await reopenLiveGame({
+      weekId,
+      gameId,
+      adminUserId,
+    });
+    expect(reopen.playerStatLines).toBeGreaterThanOrEqual(1);
+
+    const reopenedGame = await prisma.nflGame.findUniqueOrThrow({
+      where: { id: gameId },
+    });
+    expect(reopenedGame.status).toBe("IN_PROGRESS");
+    expect(reopenedGame.statsFinalizedAt).toBeNull();
+
+    const provisionalAgain = await prisma.playerWeekStat.findFirstOrThrow({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId,
+        rankableEntryId: qbRankableId,
+      },
+    });
+    expect(provisionalAgain.isProvisional).toBe(true);
+    expect(provisionalAgain.fantasyPoints).toBe(beforeFp);
+
+    const corrected = await saveLivePlayerStats({
+      contestEntryId: qbEntryId,
+      adminUserId,
+      stats: { passingYards: 275, passingTds: 2, interceptions: 1 },
+    });
+    expect(corrected.skipped).toBe(false);
+
+    const afterCorrect = await prisma.playerWeekStat.findMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId,
+        rankableEntryId: qbRankableId,
+      },
+    });
+    expect(afterCorrect).toHaveLength(1);
+
+    await finalizeLiveGame({ weekId, gameId, adminUserId });
+    const finalRows = await prisma.playerWeekStat.findMany({
+      where: {
+        provider: LIVE_MANUAL_PROVIDER,
+        weekId,
+        rankableEntryId: qbRankableId,
+      },
+    });
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]?.isProvisional).toBe(false);
   });
 });

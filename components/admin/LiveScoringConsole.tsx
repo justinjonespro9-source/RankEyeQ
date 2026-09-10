@@ -4,6 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   clearLiveStatsAction,
+  finalizeLiveGameAction,
+  reopenLiveGameAction,
   saveAllLiveStatsAction,
   saveLiveDefenseStatsAction,
   saveLivePlayerStatsAction,
@@ -13,6 +15,7 @@ import {
   calculatePlayerLiveFantasyPoints,
   EMPTY_DEFENSE,
   EMPTY_PLAYER,
+  type LiveScoringAdminGameStatus,
   type LiveScoringEntryRow,
   type LiveScoringGameSummary,
 } from "@/lib/admin/live-scoring-shared";
@@ -135,6 +138,20 @@ function formatSavedAt(value: Date | string) {
   return new Date(value).toLocaleString();
 }
 
+function adminStatusTone(
+  status: LiveScoringAdminGameStatus,
+): "neutral" | "warning" | "success" {
+  if (status === "FINALIZED") return "success";
+  if (status === "LIVE") return "warning";
+  return "neutral";
+}
+
+function adminStatusLabel(status: LiveScoringAdminGameStatus) {
+  if (status === "FINALIZED") return "FINALIZED / VERIFIED";
+  if (status === "LIVE") return "LIVE";
+  return "NOT STARTED";
+}
+
 export function LiveScoringConsole(props: Props) {
   const revision = props.entries
     .map(
@@ -164,6 +181,15 @@ function LiveScoringConsoleInner({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState(() => initialDraft(entries));
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
+
+  const selectedGame = useMemo(
+    () => games.find((game) => game.id === gameId) ?? null,
+    [games, gameId],
+  );
+  const gameFinalized = Boolean(selectedGame?.statsFinalizedAt);
+  const anyLocked = entries.some((entry) => entry.lockedByFinal);
 
   const weeks = useMemo(
     () => seasons.find((season) => season.id === seasonId)?.weeks ?? [],
@@ -338,6 +364,42 @@ function LiveScoringConsoleInner({
     });
   }
 
+  function finalizeGame() {
+    if (!gameId) return;
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const result = await finalizeLiveGameAction({ weekId, gameId });
+      setConfirmFinalize(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setMessage(
+        `Verified & finalized ${result.result.matchup}. Weekly ranks/EYEQ remain provisional.`,
+      );
+      router.refresh();
+    });
+  }
+
+  function reopenGame() {
+    if (!gameId) return;
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const result = await reopenLiveGameAction({ weekId, gameId });
+      setConfirmReopen(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setMessage(
+        `Reopened ${result.result.matchup} for correction. Save updated stats, then finalize again.`,
+      );
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-3 rounded-lg border border-border bg-surface-elevated p-4">
@@ -393,23 +455,83 @@ function LiveScoringConsoleInner({
             <option value="">Select a game</option>
             {games.map((game) => (
               <option key={game.id} value={game.id}>
-                {game.awayTeam} @ {game.homeTeam} · {game.status} ·{" "}
-                {game.scoredEntries}/{game.totalEntries} live
+                {game.awayTeam} @ {game.homeTeam} · {game.adminStatus} ·{" "}
+                {game.scoredEntries}/{game.totalEntries} scored
               </option>
             ))}
           </select>
         </label>
         <div className="ml-auto flex items-end gap-2">
-          <Badge tone="warning">Live / unofficial</Badge>
+          {selectedGame ? (
+            <Badge tone={adminStatusTone(selectedGame.adminStatus)}>
+              {adminStatusLabel(selectedGame.adminStatus)}
+            </Badge>
+          ) : (
+            <Badge tone="warning">Live / unofficial</Badge>
+          )}
           <Badge tone="neutral">{scoringVersion}</Badge>
         </div>
       </div>
 
+      {games.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-surface-elevated text-xs uppercase tracking-wide text-muted">
+              <tr>
+                <th className="px-3 py-2 font-medium">Matchup</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Scored</th>
+                <th className="px-3 py-2 font-medium">Last update</th>
+                <th className="px-3 py-2 font-medium">Finalized</th>
+              </tr>
+            </thead>
+            <tbody>
+              {games.map((game) => (
+                <tr
+                  key={game.id}
+                  className={`border-t border-border ${
+                    game.id === gameId ? "bg-accent-soft/40" : "bg-surface"
+                  }`}
+                >
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium text-accent-ink hover:underline"
+                      onClick={() => navigate({ gameId: game.id })}
+                    >
+                      {game.awayTeam} @ {game.homeTeam}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge tone={adminStatusTone(game.adminStatus)}>
+                      {adminStatusLabel(game.adminStatus)}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-ink">
+                    {game.scoredEntries}/{game.totalEntries}
+                  </td>
+                  <td className="px-3 py-2 text-muted">
+                    {game.lastStatUpdateAt
+                      ? formatSavedAt(game.lastStatUpdateAt)
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted">
+                    {game.statsFinalizedAt
+                      ? formatSavedAt(game.statsFinalizedAt)
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       <p className="text-sm text-muted">
         Enter underlying football stats. Fantasy points are calculated by the
-        canonical Half-PPR engine — not typed in. Saves update the same week-stat
-        row and public live scoreboard. Does not finalize contests or grade
-        rankings.
+        canonical Half-PPR engine — not typed in. Verify &amp; Finalize Game locks
+        that game&apos;s manual WeekStat lines as verified. It does not finalize
+        weekly positional contests or grade EYEQ.
       </p>
 
       {message ? (
@@ -433,10 +555,92 @@ function LiveScoringConsoleInner({
       ) : (
         <>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={saveAll} disabled={pending}>
+            <Button
+              type="button"
+              onClick={saveAll}
+              disabled={pending || anyLocked || gameFinalized}
+            >
               {pending ? "Saving…" : "Save all game changes"}
             </Button>
+            {!gameFinalized ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending || !selectedGame}
+                onClick={() => setConfirmFinalize(true)}
+              >
+                Verify &amp; Finalize Game
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => setConfirmReopen(true)}
+              >
+                Reopen / Correct Final Stats
+              </Button>
+            )}
           </div>
+
+          {confirmFinalize && selectedGame ? (
+            <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+              <h3 className="font-semibold text-ink">
+                Verify &amp; Finalize Game?
+              </h3>
+              <ul className="mt-2 space-y-1 text-sm text-ink">
+                <li>
+                  Matchup: {selectedGame.awayTeam} @ {selectedGame.homeTeam}
+                </li>
+                <li>Player stat lines: {selectedGame.playerStatLines}</li>
+                <li>DEF stat lines: {selectedGame.defenseStatLines}</li>
+              </ul>
+              <p className="mt-3 text-sm text-warning">
+                This locks the game&apos;s current manual stats as
+                verified/final. Weekly positional ranks and EYEQ are NOT final
+                yet — other games may still be live.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" disabled={pending} onClick={finalizeGame}>
+                  Confirm finalize
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => setConfirmFinalize(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {confirmReopen && selectedGame ? (
+            <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+              <h3 className="font-semibold text-ink">
+                Reopen game for correction?
+              </h3>
+              <p className="mt-2 text-sm text-ink">
+                {selectedGame.awayTeam} @ {selectedGame.homeTeam} — existing
+                WeekStat rows are kept and marked provisional again so you can
+                edit. History is not deleted.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" disabled={pending} onClick={reopenGame}>
+                  Confirm reopen
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => setConfirmReopen(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-4">
             {entries.map((entry) => {
@@ -472,11 +676,17 @@ function LiveScoringConsoleInner({
                           {formatFp(liveFp)}
                         </p>
                         <p className="text-xs text-muted">calculated FP</p>
-                        {entry.hasLiveStatRecord ? (
+                        {entry.statsVerified ? (
+                          <Badge tone="success">FINALIZED / VERIFIED</Badge>
+                        ) : entry.hasLiveStatRecord ? (
                           <Badge tone="warning">LIVE</Badge>
                         ) : null}
                         {entry.lockedByFinal ? (
-                          <Badge tone="neutral">Locked (final)</Badge>
+                          <Badge tone="neutral">
+                            {entry.lockedByGameFinalize
+                              ? "Locked (game finalized)"
+                              : "Locked (final)"}
+                          </Badge>
                         ) : null}
                       </div>
                     </header>
@@ -561,11 +771,17 @@ function LiveScoringConsoleInner({
                         {formatFp(liveFp)}
                       </p>
                       <p className="text-xs text-muted">calculated FP</p>
-                      {entry.hasLiveStatRecord ? (
+                      {entry.statsVerified ? (
+                        <Badge tone="success">FINALIZED / VERIFIED</Badge>
+                      ) : entry.hasLiveStatRecord ? (
                         <Badge tone="warning">LIVE</Badge>
                       ) : null}
                       {entry.lockedByFinal ? (
-                        <Badge tone="neutral">Locked (final)</Badge>
+                        <Badge tone="neutral">
+                          {entry.lockedByGameFinalize
+                            ? "Locked (game finalized)"
+                            : "Locked (final)"}
+                        </Badge>
                       ) : null}
                     </div>
                   </header>

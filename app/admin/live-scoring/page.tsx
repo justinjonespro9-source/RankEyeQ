@@ -104,7 +104,7 @@ export default async function AdminLiveScoringPage({
       <SectionHeading
         eyebrow="Live ops"
         title="Live scoring console"
-        description="Enter raw player and D/ST stats during games. RankEyeQ calculates fantasy points with FANTASYTRACK_NFL_HALF_PPR_V2 and updates the public live scoreboard — without finalizing or grading."
+        description="Enter raw player and D/ST stats during games. Verify & Finalize Game locks that game’s manual WeekStat lines without finalizing weekly contests or grading EYEQ."
         action={<Badge tone="warning">Manual live</Badge>}
       />
 
