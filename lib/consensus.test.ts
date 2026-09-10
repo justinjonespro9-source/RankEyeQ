@@ -427,11 +427,9 @@ describe("assignCompetitionRanksAscending", () => {
 describe("ctaForContestState", () => {
   it("returns state-appropriate CTAs", () => {
     expect(ctaForContestState("OPEN", null)).toBe("Build Rankings");
-    expect(ctaForContestState("OPEN", "DRAFT")).toBe("Edit Rankings");
+    expect(ctaForContestState("OPEN", "DRAFT")).toBe("Continue Your Rankings");
     expect(ctaForContestState("OPEN", "SUBMITTED")).toBe("Edit Rankings");
-    expect(ctaForContestState("LOCKED", "SUBMITTED")).toBe(
-      "View Locked Rankings",
-    );
+    expect(ctaForContestState("LOCKED", "SUBMITTED")).toBe("View My Ranks");
     expect(ctaForContestState("FINAL", null)).toBe("View Results");
   });
 });

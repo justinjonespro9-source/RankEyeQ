@@ -12,6 +12,7 @@ import {
 import { assertAdmin } from "@/lib/auth/session";
 
 function revalidateLiveScoring(weekId?: string) {
+  revalidatePath("/my-ranks");
   revalidatePath("/admin/live-scoring");
   revalidatePath("/leaderboards/live");
   revalidatePath("/leaderboards");

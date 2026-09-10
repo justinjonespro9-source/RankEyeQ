@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { getWeeklyLeaderboard, type LeaderboardRow } from "@/lib/leaderboards";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { toUiPosition } from "@/lib/contest-defaults";
-import { ctaForContestState } from "@/lib/homepage-cta";
+import { ctaForContestState, hrefForContestState } from "@/lib/homepage-cta";
 import type {
   ContestStatus,
   SubmissionStatus,
@@ -140,11 +140,10 @@ export async function getHomepageData(activeProfileId?: string | null) {
       contest.submissions.find(
         (s) => s.universalProfileId === activeProfileId,
       ) ?? null;
-    const position = toUiPosition(contest.position);
 
     return {
       contestId: contest.id,
-      position,
+      position: toUiPosition(contest.position),
       shortLabel: contest.position,
       rankingDepth: contest.rankingDepth,
       contestStatus: contest.status,
@@ -156,10 +155,12 @@ export async function getHomepageData(activeProfileId?: string | null) {
         contest.status,
         profileSubmission?.status ?? null,
       ),
-      href:
-        contest.status === "FINAL" || contest.status === "ARCHIVED"
-          ? `/results?contestId=${contest.id}`
-          : `/rank/${position}`,
+      href: hrefForContestState({
+        position: contest.position,
+        contestStatus: contest.status,
+        submissionStatus: profileSubmission?.status ?? null,
+        resultsHref: `/results?contestId=${contest.id}`,
+      }),
     };
   });
 

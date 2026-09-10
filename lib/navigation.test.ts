@@ -8,13 +8,14 @@ import {
 } from "@/lib/navigation";
 
 describe("primary navigation", () => {
-  it("exposes exactly the five core destinations", () => {
+  it("exposes This Week, My Ranks, and core destinations", () => {
     expect(PRIMARY_NAV.map((link) => link.label)).toEqual([
-      "Rank",
+      "This Week",
+      "My Ranks",
       "Consensus",
       "Results",
       "Leaderboards",
-      "Player Performance",
+      "Players",
     ]);
   });
 
@@ -23,8 +24,9 @@ describe("primary navigation", () => {
     expect(labels).not.toContain("Receipts");
     expect(labels).not.toContain("Rankers");
     expect(labels).not.toContain("Following");
-    expect(labels).not.toContain("Players");
+    expect(labels).not.toContain("Player Performance");
     expect(labels).not.toContain("Live Results");
+    expect(labels).not.toContain("Rank");
   });
 
   it("highlights Results for nested result routes", () => {
@@ -33,6 +35,15 @@ describe("primary navigation", () => {
     expect(isPrimaryNavActive("/archive", results)).toBe(true);
     expect(isPrimaryNavActive("/leaderboards/live", results)).toBe(true);
     expect(isPrimaryNavActive("/results", results)).toBe(true);
+  });
+
+  it("highlights This Week for /rank and My Ranks for /my-ranks", () => {
+    const thisWeek = PRIMARY_NAV.find((link) => link.label === "This Week")!;
+    const myRanks = PRIMARY_NAV.find((link) => link.label === "My Ranks")!;
+    expect(isPrimaryNavActive("/rank", thisWeek)).toBe(true);
+    expect(isPrimaryNavActive("/rank/qb", thisWeek)).toBe(true);
+    expect(isPrimaryNavActive("/my-ranks", myRanks)).toBe(true);
+    expect(isPrimaryNavActive("/my-ranks", thisWeek)).toBe(false);
   });
 
   it("highlights Leaderboards for rankers without live results", () => {
@@ -44,9 +55,9 @@ describe("primary navigation", () => {
 });
 
 describe("results subnavigation", () => {
-  it("includes This Week, Live, Receipts, and Archive", () => {
+  it("includes Graded, Live, Receipts, and Archive", () => {
     expect(RESULTS_SUBNAV.map((link) => link.label)).toEqual([
-      "This Week",
+      "Graded",
       "Live",
       "Receipts",
       "Archive",

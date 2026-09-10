@@ -6,7 +6,8 @@ export type NavLink = {
 };
 
 export const PRIMARY_NAV: NavLink[] = [
-  { href: "/rank", label: "Rank", activePrefixes: ["/rank"] },
+  { href: "/rank", label: "This Week", activePrefixes: ["/rank"] },
+  { href: "/my-ranks", label: "My Ranks", activePrefixes: ["/my-ranks"] },
   { href: "/consensus", label: "Consensus", activePrefixes: ["/consensus"] },
   {
     href: "/results",
@@ -18,11 +19,11 @@ export const PRIMARY_NAV: NavLink[] = [
     label: "Leaderboards",
     activePrefixes: ["/leaderboards", "/rankers"],
   },
-  { href: "/players", label: "Player Performance", activePrefixes: ["/players"] },
+  { href: "/players", label: "Players", activePrefixes: ["/players"] },
 ];
 
 export const RESULTS_SUBNAV: NavLink[] = [
-  { href: "/results", label: "This Week" },
+  { href: "/results", label: "Graded" },
   { href: "/leaderboards/live", label: "Live" },
   { href: "/receipts", label: "Receipts" },
   { href: "/archive", label: "Archive" },

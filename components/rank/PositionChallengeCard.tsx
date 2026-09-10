@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ctaForContestState } from "@/lib/homepage-cta";
+import { isPosition } from "@/lib/contest";
+import { toDbPosition } from "@/lib/contest-defaults";
+import { ctaForContestState, hrefForContestState } from "@/lib/homepage-cta";
 import type { ContestStatus, SubmissionStatus } from "@/lib/generated/prisma/client";
 import type { PositionChallenge } from "@/types/contest";
 import { WEEKLY_CONTEST_HELPER } from "@/lib/weekly-messaging";
@@ -20,10 +22,15 @@ export function PositionChallengeCard({
 }) {
   const dbStatus = contestStatus ?? (challenge.status === "open" ? "OPEN" : "LOCKED");
   const cta = ctaForContestState(dbStatus, profileSubmissionStatus);
-  const href =
-    (dbStatus === "FINAL" || dbStatus === "ARCHIVED") && resultsHref
-      ? resultsHref
-      : `/rank/${challenge.position}`;
+  const position = isPosition(challenge.position)
+    ? toDbPosition(challenge.position)
+    : "QB";
+  const href = hrefForContestState({
+    position,
+    contestStatus: dbStatus,
+    submissionStatus: profileSubmissionStatus,
+    resultsHref,
+  });
 
   return (
     <article className="flex flex-col rounded-lg border border-border bg-surface-elevated p-5 transition-colors hover:border-ink/25">
@@ -62,6 +69,12 @@ export function PositionChallengeCard({
           <div className="flex justify-between gap-3">
             <dt className="text-muted">Submitted</dt>
             <dd className="font-medium text-ink">{submittedCount}</dd>
+          </div>
+        ) : null}
+        {profileSubmissionStatus ? (
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted">Your board</dt>
+            <dd className="font-medium text-ink">{profileSubmissionStatus}</dd>
           </div>
         ) : null}
       </dl>

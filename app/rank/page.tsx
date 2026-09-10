@@ -8,6 +8,7 @@ import { getActiveProfile } from "@/lib/active-profile";
 import { CONTEST_ELIGIBILITY } from "@/lib/contest";
 import { getPublicWeeklyChallenges } from "@/lib/contests";
 import { getHomepageData } from "@/lib/homepage";
+import { thisWeekHubCopy } from "@/lib/my-ranks";
 import {
   WEEKLY_RANKINGS_EXPLAINER,
   WEEKLY_RANKINGS_SHORT,
@@ -15,8 +16,8 @@ import {
 import { privatePageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = privatePageMetadata(
-  "Weekly Rankings",
-  "Rank this week's NFL slate by position before kickoff. Weekly contests graded against actual fantasy-point finishes — not draft or season-long projections.",
+  "This Week",
+  "Enter and edit this week's NFL position rankings before kickoff.",
 );
 
 export const dynamic = "force-dynamic";
@@ -35,12 +36,27 @@ export default async function RankHubPage() {
     (challenge) => challenge.source === "database",
   );
 
+  const weekNumber = homepage.week?.weekNumber ?? 1;
+  const weekLabel = homepage.week?.label ?? challenges[0]?.weekLabel ?? "This week";
+
+  const hub = thisWeekHubCopy({
+    weekNumber,
+    weekLabel,
+    positions: challenges.map((challenge) => {
+      const live = byPosition.get(challenge.position);
+      return {
+        contestStatus: live?.contestStatus ?? challenge.dbStatus ?? null,
+        submissionStatus: live?.profileSubmissionStatus ?? null,
+      };
+    }),
+  });
+
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
-        eyebrow="Weekly hub"
-        title="Rank this week's slate"
-        description={`${WEEKLY_RANKINGS_SHORT} ${CONTEST_ELIGIBILITY}`}
+        eyebrow="This Week"
+        title={hub.title}
+        description={`${hub.description}. ${WEEKLY_RANKINGS_SHORT} ${CONTEST_ELIGIBILITY}`}
         action={
           <Badge tone={fromDatabase ? "success" : "warning"}>
             {fromDatabase ? "Live contests" : "No live contests"}

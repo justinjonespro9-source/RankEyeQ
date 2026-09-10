@@ -128,13 +128,14 @@ describe("policy configuration", () => {
 });
 
 describe("primary navigation unchanged", () => {
-  it("keeps five core destinations without legal clutter", () => {
+  it("keeps core destinations without legal clutter", () => {
     expect(PRIMARY_NAV.map((link) => link.label)).toEqual([
-      "Rank",
+      "This Week",
+      "My Ranks",
       "Consensus",
       "Results",
       "Leaderboards",
-      "Player Performance",
+      "Players",
     ]);
     const labels = PRIMARY_NAV.map((link) => link.label);
     expect(labels).not.toContain("Legal");
