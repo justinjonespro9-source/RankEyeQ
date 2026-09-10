@@ -98,6 +98,40 @@ export function formatInChicago(date: Date, options?: Intl.DateTimeFormatOptions
   }).format(date);
 }
 
+/** Optional Eastern display — DST-aware via America/New_York (never hardcode EST). */
+export const EASTERN_TIMEZONE = "America/New_York";
+
+export function formatInEastern(
+  date: Date,
+  options?: Intl.DateTimeFormatOptions,
+) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: EASTERN_TIMEZONE,
+    ...options,
+  }).format(date);
+}
+
+/** Canonical RankEyeQ contest lock / kickoff clock label (America/Chicago). */
+export function formatContestClock(date: Date) {
+  return formatInChicago(date, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+/** Short time with zone, e.g. "10:00 AM CDT". */
+export function formatContestTime(date: Date) {
+  return formatInChicago(date, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
 /** `datetime-local` value representing America/Chicago wall clock. */
 export function toChicagoDateTimeLocal(date: Date) {
   const parts = getZonedParts(date);

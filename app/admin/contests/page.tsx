@@ -108,7 +108,7 @@ export default async function AdminContestsPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="text-muted">Opens at</span>
+          <span className="text-muted">Opens at (Chicago)</span>
           <input
             name="opensAt"
             type="datetime-local"
@@ -116,7 +116,7 @@ export default async function AdminContestsPage() {
           />
         </label>
         <label className="block text-sm">
-          <span className="text-muted">Locks at</span>
+          <span className="text-muted">Locks at (Chicago)</span>
           <input
             name="locksAt"
             type="datetime-local"

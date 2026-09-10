@@ -34,7 +34,6 @@ export function RankingWorkspace({
   initialRankedEntryIds,
   initialSubmissionStatus,
   initialLockedEntryIds = [],
-  kickoffByEntryId = {},
   kickoffLockedEntryIds = [],
   canEditUnlocked = true,
   fullBoardLocked = false,
@@ -50,7 +49,6 @@ export function RankingWorkspace({
   initialRankedEntryIds: (string | null)[];
   initialSubmissionStatus: string;
   initialLockedEntryIds?: string[];
-  kickoffByEntryId?: Record<string, string>;
   kickoffLockedEntryIds?: string[];
   canEditUnlocked?: boolean;
   fullBoardLocked?: boolean;
@@ -97,18 +95,30 @@ export function RankingWorkspace({
     return ids;
   }, [rankedEntryIds]);
 
-  const lockedIndexes = useMemo(() => {
-    const indexes = new Set<number>();
-    rankedEntryIds.forEach((id, index) => {
-      if (id && lockedEntryIds.has(id)) indexes.add(index);
-    });
-    return indexes;
-  }, [rankedEntryIds, lockedEntryIds]);
-
   const kickoffLockedPoolIds = useMemo(
     () => new Set(kickoffLockedEntryIds),
     [kickoffLockedEntryIds],
   );
+
+  // On-board players whose NFL game has started stay slot-locked even if the
+  // persisted slotLocked flag has not been refreshed yet.
+  const effectiveLockedEntryIds = useMemo(() => {
+    const set = new Set(lockedEntryIds);
+    for (const id of rankedEntryIds) {
+      if (!id) continue;
+      // Server-computed kickoffLockedEntryIds already reflects started games.
+      if (kickoffLockedPoolIds.has(id)) set.add(id);
+    }
+    return set;
+  }, [lockedEntryIds, rankedEntryIds, kickoffLockedPoolIds]);
+
+  const lockedIndexes = useMemo(() => {
+    const indexes = new Set<number>();
+    rankedEntryIds.forEach((id, index) => {
+      if (id && effectiveLockedEntryIds.has(id)) indexes.add(index);
+    });
+    return indexes;
+  }, [rankedEntryIds, effectiveLockedEntryIds]);
 
   const filledCount = rankedEntryIds.filter(Boolean).length;
   const allFilled = filledCount === challenge.slotCount;
@@ -164,11 +174,7 @@ export function RankingWorkspace({
       );
       return;
     }
-    const kickoffIso = kickoffByEntryId[player.id];
-    if (
-      kickoffLockedPoolIds.has(player.id) ||
-      (kickoffIso && new Date(kickoffIso).getTime() <= Date.now())
-    ) {
+    if (kickoffLockedPoolIds.has(player.id)) {
       setStatusMessage("Cannot add a player after their game has started.");
       return;
     }
@@ -244,14 +250,23 @@ export function RankingWorkspace({
       {!editable && participation === "ready" ? (
         <div className="rounded-md border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning">
           {fullBoardLocked
-            ? `Rankings locked${lockLabel ? ` · ${lockLabel}` : ""}. Only submitted weekly boards compete; unsubmitted in-progress saves do not.`
-            : "Rankings locked — contest or submission state prevents edits. Only submitted weekly boards compete."}
+            ? `Rankings Locked${lockLabel ? ` · ${lockLabel}` : ""}. Only submitted weekly boards compete; unsubmitted in-progress saves do not.`
+            : "Rankings Locked — contest or submission state prevents edits. Only submitted weekly boards compete."}
         </div>
-      ) : lockedIndexes.size > 0 ? (
+      ) : editable ? (
         <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm text-muted">
-          {lockedIndexes.size} player
-          {lockedIndexes.size === 1 ? "" : "s"} locked at kickoff. Remaining
-          unlocked slots can still be edited until Sunday 10:00 AM CT.
+          <p className="font-medium text-ink">Board Open</p>
+          <p className="mt-1">
+            Editable until Sunday 10:00 AM CT
+            {lockLabel ? ` (${lockLabel})` : ""}. Players lock individually at
+            their NFL kickoff; locked slots stay fixed.
+          </p>
+          {lockedIndexes.size > 0 ? (
+            <p className="mt-2 text-warning">
+              Some selections are locked because their games have started (
+              {lockedIndexes.size} locked). Unlocked slots remain editable.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -272,6 +287,8 @@ export function RankingWorkspace({
           submissionStatus={submissionStatus}
           filledCount={filledCount}
           editable={editable}
+          partialKickoffLocks={lockedIndexes.size > 0}
+          fullBoardLocked={fullBoardLocked}
         />
 
         <div className="hidden flex-col gap-2 lg:flex lg:flex-row">

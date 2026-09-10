@@ -15,16 +15,24 @@ export function submissionProgressMessage(input: {
   slotCount: number;
   submissionStatus: string;
   editable: boolean;
+  partialKickoffLocks?: boolean;
+  fullBoardLocked?: boolean;
 }): string {
   const normalized = input.submissionStatus.toUpperCase();
+  if (input.fullBoardLocked) {
+    return "Rankings Locked";
+  }
   if (!input.editable && normalized !== "GRADED") {
-    return "Rankings locked";
+    return "Rankings Locked";
+  }
+  if (input.partialKickoffLocks && input.editable) {
+    return "Some selections are locked because their games have started";
   }
   if (input.filledCount < input.slotCount) {
     return `${input.filledCount} of ${input.slotCount} selected`;
   }
   if (normalized === "SUBMITTED") {
-    return `Top ${input.slotCount} complete — submitted, edits allowed until lock`;
+    return `Top ${input.slotCount} complete — submitted, unlocked slots editable until Sunday 10:00 AM CT`;
   }
   return `Top ${input.slotCount} complete — submit rankings`;
 }
@@ -35,18 +43,24 @@ export function ContestStatusPanel({
   submissionStatus,
   filledCount,
   editable,
+  partialKickoffLocks = false,
+  fullBoardLocked = false,
 }: {
   challenge: PositionChallenge;
   contestStatus: string;
   submissionStatus: string;
   filledCount: number;
   editable: boolean;
+  partialKickoffLocks?: boolean;
+  fullBoardLocked?: boolean;
 }) {
   const progress = submissionProgressMessage({
     filledCount,
     slotCount: challenge.slotCount,
     submissionStatus,
     editable,
+    partialKickoffLocks,
+    fullBoardLocked,
   });
   const normalized = submissionStatus.toUpperCase();
   const isComplete = filledCount === challenge.slotCount;
@@ -55,11 +69,16 @@ export function ContestStatusPanel({
     <div className="rounded-md border border-border bg-surface px-3 py-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <p className="font-medium text-ink">{progress}</p>
-        {editable ? (
-          <Badge tone="success">Editable</Badge>
+        {fullBoardLocked ? (
+          <Badge tone="warning">Rankings Locked</Badge>
+        ) : editable ? (
+          <Badge tone="success">Board Open</Badge>
         ) : (
           <Badge tone="warning">Locked</Badge>
         )}
+        {partialKickoffLocks && editable ? (
+          <Badge tone="warning">Partial kickoff locks</Badge>
+        ) : null}
         {normalized === "SUBMITTED" ? (
           <Badge tone="neutral">Submitted</Badge>
         ) : normalized === "DRAFT" ? (
@@ -81,7 +100,7 @@ export function ContestStatusPanel({
           <dd className="font-medium text-ink">{challenge.weekLabel}</dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt>Lock timing</dt>
+          <dt>Board window</dt>
           <dd className="max-w-[14rem] text-right font-medium text-ink">
             {challenge.lockLabel}
           </dd>

@@ -85,7 +85,7 @@ export async function getPublicWeeklyChallenges(): Promise<PublicContestCard[]> 
         status: contest.status,
         weekLabel: context.week.label,
         weekKey,
-        locksAt: contest.locksAt,
+        locksAt: context.week.fullLockAt ?? contest.locksAt,
       }),
       contestId: contest.id,
       entryCount: contest._count.entries,
@@ -202,7 +202,8 @@ export async function getPublicPositionContest(
       status: contest.status,
       weekLabel: context.week.label,
       weekKey,
-      locksAt: contest.locksAt,
+      // Prefer week fullLockAt — Contest.locksAt can drift via naive admin parsing.
+      locksAt: context.week.fullLockAt ?? contest.locksAt,
     });
 
     const players = contest.entries.map((entry) => {

@@ -157,6 +157,7 @@ async function loadKickoffMap(contestId: string) {
     },
   });
   const map = new Map<string, Date | null>();
+  const names = new Map<string, string>();
   for (const entry of entries) {
     map.set(
       entry.rankableEntryId,
@@ -165,8 +166,9 @@ async function loadKickoffMap(contestId: string) {
         entry.rankableEntry.gameStartsAt ??
         null,
     );
+    names.set(entry.rankableEntryId, entry.rankableEntry.name);
   }
-  return map;
+  return { kickoffByEntryId: map, playerNamesById: names };
 }
 
 /**
@@ -243,7 +245,9 @@ export async function saveSubmissionPicks(input: {
     await assertEntriesBelongToContest(input.contestId, filled);
   }
 
-  const kickoffByEntryId = await loadKickoffMap(input.contestId);
+  const { kickoffByEntryId, playerNamesById } = await loadKickoffMap(
+    input.contestId,
+  );
   const lockCheck = validatePartialLockEdit({
     previous: previous.map((pick) => ({
       rankableEntryId: pick.rankableEntryId,
@@ -256,6 +260,7 @@ export async function saveSubmissionPicks(input: {
     now,
     fullLockAt: contest.week.fullLockAt,
     rankingsOpenAt: contest.week.rankingsOpenAt,
+    playerNamesById,
   });
   if (!lockCheck.ok) {
     throw new SubmissionError(lockCheck.error);

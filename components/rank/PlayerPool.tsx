@@ -179,7 +179,11 @@ export function PlayerPool({
                         onClick={() => handleAdd(player)}
                         className="rounded-md border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {ranked ? "Added" : "Add"}
+                        {ranked
+                          ? "Added"
+                          : kickoffLocked
+                            ? "Game started"
+                            : "Add"}
                       </button>
                     </td>
                   </tr>
@@ -212,6 +216,10 @@ export function PlayerPool({
                   ranked ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
                       Added
+                    </span>
+                  ) : kickoffLocked ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-warning">
+                      Game started
                     </span>
                   ) : allFilled ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">

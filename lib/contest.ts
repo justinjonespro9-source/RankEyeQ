@@ -83,7 +83,7 @@ export function getWeeklyChallenges(): PositionChallenge[] {
   return POSITION_CONFIGS.map((config) => ({
     ...config,
     status: "open" as const,
-    lockLabel: "Locks at first relevant kickoff (Thu–Mon)",
+    lockLabel: "Editable until Sunday 10:00 AM CT",
     weekLabel: CURRENT_WEEK_LABEL,
     weekKey: NFL_WEEK_KEY,
   }));

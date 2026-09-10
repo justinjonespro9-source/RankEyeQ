@@ -25,6 +25,7 @@ import {
 } from "@/lib/contest-lifecycle";
 import { prisma } from "@/lib/db";
 import { toUiPosition } from "@/lib/contest-defaults";
+import { toChicagoDateTimeLocal } from "@/lib/timing/chicago";
 
 export const dynamic = "force-dynamic";
 
@@ -44,9 +45,7 @@ export async function generateMetadata(
 
 function toDateTimeLocal(value: Date | null) {
   if (!value) return "";
-  const offset = value.getTimezoneOffset();
-  const local = new Date(value.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 16);
+  return toChicagoDateTimeLocal(value);
 }
 
 export default async function AdminContestDetailPage(
@@ -303,7 +302,7 @@ export default async function AdminContestDetailPage(
           {contest.rankingDepth}).
         </div>
         <label className="block text-sm">
-          <span className="text-muted">Opens at</span>
+          <span className="text-muted">Opens at (Chicago)</span>
           <input
             name="opensAt"
             type="datetime-local"
@@ -312,7 +311,7 @@ export default async function AdminContestDetailPage(
           />
         </label>
         <label className="block text-sm">
-          <span className="text-muted">Locks at</span>
+          <span className="text-muted">Locks at (Chicago)</span>
           <input
             name="locksAt"
             type="datetime-local"

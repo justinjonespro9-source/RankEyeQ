@@ -15,6 +15,13 @@ import {
 import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import { prisma } from "@/lib/db";
 import { logAdminImpact } from "@/lib/log";
+import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
+
+function parseChicagoFormDate(raw: string): Date | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return parseChicagoDateTimeLocal(trimmed) ?? null;
+}
 
 function revalidateAdmin(contestId?: string) {
   revalidatePath("/admin");
@@ -70,9 +77,13 @@ export async function createWeekAction(formData: FormData) {
   const seasonId = String(formData.get("seasonId"));
   const weekNumber = Number(formData.get("weekNumber"));
   const label = String(formData.get("label") || `Week ${weekNumber}`);
-  const startsAt = new Date(String(formData.get("startsAt")));
-  const endsAt = new Date(String(formData.get("endsAt")));
+  const startsAt = parseChicagoFormDate(String(formData.get("startsAt") || ""));
+  const endsAt = parseChicagoFormDate(String(formData.get("endsAt") || ""));
   const status = String(formData.get("status") || "UPCOMING") as WeekStatus;
+
+  if (!startsAt || !endsAt) {
+    throw new Error("Starts at and Ends at must be valid Chicago local times");
+  }
 
   try {
     const week = await createWeek({
@@ -123,8 +134,8 @@ export async function createContestAction(formData: FormData) {
         `Week ${week.weekNumber} ${position} Top ${rankingDepth}`,
       rankingDepth,
       status,
-      opensAt: opensAtRaw ? new Date(opensAtRaw) : null,
-      locksAt: locksAtRaw ? new Date(locksAtRaw) : null,
+      opensAt: parseChicagoFormDate(opensAtRaw),
+      locksAt: parseChicagoFormDate(locksAtRaw),
     },
   });
 
@@ -145,8 +156,8 @@ export async function updateContestAction(formData: FormData) {
     data: {
       title,
       status,
-      opensAt: opensAtRaw ? new Date(opensAtRaw) : null,
-      locksAt: locksAtRaw ? new Date(locksAtRaw) : null,
+      opensAt: parseChicagoFormDate(opensAtRaw),
+      locksAt: parseChicagoFormDate(locksAtRaw),
     },
   });
 
@@ -164,7 +175,10 @@ export async function createRankableEntryAction(formData: FormData) {
   const shortName = String(formData.get("shortName") || name).trim();
   const team = String(formData.get("team") || "").trim().toUpperCase();
   const opponent = String(formData.get("opponent") || "").trim();
-  const gameStartsAt = new Date(String(formData.get("gameStartsAt")));
+  const gameStartsAtRaw = String(formData.get("gameStartsAt") || "");
+  const gameStartsAt =
+    parseChicagoFormDate(gameStartsAtRaw) ??
+    (gameStartsAtRaw ? new Date(gameStartsAtRaw) : new Date(NaN));
   const availability = String(
     formData.get("availability") || "ACTIVE",
   ) as EntryAvailability;

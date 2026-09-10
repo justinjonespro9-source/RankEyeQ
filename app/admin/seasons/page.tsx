@@ -112,7 +112,7 @@ export default async function AdminSeasonsPage() {
             />
           </label>
           <label className="block text-sm">
-            <span className="text-muted">Starts at</span>
+            <span className="text-muted">Starts at (Chicago)</span>
             <input
               name="startsAt"
               type="datetime-local"
@@ -121,7 +121,7 @@ export default async function AdminSeasonsPage() {
             />
           </label>
           <label className="block text-sm">
-            <span className="text-muted">Ends at</span>
+            <span className="text-muted">Ends at (Chicago)</span>
             <input
               name="endsAt"
               type="datetime-local"

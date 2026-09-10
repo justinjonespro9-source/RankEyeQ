@@ -71,6 +71,7 @@ export function validatePartialLockEdit(input: {
   now: Date;
   fullLockAt?: Date | null;
   rankingsOpenAt?: Date | null;
+  playerNamesById?: Map<string, string>;
 }): PartialLockValidation {
   if (input.rankingsOpenAt && input.now < input.rankingsOpenAt) {
     return { ok: false, error: "Weekly contests are not open yet" };
@@ -78,6 +79,9 @@ export function validatePartialLockEdit(input: {
   if (input.fullLockAt && input.now >= input.fullLockAt) {
     return { ok: false, error: "Rankings are locked for this week" };
   }
+
+  const nameFor = (id: string) =>
+    input.playerNamesById?.get(id)?.trim() || "player";
 
   const previousById = new Map(
     input.previous.map((pick) => [pick.rankableEntryId, pick]),
@@ -101,7 +105,7 @@ export function validatePartialLockEdit(input: {
     if (nextId !== entryId) {
       return {
         ok: false,
-        error: "Cannot remove or move a player after their game has started",
+        error: `Cannot remove or move ${nameFor(entryId)} — locked at #${rank} after kickoff`,
       };
     }
   }
@@ -116,13 +120,16 @@ export function validatePartialLockEdit(input: {
     const lockedHere = lockedRankToEntry.get(rank);
 
     if (lockedHere && lockedHere !== id) {
-      return { ok: false, error: "Cannot change a locked ranking slot" };
+      return {
+        ok: false,
+        error: `Cannot change locked ranking slot #${rank} (${nameFor(lockedHere)})`,
+      };
     }
 
     if (started && !wasOnBoard) {
       return {
         ok: false,
-        error: "Cannot add a player after their game has started",
+        error: `Cannot add ${nameFor(id)} after their game has started`,
       };
     }
 
@@ -132,7 +139,7 @@ export function validatePartialLockEdit(input: {
     if (lockedRankForPlayer != null && lockedRankForPlayer !== rank) {
       return {
         ok: false,
-        error: "Cannot move a locked player to another ranking position",
+        error: `Cannot move ${nameFor(id)} from locked #${lockedRankForPlayer} to #${rank}`,
       };
     }
   }

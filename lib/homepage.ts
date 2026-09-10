@@ -61,8 +61,8 @@ export type AiVsHumanSummary = {
 };
 
 function formatLockLabel(locksAt: Date | null) {
-  if (!locksAt) return "Lock time TBD";
-  return new Intl.DateTimeFormat("en-US", {
+  if (!locksAt) return "Editable until Sunday 10:00 AM CT";
+  return `Editable until ${new Intl.DateTimeFormat("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -70,7 +70,7 @@ function formatLockLabel(locksAt: Date | null) {
     minute: "2-digit",
     timeZone: "America/Chicago",
     timeZoneName: "short",
-  }).format(locksAt);
+  }).format(locksAt)}`;
 }
 
 async function findLatestGradedWeek(
@@ -147,8 +147,8 @@ export async function getHomepageData(activeProfileId?: string | null) {
       shortLabel: contest.position,
       rankingDepth: contest.rankingDepth,
       contestStatus: contest.status,
-      lockLabel: formatLockLabel(contest.locksAt),
-      locksAt: contest.locksAt,
+      lockLabel: formatLockLabel(week.fullLockAt ?? contest.locksAt),
+      locksAt: week.fullLockAt ?? contest.locksAt,
       submittedCount,
       profileSubmissionStatus: profileSubmission?.status ?? null,
       ctaLabel: ctaForContestState(

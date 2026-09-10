@@ -20,6 +20,7 @@ import {
 import { ensureWeekFullLock } from "@/lib/timing/apply-locks";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
+import { kickoffLockedEntryIdsFromMap } from "@/lib/timing/kickoff-locks";
 import {
   parsePlayerResearchWindow,
   researchWindowLabel,
@@ -145,12 +146,21 @@ export default async function PositionRankPage(
     }
   }
 
+  const requestNow = new Date();
+  const kickoffLockedEntryIds = kickoffLockedEntryIdsFromMap(
+    kickoffByEntryId,
+    requestNow,
+  );
+  const anyKickoffStarted = kickoffLockedEntryIds.length > 0;
+
   const timing = getWeekTimingState({
     rankingsOpenAt,
     fullLockAt,
     revealStartsAt,
     publicReleaseAt,
     weekStatus,
+    anyKickoffStarted,
+    now: requestNow,
   });
 
   const profile = authCtx?.universalProfile ?? null;
@@ -275,8 +285,8 @@ export default async function PositionRankPage(
         <p className="mt-2 max-w-2xl text-base text-muted">
           {challenge.description} Weekly contest for {challenge.weekLabel} —
           rankings reset next week. Not a draft board or season-long projection.
-          Players lock at kickoff; remaining slots lock Sunday 10:00 AM
-          America/Chicago. Only explicitly submitted boards compete.
+          Players lock at kickoff; remaining slots stay editable until Sunday
+          10:00 AM America/Chicago. Only explicitly submitted boards compete.
         </p>
         {fullLockAt ? (
           <p className="mt-2 text-sm text-muted">
@@ -334,10 +344,7 @@ export default async function PositionRankPage(
         initialRankedEntryIds={initialRankedEntryIds}
         initialSubmissionStatus={initialSubmissionStatus}
         initialLockedEntryIds={initialLockedEntryIds}
-        kickoffByEntryId={kickoffByEntryId}
-        kickoffLockedEntryIds={Object.entries(kickoffByEntryId)
-          .filter(([, iso]) => new Date(iso) <= new Date())
-          .map(([id]) => id)}
+        kickoffLockedEntryIds={kickoffLockedEntryIds}
         canEditUnlocked={timing.canEditUnlocked}
         fullBoardLocked={timing.fullBoardLocked}
         researchWindowLabel={windowLabel}

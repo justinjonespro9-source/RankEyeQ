@@ -6,6 +6,11 @@ import type {
 } from "@/lib/generated/prisma/client";
 import { toUiPosition } from "@/lib/contest-defaults";
 import { parsePlayerAliases } from "@/lib/nfl/player-aliases";
+import {
+  formatContestClock,
+  formatContestTime,
+  formatInChicago,
+} from "@/lib/timing/chicago";
 import type {
   ContestStatus,
   PlayerAvailability,
@@ -27,21 +32,18 @@ export function mapAvailability(
   return AVAILABILITY_MAP[availability];
 }
 
+/** UI open/locked for challenge cards — DRAFT and OPEN are both open for editing. */
 export function mapContestStatusToUi(status: DbContestStatus): ContestStatus {
-  return status === "OPEN" ? "open" : "locked";
+  return status === "OPEN" || status === "DRAFT" ? "open" : "locked";
 }
 
 export function formatGameDay(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date);
+  return formatInChicago(date, { weekday: "short" });
 }
 
+/** Kickoff / lock wall clock in America/Chicago (never fixed EST/CST offsets). */
 export function formatGameTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-    timeZone: "America/New_York",
-  }).format(date);
+  return formatContestTime(date);
 }
 
 export function rankableEntryToRankingPlayer(
@@ -91,8 +93,8 @@ export function buildPositionChallenge(input: {
     description: input.title,
     status: mapContestStatusToUi(input.status),
     lockLabel: input.locksAt
-      ? `Locks ${formatGameDay(input.locksAt)} ${formatGameTime(input.locksAt)}`
-      : "Locks at first relevant kickoff (Thu–Mon)",
+      ? `Editable until ${formatContestClock(input.locksAt)}`
+      : "Editable until Sunday 10:00 AM CT",
     weekLabel: input.weekLabel,
     weekKey: input.weekKey,
   };

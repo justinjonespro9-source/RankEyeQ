@@ -100,14 +100,14 @@ export function RankingSlot({
                 {player.gameDay || player.gameTime
                   ? ` · ${[player.gameDay, player.gameTime].filter(Boolean).join(" ")}`
                   : ""}
-                {locked ? " · Locked" : ""}
+                {locked ? " · Locked · Game started" : ""}
               </span>
             </span>
           </button>
 
           {locked ? (
             <span className="shrink-0 rounded-md bg-warning-soft px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
-              Locked
+              Locked · Game started
             </span>
           ) : slotEditable ? (
             <div className="flex shrink-0 items-center gap-1">

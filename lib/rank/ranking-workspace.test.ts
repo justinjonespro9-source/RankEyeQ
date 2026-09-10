@@ -110,6 +110,27 @@ describe("ranking depth and status messaging", () => {
       }),
     ).toContain("submitted");
   });
+
+  it("does not call partial kickoff locks a full contest lock", () => {
+    expect(
+      submissionProgressMessage({
+        filledCount: 10,
+        slotCount: 10,
+        submissionStatus: "SUBMITTED",
+        editable: true,
+        partialKickoffLocks: true,
+      }),
+    ).toMatch(/Some selections are locked/i);
+    expect(
+      submissionProgressMessage({
+        filledCount: 10,
+        slotCount: 10,
+        submissionStatus: "SUBMITTED",
+        editable: false,
+        fullBoardLocked: true,
+      }),
+    ).toBe("Rankings Locked");
+  });
 });
 
 describe("selected player uniqueness", () => {
