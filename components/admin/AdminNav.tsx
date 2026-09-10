@@ -3,6 +3,7 @@ import Link from "next/link";
 const LINKS = [
   { href: "/admin", label: "Command Center" },
   { href: "/admin/competitors/new", label: "Add Competitor" },
+  { href: "/admin/competitors/live", label: "Competitor Live" },
   { href: "/admin/ai", label: "AI" },
   { href: "/admin/creators", label: "Creators" },
   { href: "/admin/creators/verification", label: "Creator Verify" },

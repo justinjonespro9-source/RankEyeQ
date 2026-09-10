@@ -15,16 +15,25 @@ const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
 export function MyRanksPositionTabs({
   active,
   weekId,
+  hrefForPosition,
 }: {
   active: ContestPosition;
   weekId?: string;
+  /** Override tab href builder (admin control room). */
+  hrefForPosition?: (position: ContestPosition) => string;
 }) {
   return (
     <div className="mb-6 flex flex-wrap gap-2">
       {POSITIONS.map((position) => {
-        const params = new URLSearchParams({ position: position.toLowerCase() });
-        if (weekId) params.set("weekId", weekId);
-        const href = `/my-ranks?${params.toString()}`;
+        const href = hrefForPosition
+          ? hrefForPosition(position)
+          : (() => {
+              const params = new URLSearchParams({
+                position: position.toLowerCase(),
+              });
+              if (weekId) params.set("weekId", weekId);
+              return `/my-ranks?${params.toString()}`;
+            })();
         const selected = position === active;
         return (
           <Link
@@ -55,8 +64,11 @@ function EmptyPanel({ title, description }: { title: string; description: string
 
 export function MyRanksDashboard({
   dashboard,
+  variant = "user",
 }: {
   dashboard: MyRanksPositionDashboard;
+  /** Admin control room hides user edit CTA. */
+  variant?: "user" | "admin";
 }) {
   const uiPos = toUiPosition(dashboard.position).toUpperCase();
   const standingsLabel = dashboard.isFinal
@@ -80,8 +92,23 @@ export function MyRanksDashboard({
                 {dashboard.isFinal ? "Final" : "LIVE / UNOFFICIAL"}
               </Badge>
               {dashboard.submissionStatus ? (
-                <Badge tone="neutral">{dashboard.submissionStatus}</Badge>
-              ) : null}
+                <Badge
+                  tone={
+                    dashboard.submissionStatus === "LOCKED" ||
+                    dashboard.submissionStatus === "GRADED"
+                      ? "warning"
+                      : "neutral"
+                  }
+                >
+                  {dashboard.submissionStatus === "LOCKED" ||
+                  dashboard.contestStatus === "LOCKED" ||
+                  dashboard.contestStatus === "LIVE"
+                    ? "LOCKED"
+                    : dashboard.submissionStatus}
+                </Badge>
+              ) : (
+                <Badge tone="neutral">No submission</Badge>
+              )}
             </div>
             {dashboard.eyeq ? (
               dashboard.eyeq.isLive ? (
@@ -103,17 +130,21 @@ export function MyRanksDashboard({
             ) : (
               <p className="text-sm text-muted">
                 {dashboard.picks.length === 0
-                  ? "Submit a board on This Week to track live EYEQ here."
-                  : "Waiting for live scores on your picks."}
+                  ? variant === "admin"
+                    ? "No submission for this position."
+                    : "Submit a board on This Week to track live EYEQ here."
+                  : "Waiting for live scores on picks."}
               </p>
             )}
           </div>
-          <Link
-            href={`/rank/${toUiPosition(dashboard.position)}`}
-            className="text-sm font-medium text-accent-ink hover:underline"
-          >
-            {dashboard.isFinal ? "Back to This Week" : "Edit on This Week"}
-          </Link>
+          {variant === "user" ? (
+            <Link
+              href={`/rank/${toUiPosition(dashboard.position)}`}
+              className="text-sm font-medium text-accent-ink hover:underline"
+            >
+              {dashboard.isFinal ? "Back to This Week" : "Edit on This Week"}
+            </Link>
+          ) : null}
         </div>
       </section>
 
@@ -130,14 +161,20 @@ export function MyRanksDashboard({
             <div className="mt-3">
               <EmptyPanel
                 title={`No ${dashboard.position} board submitted`}
-                description="Build or submit this position on This Week, then return here for live tracking."
+                description={
+                  variant === "admin"
+                    ? "Use Manage Rankings to import or capture this position through the existing workflow."
+                    : "Build or submit this position on This Week, then return here for live tracking."
+                }
               />
-              <Link
-                href={`/rank/${toUiPosition(dashboard.position)}`}
-                className="mt-3 inline-block text-sm font-medium text-accent-ink hover:underline"
-              >
-                Go to This Week →
-              </Link>
+              {variant === "user" ? (
+                <Link
+                  href={`/rank/${toUiPosition(dashboard.position)}`}
+                  className="mt-3 inline-block text-sm font-medium text-accent-ink hover:underline"
+                >
+                  Go to This Week →
+                </Link>
+              ) : null}
             </div>
           ) : (
             <ol className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">

@@ -22,11 +22,13 @@ import {
   createPublisherConsensusCompetitor,
   setExpertDirectoryActive,
   updateExpertAnalystMetadata,
+  updatePublisherConsensusMetadata,
 } from "@/lib/expert-identity";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
 function revalidateCompetitorSurfaces() {
   revalidatePath("/admin/competitors/new");
+  revalidatePath("/admin/competitors/live");
   revalidatePath("/admin/ai");
   revalidatePath("/admin/creators");
   revalidatePath("/admin/creators/verification");
@@ -235,7 +237,15 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
   const profileId = String(formData.get("universalProfileId") || "");
   const returnTo = String(
     formData.get("returnTo") ||
-      `/admin/${type === "ai" ? "ai" : type === "creator" ? "creators" : "experts"}`,
+      `/admin/${
+        type === "ai"
+          ? "ai"
+          : type === "creator"
+            ? "creators"
+            : type === "publisher"
+              ? "competitors/live"
+              : "experts"
+      }`,
   );
 
   try {
@@ -248,6 +258,7 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
         publicVisible: flag(formData, "publicVisible", true),
       });
     } else if (type === "creator") {
+      const positions = parsePositions(formData);
       await updateCreatorCompetitorMetadata({
         universalProfileId: profileId,
         personName: String(formData.get("displayName") || formData.get("personName") || "") || undefined,
@@ -260,9 +271,10 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
         avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
         bio: String(formData.get("bio") || "").trim() || null,
         publicVisible: flag(formData, "publicVisible", true),
-        positionsCovered: parsePositions(formData),
+        positionsCovered: positions.length > 0 ? positions : undefined,
       });
     } else if (type === "expert") {
+      const positions = parsePositions(formData);
       await updateExpertAnalystMetadata({
         universalProfileId: profileId,
         analystName:
@@ -271,7 +283,7 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
         publicationName:
           String(formData.get("publicationName") || "") || undefined,
         sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
-        positionsCovered: parsePositions(formData),
+        positionsCovered: positions.length > 0 ? positions : undefined,
         notes: String(formData.get("bio") || formData.get("notes") || "").trim() || null,
       });
       const { prisma } = await import("@/lib/db");
@@ -282,6 +294,26 @@ export async function updateCompetitorMetadataAction(formData: FormData) {
           publicVisible: flag(formData, "publicVisible", true),
           bio: String(formData.get("bio") || "").trim() || null,
         },
+      });
+    } else if (type === "publisher") {
+      const positions = parsePositions(formData);
+      await updatePublisherConsensusMetadata({
+        universalProfileId: profileId,
+        displayName: String(formData.get("displayName") || "") || undefined,
+        publisherName:
+          String(
+            formData.get("publisherName") ||
+              formData.get("publicationName") ||
+              "",
+          ) || undefined,
+        sourceUrl: String(formData.get("sourceUrl") || "").trim() || null,
+        avatarUrl: String(formData.get("avatarUrl") || "").trim() || null,
+        bio: String(formData.get("bio") || "").trim() || null,
+        publicVisible: flag(formData, "publicVisible", true),
+        competitorActive: flag(formData, "competitorActive", true),
+        positionsCovered: positions.length > 0 ? positions : undefined,
+        scoringFormat: String(formData.get("scoringFormat") || "") || null,
+        notes: String(formData.get("notes") || "").trim() || null,
       });
     } else {
       throw new Error("Unknown competitor type");

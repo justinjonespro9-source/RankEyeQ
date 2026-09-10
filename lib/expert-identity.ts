@@ -615,6 +615,95 @@ export async function updateExpertAnalystMetadata(input: {
   });
 }
 
+/** Update an existing Publisher Consensus competitor by profile id. */
+export async function updatePublisherConsensusMetadata(input: {
+  universalProfileId: string;
+  displayName?: string;
+  publisherName?: string;
+  sourceUrl?: string | null;
+  avatarUrl?: string | null;
+  bio?: string | null;
+  publicVisible?: boolean;
+  competitorActive?: boolean;
+  positionsCovered?: ContestPosition[];
+  scoringFormat?: string | null;
+  notes?: string | null;
+}) {
+  const profile = await prisma.universalProfile.findUnique({
+    where: { id: input.universalProfileId },
+    include: { expertSource: true },
+  });
+  if (!profile || profile.profileType !== "BENCHMARK") {
+    throw new ExpertIdentityError("Publisher Consensus profile not found");
+  }
+  if (!isPublisherConsensusSource(profile.expertSource?.sourceKind)) {
+    throw new ExpertIdentityError(
+      "Profile is not an active Publisher Consensus competitor",
+    );
+  }
+  if (isOfficialBenchmarkUsername(profile.username)) {
+    throw new ExpertIdentityError(
+      "Refusing to edit a legacy publisher shell as Publisher Consensus",
+    );
+  }
+
+  let displayName = profile.displayName;
+  if (input.displayName != null) {
+    const nameResult = validateDisplayName(input.displayName);
+    if (!nameResult.ok) throw new ExpertIdentityError(nameResult.error);
+    displayName = nameResult.username;
+  }
+
+  const publication =
+    input.publisherName?.trim() ||
+    profile.expertSource?.publicationName ||
+    displayName;
+  if (publication.length < 2) {
+    throw new ExpertIdentityError("Publisher name is required");
+  }
+
+  const scoringFormat =
+    input.scoringFormat === undefined
+      ? profile.expertSource?.scoringFormat
+      : parseBenchmarkScoringFormat(input.scoringFormat) ??
+        BENCHMARK_SCORING_FORMAT.UNSPECIFIED;
+
+  await prisma.universalProfile.update({
+    where: { id: profile.id },
+    data: {
+      displayName,
+      avatarUrl:
+        input.avatarUrl === undefined
+          ? profile.avatarUrl
+          : input.avatarUrl?.trim() || null,
+      bio:
+        input.bio === undefined ? profile.bio : input.bio?.trim() || null,
+      publicVisible: input.publicVisible ?? profile.publicVisible,
+      competitorActive: input.competitorActive ?? profile.competitorActive,
+    },
+  });
+
+  await upsertExpertSourceProfile({
+    universalProfileId: profile.id,
+    analystName: null,
+    publicationName: publication,
+    sourceUrl:
+      input.sourceUrl === undefined
+        ? profile.expertSource?.sourceUrl
+        : input.sourceUrl,
+    sourceKind: EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS,
+    positionsCovered: input.positionsCovered,
+    notes:
+      input.notes === undefined ? profile.expertSource?.notes : input.notes,
+    scoringFormat,
+  });
+
+  return prisma.universalProfile.findUniqueOrThrow({
+    where: { id: profile.id },
+    include: { expertSource: true },
+  });
+}
+
 /**
  * Create an active Publisher Consensus competitor (BENCHMARK + PUBLISHER_CONSENSUS).
  * Does not convert or reactivate legacy official publisher shells.
