@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
 import { loadAiPromptBundleForContest } from "@/lib/admin/ai-prompt-data";
-import { contestAllowsEdits } from "@/lib/contest-lifecycle";
+import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
 import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { RANKIQ_TIMEZONE } from "@/lib/timing/chicago";
@@ -108,7 +108,12 @@ export default async function AdminAiContestPage(
     weekStatus: contest.week.status,
     now: generatedAt,
   });
-  const contestOpen = contestAllowsEdits(contest.status);
+  const contestOpen = contestAllowsRankingEdits({
+    contestStatus: contest.status,
+    fullBoardLocked: timing.fullBoardLocked,
+    fullLockAt: contest.week.fullLockAt,
+    now: generatedAt,
+  });
   const canImport = contestOpen && timing.canEditUnlocked;
 
   return (

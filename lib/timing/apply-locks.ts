@@ -137,3 +137,95 @@ export async function ensureWeekFullLock(weekId: string, now = new Date()) {
 
   return { lockedContests, lockedSubmissions };
 }
+
+/**
+ * Reopen contests/submissions that were prematurely LOCKED before Week.fullLockAt.
+ * Prefer Week.fullLockAt over stale Contest.status / Contest.locksAt.
+ */
+export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
+  const empty = {
+    reopenedContests: 0,
+    reopenedSubmissions: 0,
+    clearedPickLocks: 0,
+  };
+  const week = await prisma.week.findUnique({ where: { id: weekId } });
+  if (!week?.fullLockAt) {
+    return empty;
+  }
+  if (now >= week.fullLockAt) {
+    return empty;
+  }
+  if (week.status === "COMPLETE" || week.status === "ARCHIVED") {
+    return empty;
+  }
+
+  const contests = await prisma.rankIQContest.updateMany({
+    where: {
+      weekId,
+      status: "LOCKED",
+    },
+    data: {
+      status: "OPEN",
+      locksAt: week.fullLockAt,
+    },
+  });
+
+  const submissions = await prisma.rankingSubmission.updateMany({
+    where: {
+      contest: { weekId },
+      status: "LOCKED",
+    },
+    data: {
+      status: "SUBMITTED",
+      lockedAt: null,
+    },
+  });
+
+  // Clear slot locks that were applied without a real kickoff/full-lock.
+  const prematurePicks = await prisma.rankingPick.findMany({
+    where: {
+      slotLocked: true,
+      submission: { contest: { weekId } },
+    },
+    include: {
+      rankableEntry: { include: { game: true } },
+      submission: {
+        include: {
+          contest: {
+            include: {
+              entries: { select: { rankableEntryId: true, game: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  let clearedPickLocks = 0;
+  for (const pick of prematurePicks) {
+    const contestGame = pick.submission.contest.entries.find(
+      (entry) => entry.rankableEntryId === pick.rankableEntryId,
+    )?.game?.startsAt;
+    const kickoff =
+      contestGame ??
+      pick.rankableEntry.game?.startsAt ??
+      pick.rankableEntry.gameStartsAt ??
+      null;
+    if (kickoff && now >= kickoff) continue;
+    await prisma.rankingPick.update({
+      where: { id: pick.id },
+      data: {
+        slotLocked: false,
+        lockedAt: null,
+        lockedRank: null,
+      },
+    });
+    clearedPickLocks += 1;
+  }
+
+  return {
+    reopenedContests: contests.count,
+    reopenedSubmissions: submissions.count,
+    clearedPickLocks,
+  };
+}

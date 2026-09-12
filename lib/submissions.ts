@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import {
-  submissionAllowsEdits,
+  submissionAllowsRankingEdits,
   submissionIsEligible,
 } from "@/lib/contest-lifecycle";
 import type { SubmissionStatus } from "@/lib/generated/prisma/client";
@@ -222,7 +222,15 @@ export async function saveSubmissionPicks(input: {
     now,
   );
 
-  if (!submissionAllowsEdits(contest.status, submission.status)) {
+  if (
+    !submissionAllowsRankingEdits({
+      contestStatus: contest.status,
+      submissionStatus: submission.status,
+      fullBoardLocked: timing.fullBoardLocked,
+      fullLockAt: contest.week.fullLockAt,
+      now,
+    })
+  ) {
     throw new SubmissionError("This ranking can no longer be edited");
   }
 

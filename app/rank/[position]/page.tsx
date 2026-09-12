@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { getAuthContext } from "@/lib/auth/session";
 import { parsePositionParam } from "@/lib/contest";
-import { contestAllowsEdits } from "@/lib/contest-lifecycle";
+import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
 import { getPublicPositionContest } from "@/lib/contests";
 import { logServerEvent } from "@/lib/log";
 import {
@@ -17,7 +17,10 @@ import {
   getSubmissionForProfile,
   picksToRankedIds,
 } from "@/lib/submissions";
-import { ensureWeekFullLock } from "@/lib/timing/apply-locks";
+import {
+  ensureWeekFullLock,
+  healPrematureWeekLocks,
+} from "@/lib/timing/apply-locks";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { kickoffLockedEntryIdsFromMap } from "@/lib/timing/kickoff-locks";
@@ -129,6 +132,8 @@ export default async function PositionRankPage(
 
   if (weekId) {
     try {
+      // Heal stale Contest.status=LOCKED / submission LOCKED before Sunday full lock.
+      await healPrematureWeekLocks(weekId);
       await ensureWeekFullLock(weekId);
     } catch (error) {
       logServerEvent(
@@ -146,6 +151,9 @@ export default async function PositionRankPage(
     }
   }
 
+  // Prefer Week.fullLockAt over stale Contest.status for board editability.
+  // After healPrematureWeekLocks, LOCKED contests are reopened when before fullLockAt;
+  // still treat premature LOCKED as editable if heal failed.
   const requestNow = new Date();
   const kickoffLockedEntryIds = kickoffLockedEntryIdsFromMap(
     kickoffByEntryId,
@@ -162,6 +170,21 @@ export default async function PositionRankPage(
     anyKickoffStarted,
     now: requestNow,
   });
+
+  const boardEditableByWeek = contestAllowsRankingEdits({
+    contestStatus,
+    fullBoardLocked: timing.fullBoardLocked,
+    fullLockAt,
+    now: requestNow,
+  });
+  // Display OPEN when week timing still allows edits even if status row was stale LOCKED.
+  const displayContestStatus =
+    contestStatus === "LOCKED" &&
+    fullLockAt &&
+    requestNow < fullLockAt &&
+    timing.canEditUnlocked
+      ? "OPEN"
+      : contestStatus;
 
   const profile = authCtx?.universalProfile ?? null;
   const participation =
@@ -180,9 +203,7 @@ export default async function PositionRankPage(
   let gradedPredicted = players.slice(0, 0);
 
   const canCreateOrEdit =
-    Boolean(contestId) &&
-    contestAllowsEdits(contestStatus) &&
-    timing.canEditUnlocked;
+    Boolean(contestId) && boardEditableByWeek && timing.canEditUnlocked;
 
   if (contestId && profile && participation === "ready") {
     try {
@@ -194,9 +215,19 @@ export default async function PositionRankPage(
           submission.picks,
           challenge.slotCount,
         );
-        initialSubmissionStatus = submission.status;
+        // Premature LOCKED before global lock displays/behaves as SUBMITTED.
+        initialSubmissionStatus =
+          submission.status === "LOCKED" && timing.canEditUnlocked
+            ? "SUBMITTED"
+            : submission.status;
+        // Only kickoff-locked (or full-board) picks are immutable — not OUT status.
         initialLockedEntryIds = submission.picks
-          .filter((pick) => pick.slotLocked)
+          .filter((pick) => {
+            if (!pick.slotLocked) return false;
+            const kickoffIso = kickoffByEntryId[pick.rankableEntryId];
+            if (kickoffIso && new Date(kickoffIso) <= requestNow) return true;
+            return timing.fullBoardLocked;
+          })
           .map((pick) => pick.rankableEntryId);
         gradedPredicted = submission.picks.map((pick) => {
           const player = players.find((p) => p.id === pick.rankableEntryId);
@@ -274,7 +305,7 @@ export default async function PositionRankPage(
           <Badge tone={source === "database" ? "success" : "warning"}>
             {source === "database" ? "Persisted pool" : "Mock pool"}
           </Badge>
-          <Badge tone="neutral">{contestStatus}</Badge>
+          <Badge tone="neutral">{displayContestStatus}</Badge>
           <Badge tone={timing.fullBoardLocked ? "warning" : "success"}>
             {timing.phase}
           </Badge>
@@ -339,13 +370,13 @@ export default async function PositionRankPage(
         challenge={challenge}
         players={players}
         contestId={contestId}
-        contestStatus={contestStatus}
+        contestStatus={displayContestStatus}
         participation={participation}
         initialRankedEntryIds={initialRankedEntryIds}
         initialSubmissionStatus={initialSubmissionStatus}
         initialLockedEntryIds={initialLockedEntryIds}
         kickoffLockedEntryIds={kickoffLockedEntryIds}
-        canEditUnlocked={timing.canEditUnlocked}
+        canEditUnlocked={timing.canEditUnlocked && boardEditableByWeek}
         fullBoardLocked={timing.fullBoardLocked}
         researchWindowLabel={windowLabel}
         lockLabel={

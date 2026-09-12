@@ -32,9 +32,21 @@ describe("rankingEditWindowError", () => {
     expect(error).toBeNull();
   });
 
-  it("blocks submit when contest is LOCKED", () => {
+  it("allows submit when Contest.status is stale LOCKED before Week.fullLockAt", () => {
     const error = rankingEditWindowError({
       contestStatus: "LOCKED",
+      weekStatus: "OPEN",
+      rankingsOpenAt: openAt,
+      fullLockAt: fullLock,
+      now: beforeLock,
+      action: "submit",
+    });
+    expect(error).toBeNull();
+  });
+
+  it("blocks submit when contest is LIVE (past ranking window)", () => {
+    const error = rankingEditWindowError({
+      contestStatus: "LIVE",
       weekStatus: "OPEN",
       rankingsOpenAt: openAt,
       fullLockAt: fullLock,

@@ -128,12 +128,20 @@ export function RankingWorkspace({
   const contestOpen =
     contestStatus === "DRAFT" ||
     contestStatus === "OPEN" ||
-    contestStatus === "open";
+    contestStatus === "open" ||
+    // Premature LOCKED before Week.fullLockAt — week timing is source of truth.
+    ((contestStatus === "LOCKED" || contestStatus === "locked") &&
+      canEditUnlocked &&
+      !fullBoardLocked);
   const submissionEditable =
     submissionStatus === "DRAFT" ||
     submissionStatus === "SUBMITTED" ||
     submissionStatus === "draft" ||
-    submissionStatus === "submitted";
+    submissionStatus === "submitted" ||
+    // Premature submission LOCKED before global lock remains editable.
+    ((submissionStatus === "LOCKED" || submissionStatus === "locked") &&
+      canEditUnlocked &&
+      !fullBoardLocked);
   const canPersist = participation === "ready" && Boolean(contestId);
   const editable =
     canPersist && contestOpen && submissionEditable && canEditUnlocked;

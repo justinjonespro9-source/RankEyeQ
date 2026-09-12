@@ -2,6 +2,14 @@ import type { ContestStatus, SubmissionStatus } from "@/lib/generated/prisma/cli
 
 const EDITABLE_CONTEST_STATUSES: ContestStatus[] = ["DRAFT", "OPEN"];
 
+/** Contest statuses that are past the ranking-edit lifecycle (not premature Sunday lock). */
+const POST_RANKING_CONTEST_STATUSES: ContestStatus[] = [
+  "LIVE",
+  "GRADING",
+  "FINAL",
+  "ARCHIVED",
+];
+
 const LOCKING_CONTEST_STATUSES: ContestStatus[] = [
   "LOCKED",
   "LIVE",
@@ -10,9 +18,37 @@ const LOCKING_CONTEST_STATUSES: ContestStatus[] = [
   "ARCHIVED",
 ];
 
-/** Contests that accept ranking edits. */
+/** Contests that accept ranking edits when status alone is considered. */
 export function contestAllowsEdits(status: ContestStatus): boolean {
   return EDITABLE_CONTEST_STATUSES.includes(status);
+}
+
+/**
+ * Ranking edit gate preferred for RankEyeQ hybrid locking.
+ * Week.fullLockAt is the source of truth for whole-board lock.
+ * Premature Contest.status=LOCKED before Sunday fullLockAt does NOT block edits.
+ * Contest LOCKED without a future fullLockAt (admin lock / no timing) still blocks.
+ */
+export function contestAllowsRankingEdits(input: {
+  contestStatus: ContestStatus;
+  fullBoardLocked: boolean;
+  fullLockAt?: Date | null;
+  now?: Date;
+}): boolean {
+  if (input.fullBoardLocked) return false;
+  if (POST_RANKING_CONTEST_STATUSES.includes(input.contestStatus)) return false;
+  if (
+    input.contestStatus === "DRAFT" ||
+    input.contestStatus === "OPEN"
+  ) {
+    return true;
+  }
+  if (input.contestStatus === "LOCKED") {
+    const now = input.now ?? new Date();
+    if (input.fullLockAt && now < input.fullLockAt) return true;
+    return false;
+  }
+  return false;
 }
 
 export function contestIsLockedForRankings(status: ContestStatus): boolean {
@@ -30,6 +66,33 @@ export function submissionAllowsEdits(
   }
   // DRAFT and SUBMITTED remain editable while contest is DRAFT/OPEN
   return true;
+}
+
+/**
+ * Hybrid-lock submission gate: SUBMITTED stays editable until Week.fullLockAt.
+ * Premature submission LOCKED (before global lock) is treated as still editable.
+ */
+export function submissionAllowsRankingEdits(input: {
+  contestStatus: ContestStatus;
+  submissionStatus: SubmissionStatus;
+  fullBoardLocked: boolean;
+  fullLockAt?: Date | null;
+  now?: Date;
+}): boolean {
+  if (!contestAllowsRankingEdits(input)) return false;
+  if (input.submissionStatus === "GRADED") return false;
+  if (input.submissionStatus === "LOCKED") {
+    const now = input.now ?? new Date();
+    // Premature submission LOCKED before Sunday full lock remains editable.
+    if (input.fullLockAt && now < input.fullLockAt && !input.fullBoardLocked) {
+      return true;
+    }
+    return false;
+  }
+  return (
+    input.submissionStatus === "DRAFT" ||
+    input.submissionStatus === "SUBMITTED"
+  );
 }
 
 /** Only explicitly SUBMITTED (or later LOCKED/GRADED) rankings compete. */
