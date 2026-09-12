@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/admin/data", label: "NFL Data" },
   { href: "/admin/players", label: "Players" },
   { href: "/admin/weekly-pools", label: "Weekly Pools" },
+  { href: "/admin/week-status", label: "Week Status" },
   { href: "/admin/weekly-exceptions", label: "Exceptions" },
   { href: "/admin/contests", label: "Contests" },
   { href: "/admin/scoring-lab", label: "Scoring Lab" },

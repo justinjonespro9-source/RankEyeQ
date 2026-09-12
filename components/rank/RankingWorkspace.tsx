@@ -13,6 +13,7 @@ import {
   submitRankingsAction,
 } from "@/lib/submission-actions";
 import { reorderAroundLockedSlots } from "@/lib/timing/partial-lock";
+import { isSelectableUiAvailability } from "@/lib/eligibility/weekly-status";
 import type { PositionChallenge, RankingPlayer } from "@/types/contest";
 
 export type ParticipationState = "signed-out" | "needs-setup" | "ready";
@@ -176,6 +177,12 @@ export function RankingWorkspace({
     }
     if (kickoffLockedPoolIds.has(player.id)) {
       setStatusMessage("Cannot add a player after their game has started.");
+      return;
+    }
+    if (!isSelectableUiAvailability(player.availability)) {
+      setStatusMessage(
+        `Cannot add ${player.name} — status is ${player.availability.toUpperCase()}.`,
+      );
       return;
     }
     const next = [...rankedEntryIds];

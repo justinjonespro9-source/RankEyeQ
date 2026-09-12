@@ -9,6 +9,7 @@ import {
   poolHasResearch,
   type PlayerPoolSortKey,
 } from "@/lib/rank/player-pool-search";
+import { isSelectableUiAvailability } from "@/lib/eligibility/weekly-status";
 import type { Position, RankingPlayer } from "@/types/contest";
 
 export type { PlayerPoolSortKey };
@@ -147,8 +148,14 @@ export function PlayerPool({
                 const ranked = rankedIds.has(player.id);
                 const kickoffLocked =
                   kickoffLockedIds.has(player.id) && !ranked;
+                const statusBlocked =
+                  !ranked && !isSelectableUiAvailability(player.availability);
                 const disabledRow =
-                  disabled || ranked || kickoffLocked || allFilled;
+                  disabled ||
+                  ranked ||
+                  kickoffLocked ||
+                  statusBlocked ||
+                  allFilled;
                 const r = player.research;
                 return (
                   <tr
@@ -183,7 +190,9 @@ export function PlayerPool({
                           ? "Added"
                           : kickoffLocked
                             ? "Game started"
-                            : "Add"}
+                            : statusBlocked
+                              ? player.availability.toUpperCase()
+                              : "Add"}
                       </button>
                     </td>
                   </tr>
@@ -203,7 +212,10 @@ export function PlayerPool({
         {filtered.map((player) => {
           const ranked = rankedIds.has(player.id);
           const kickoffLocked = kickoffLockedIds.has(player.id) && !ranked;
-          const rowDisabled = disabled || ranked || kickoffLocked;
+          const statusBlocked =
+            !ranked && !isSelectableUiAvailability(player.availability);
+          const rowDisabled =
+            disabled || ranked || kickoffLocked || statusBlocked;
           return (
             <li key={player.id}>
               <PlayerCard
@@ -220,6 +232,12 @@ export function PlayerPool({
                   ) : kickoffLocked ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-warning">
                       Game started
+                    </span>
+                  ) : statusBlocked ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-danger">
+                      {player.availability === "out"
+                        ? "OUT"
+                        : player.availability.toUpperCase()}
                     </span>
                   ) : allFilled ? (
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">

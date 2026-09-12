@@ -7,6 +7,7 @@ import { AiParserForm } from "@/components/admin/AiParserForm";
 import { toEligibleParserEntry } from "@/lib/admin/ai-parser";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { Container } from "@/components/layout/Container";
+import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
 import { loadAiPromptBundleForContest } from "@/lib/admin/ai-prompt-data";
@@ -49,11 +50,26 @@ export default async function AdminAiContestPage(
   const bundle = await loadAiPromptBundleForContest(contestId, {
     aiDisplayName: profile.displayName,
     generatedAt,
+    universalProfileId: profile.id,
   });
   if (!bundle) notFound();
 
+  const submission = contest.submissions[0] ?? null;
   const eligible = contest.entries
     .filter((entry) => !entry.excluded)
+    .filter((entry) => {
+      const availability = entry.rankableEntry.availability;
+      // Locked picks already on the board must remain matchable even if OUT.
+      const onBoard = submission?.picks.some(
+        (pick) => pick.rankableEntryId === entry.rankableEntryId,
+      );
+      if (onBoard) return true;
+      return (
+        availability === "ACTIVE" ||
+        availability === "QUESTIONABLE" ||
+        availability === "DOUBTFUL"
+      );
+    })
     .map((entry) =>
       toEligibleParserEntry({
         id: entry.rankableEntryId,
@@ -84,7 +100,6 @@ export default async function AdminAiContestPage(
     },
     take: 500,
   });
-  const submission = contest.submissions[0] ?? null;
   const timing = getWeekTimingState({
     rankingsOpenAt: contest.week.rankingsOpenAt,
     fullLockAt: contest.week.fullLockAt,
@@ -103,7 +118,7 @@ export default async function AdminAiContestPage(
       <SectionHeading
         eyebrow={`${profile.displayName} · ${contest.position}`}
         title={`AI board · ${contest.title}`}
-        description={`${contest.week.label} Top ${contest.rankingDepth}. Same RankingSubmission path as humans — Contest OPEN, rankings open, before Sunday full lock, with kickoff locks.`}
+        description={`${contest.week.label} Top ${contest.rankingDepth}. Refresh / Rerank uses current availability. Mode: ${bundle.meta.mode}. Same RankingSubmission path as humans.`}
         action={
           <Link
             href={`/admin/ai?weekId=${contest.weekId}&profileId=${profile.id}&position=${contest.position}`}
@@ -191,9 +206,24 @@ export default async function AdminAiContestPage(
       </p>
 
       <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-lg font-semibold text-ink">
+            Refresh / Rerank prompt
+          </h2>
+          <Badge tone={bundle.meta.mode === "fresh" ? "success" : "warning"}>
+            {bundle.meta.mode === "fresh"
+              ? "Fresh (no locked picks)"
+              : "Rerank with locked slots"}
+          </Badge>
+        </div>
+        <p className="mb-3 text-sm text-muted">
+          {bundle.meta.mode === "fresh"
+            ? "No kickoff-locked picks — prompt ranks independently from scratch using current eligibility. Previous AI board is not included."
+            : "Some picks are kickoff-locked — prompt keeps those exact slots and re-ranks unlocked slots only."}
+        </p>
         <div className="mb-3 flex flex-wrap gap-2">
-          <CopyButton text={bundle.prompt} label="Copy Prompt" />
-          <CopyButton text={bundle.poolText} label="Copy player pool" />
+          <CopyButton text={bundle.prompt} label="Copy Refresh / Rerank Prompt" />
+          <CopyButton text={bundle.poolText} label="Copy eligible pool" />
         </div>
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs text-muted">
           {bundle.prompt}

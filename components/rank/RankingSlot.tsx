@@ -101,6 +101,11 @@ export function RankingSlot({
                   ? ` · ${[player.gameDay, player.gameTime].filter(Boolean).join(" ")}`
                   : ""}
                 {locked ? " · Locked · Game started" : ""}
+                {!locked &&
+                player.availability &&
+                player.availability !== "active"
+                  ? ` · ${player.availability.toUpperCase()}`
+                  : ""}
               </span>
             </span>
           </button>
@@ -111,6 +116,14 @@ export function RankingSlot({
             </span>
           ) : slotEditable ? (
             <div className="flex shrink-0 items-center gap-1">
+              {player.availability === "out" ||
+              player.availability === "ir" ||
+              player.availability === "pup" ||
+              player.availability === "suspended" ? (
+                <span className="rounded-md bg-warning-soft px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                  {player.availability.toUpperCase()}
+                </span>
+              ) : null}
               <div className="flex flex-col gap-0.5">
                 <button
                   type="button"

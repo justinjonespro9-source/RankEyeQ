@@ -25,6 +25,11 @@ const AVAILABILITY: Record<PlayerAvailability, EntryAvailability> = {
   questionable: "QUESTIONABLE",
   doubtful: "DOUBTFUL",
   out: "OUT",
+  ir: "IR",
+  pup: "PUP",
+  suspended: "SUSPENDED",
+  free_agent: "FREE_AGENT",
+  inactive: "INACTIVE",
 };
 
 const DAY_OFFSET: Record<string, number> = {

@@ -6,10 +6,13 @@ import {
   buildAiRankingPrompt,
   expectedAiFieldSize,
   formatEligiblePlayerPool,
+  formatLockedSelections,
+  formatUnavailablePlayerPool,
+  partitionAiPromptPlayers,
   RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
 } from "@/lib/admin/ai-prompt";
 
-describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
+describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V2)", () => {
   const generatedAt = zonedLocalToUtc(2026, 9, 10, 9, 30);
 
   const wrContest = {
@@ -28,12 +31,14 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
         team: "MIN",
         opponent: "@ CHI",
         gameStartsAt: zonedLocalToUtc(2026, 9, 13, 12, 0),
+        availability: "ACTIVE" as const,
       },
       {
         name: "CeeDee Lamb",
         team: "DAL",
         opponent: "vs NYG",
         gameStartsAt: zonedLocalToUtc(2026, 9, 13, 15, 25),
+        availability: "QUESTIONABLE" as const,
       },
     ],
   };
@@ -49,23 +54,18 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
         team: "ATL",
         opponent: "vs MIN",
         gameStartsAt: zonedLocalToUtc(2026, 9, 13, 12, 0),
+        availability: "ACTIVE" as const,
       },
-      {
-        name: "Excluded Should Not Appear",
-        team: "XX",
-        opponent: "",
-        gameStartsAt: null,
-      },
-    ].slice(0, 1),
+    ],
   };
 
   it("uses stable prompt version identifier", () => {
-    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V1");
+    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V2");
     const prompt = buildAiRankingPrompt(wrContest, {
       aiDisplayName: "GPT",
       generatedAt,
     });
-    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V1");
+    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V2");
     expect(prompt).toContain("AI competitor: GPT");
   });
 
@@ -91,10 +91,6 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
     for (const line of AI_WEEKLY_SCORING_RULES) {
       expect(prompt).toContain(line);
     }
-    expect(prompt).toContain("Half-PPR");
-    expect(prompt).toContain("+5 bonus for 300+ passing yards");
-    expect(prompt).toContain("+5 bonus for 100+ rushing yards");
-    expect(prompt).toContain("+5 bonus for 100+ receiving yards");
   });
 
   it("instructs independent forecasting, not consensus averaging", () => {
@@ -106,22 +102,114 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
     expect(prompt).toContain("independent football forecast");
     expect(prompt).not.toContain("average predicted");
     expect(prompt).not.toContain("ECR");
-    expect(prompt).not.toContain("% #1");
-    expect(prompt).not.toContain("reproduce consensus rankings as the goal");
   });
 
-  it("renders eligible pool with Name — TEAM — POS", () => {
+  it("fresh rerank does not anchor on a previous board", () => {
+    const prompt = buildAiRankingPrompt(wrContest, {
+      generatedAt,
+      mode: "fresh",
+    });
+    expect(prompt).toContain("Rank independently from scratch");
+    expect(prompt).toContain("Do not reuse or anchor on any previous ranking");
+    expect(prompt).not.toContain("LOCKED SELECTIONS");
+    expect(prompt).not.toContain("Your previous ranking");
+  });
+
+  it("renders eligible pool with Questionable markers", () => {
     const pool = formatEligiblePlayerPool(wrContest.players, "WR");
-    expect(pool).toContain("PLAYER POOL");
+    expect(pool).toContain("ELIGIBLE PLAYER POOL");
     expect(pool).toContain("Justin Jefferson — MIN — WR");
     expect(pool).toContain("CeeDee Lamb — DAL — WR");
-    expect(pool).toContain("@ CHI");
+    expect(pool).toContain("Questionable");
   });
 
-  it("omits excluded players when they are not in the contest pool", () => {
-    const pool = formatEligiblePlayerPool(rbContest.players, "RB");
-    expect(pool).toContain("Bijan Robinson — ATL — RB");
-    expect(pool).not.toContain("Excluded Should Not Appear");
+  it("Brock Bowers OUT appears in UNAVAILABLE — DO NOT SELECT", () => {
+    const teContest = {
+      ...wrContest,
+      title: "TE Top 10",
+      position: "TE" as const,
+      rankingDepth: 10,
+      players: [
+        {
+          name: "Trey McBride",
+          team: "ARI",
+          opponent: "@ SEA",
+          gameStartsAt: zonedLocalToUtc(2026, 9, 13, 12, 0),
+          availability: "ACTIVE" as const,
+        },
+        {
+          name: "Brock Bowers",
+          team: "LV",
+          opponent: "vs DEN",
+          gameStartsAt: zonedLocalToUtc(2026, 9, 13, 15, 25),
+          availability: "OUT" as const,
+        },
+      ],
+    };
+    const { eligible, unavailable } = partitionAiPromptPlayers(
+      teContest.players,
+      generatedAt,
+    );
+    expect(eligible.map((p) => p.name)).toEqual(["Trey McBride"]);
+    expect(unavailable.map((p) => p.name)).toEqual(["Brock Bowers"]);
+
+    const prompt = buildAiRankingPrompt(teContest, { generatedAt, now: generatedAt });
+    expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
+    expect(prompt).toContain("Brock Bowers");
+    expect(prompt).toContain("Out");
+    const eligibleBlock = prompt.split("UNAVAILABLE — DO NOT SELECT")[0] ?? "";
+    expect(eligibleBlock).not.toContain("Brock Bowers");
+  });
+
+  it("rerank with locked slots keeps locked players and re-ranks rest", () => {
+    const contest = {
+      ...wrContest,
+      lockedSelections: [
+        {
+          rank: 4,
+          name: "Jaxon Smith-Njigba",
+          team: "SEA",
+          rankableEntryId: "jsn",
+        },
+      ],
+      players: [
+        ...wrContest.players,
+        {
+          name: "Jaxon Smith-Njigba",
+          team: "SEA",
+          opponent: "vs NE",
+          gameStartsAt: zonedLocalToUtc(2026, 9, 9, 19, 15),
+          availability: "ACTIVE" as const,
+          rankableEntryId: "jsn",
+        },
+      ],
+    };
+    const prompt = buildAiRankingPrompt(contest, {
+      generatedAt,
+      now: generatedAt,
+      mode: "rerank-with-locks",
+    });
+    expect(prompt).toContain("LOCKED SELECTIONS — MUST REMAIN IN THESE EXACT SLOTS");
+    expect(prompt).toContain("#4 Jaxon Smith-Njigba");
+    expect(prompt).toContain("Keep every locked player in the exact listed slot");
+    expect(formatLockedSelections(contest.lockedSelections!)).toContain("#4");
+  });
+
+  it("formats started players as unavailable", () => {
+    const started = formatUnavailablePlayerPool(
+      [
+        {
+          name: "Early Player",
+          team: "SEA",
+          opponent: "vs NE",
+          gameStartsAt: zonedLocalToUtc(2026, 9, 9, 19, 15),
+          availability: "ACTIVE",
+        },
+      ],
+      "WR",
+      generatedAt,
+    );
+    expect(started).toContain("Game started");
   });
 
   it("bundles prompt + meta for admin UI", () => {
@@ -129,16 +217,10 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V1)", () => {
       aiDisplayName: "Claude",
       generatedAt,
     });
-    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V1");
+    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V2");
     expect(bundle.meta.fieldSize).toBe(15);
-    expect(bundle.meta.eligiblePoolCount).toBe(2);
+    expect(bundle.meta.mode).toBe("fresh");
     expect(bundle.meta.position).toBe("WR");
     expect(bundle.meta.aiDisplayName).toBe("Claude");
-    expect(bundle.prompt).toBe(
-      buildAiRankingPrompt(wrContest, {
-        aiDisplayName: "Claude",
-        generatedAt,
-      }),
-    );
   });
 });

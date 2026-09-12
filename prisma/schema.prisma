@@ -79,6 +79,10 @@ enum EntryAvailability {
   QUESTIONABLE
   DOUBTFUL
   OUT
+  IR
+  PUP
+  SUSPENDED
+  FREE_AGENT
   INACTIVE
 }
 

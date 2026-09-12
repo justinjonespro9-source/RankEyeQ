@@ -66,7 +66,9 @@ export default async function AdminAiPage({
   const generatedAt = new Date();
   const prompts =
     weekId && selectedBot
-      ? await loadWeekAiPrompts(weekId, selectedBot.displayName, generatedAt)
+      ? await loadWeekAiPrompts(weekId, selectedBot.displayName, generatedAt, {
+          universalProfileId: selectedBot.profileId,
+        })
       : null;
   const contestByPosition = new Map(
     (week?.contests ?? []).map((contest) => [contest.position, contest.id]),

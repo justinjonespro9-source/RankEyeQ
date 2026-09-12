@@ -23,7 +23,11 @@ const AVAILABILITY_MAP: Record<EntryAvailability, PlayerAvailability> = {
   QUESTIONABLE: "questionable",
   DOUBTFUL: "doubtful",
   OUT: "out",
-  INACTIVE: "out",
+  IR: "ir",
+  PUP: "pup",
+  SUSPENDED: "suspended",
+  FREE_AGENT: "free_agent",
+  INACTIVE: "inactive",
 };
 
 export function mapAvailability(

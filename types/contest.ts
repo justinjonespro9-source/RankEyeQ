@@ -9,7 +9,12 @@ export type PlayerAvailability =
   | "active"
   | "questionable"
   | "doubtful"
-  | "out";
+  | "out"
+  | "ir"
+  | "pup"
+  | "suspended"
+  | "free_agent"
+  | "inactive";
 
 export type ContestPositionConfig = {
   position: Position;

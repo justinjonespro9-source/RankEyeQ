@@ -6,6 +6,7 @@ import {
 import type { SubmissionStatus } from "@/lib/generated/prisma/client";
 import { applyKickoffLocksToSubmission } from "@/lib/timing/apply-locks";
 import { validatePartialLockEdit } from "@/lib/timing/partial-lock";
+import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
 import { rankingEditWindowError } from "@/lib/timing/submission-window";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 
@@ -158,6 +159,7 @@ async function loadKickoffMap(contestId: string) {
   });
   const map = new Map<string, Date | null>();
   const names = new Map<string, string>();
+  const availabilityByEntryId = new Map<string, string>();
   for (const entry of entries) {
     map.set(
       entry.rankableEntryId,
@@ -167,8 +169,12 @@ async function loadKickoffMap(contestId: string) {
         null,
     );
     names.set(entry.rankableEntryId, entry.rankableEntry.name);
+    availabilityByEntryId.set(
+      entry.rankableEntryId,
+      entry.rankableEntry.availability,
+    );
   }
-  return { kickoffByEntryId: map, playerNamesById: names };
+  return { kickoffByEntryId: map, playerNamesById: names, availabilityByEntryId };
 }
 
 /**
@@ -245,9 +251,8 @@ export async function saveSubmissionPicks(input: {
     await assertEntriesBelongToContest(input.contestId, filled);
   }
 
-  const { kickoffByEntryId, playerNamesById } = await loadKickoffMap(
-    input.contestId,
-  );
+  const { kickoffByEntryId, playerNamesById, availabilityByEntryId } =
+    await loadKickoffMap(input.contestId);
   const lockCheck = validatePartialLockEdit({
     previous: previous.map((pick) => ({
       rankableEntryId: pick.rankableEntryId,
@@ -269,6 +274,17 @@ export async function saveSubmissionPicks(input: {
   const previousById = new Map(
     previous.map((pick) => [pick.rankableEntryId, pick]),
   );
+
+  for (const id of filled) {
+    if (previousById.has(id)) continue;
+    const availability = availabilityByEntryId.get(id) ?? "ACTIVE";
+    if (!isSelectableAvailability(availability)) {
+      const name = playerNamesById.get(id) ?? "player";
+      throw new SubmissionError(
+        `Cannot add ${name} — status is ${availability} (not eligible for new selection)`,
+      );
+    }
+  }
 
   const nextStatus: SubmissionStatus =
     submission.status === "SUBMITTED" ? "SUBMITTED" : "DRAFT";

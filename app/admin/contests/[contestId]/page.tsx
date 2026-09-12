@@ -381,7 +381,7 @@ export default async function AdminContestDetailPage(
               defaultValue="ACTIVE"
               className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
             >
-              {["ACTIVE", "QUESTIONABLE", "DOUBTFUL", "OUT", "INACTIVE"].map(
+              {["ACTIVE", "QUESTIONABLE", "DOUBTFUL", "OUT", "IR", "PUP", "SUSPENDED", "FREE_AGENT", "INACTIVE"].map(
                 (value) => (
                   <option key={value} value={value}>
                     {value}
