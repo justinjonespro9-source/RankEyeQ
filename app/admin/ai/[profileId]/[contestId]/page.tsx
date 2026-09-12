@@ -12,6 +12,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
 import { loadAiPromptBundleForContest } from "@/lib/admin/ai-prompt-data";
 import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
+import { submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { RANKIQ_TIMEZONE } from "@/lib/timing/chicago";
@@ -123,7 +124,7 @@ export default async function AdminAiContestPage(
       <SectionHeading
         eyebrow={`${profile.displayName} · ${contest.position}`}
         title={`AI board · ${contest.title}`}
-        description={`${contest.week.label} Top ${contest.rankingDepth}. Refresh / Rerank uses current availability. Mode: ${bundle.meta.mode}. Same RankingSubmission path as humans.`}
+        description={`${contest.week.label} Top ${contest.rankingDepth} + 2 reserves. Refresh / Rerank uses current availability. Mode: ${bundle.meta.mode}. Same RankingSubmission path as humans.`}
         action={
           <Link
             href={`/admin/ai?weekId=${contest.weekId}&profileId=${profile.id}&position=${contest.position}`}
@@ -155,7 +156,7 @@ export default async function AdminAiContestPage(
         />
         <MetaItem
           label="Position / field size"
-          value={`${contest.position} · Top ${contest.rankingDepth}`}
+          value={`${contest.position} · Top ${contest.rankingDepth} + 2 reserves`}
         />
         <MetaItem label="Contest status" value={contest.status} />
         <MetaItem
@@ -243,7 +244,8 @@ export default async function AdminAiContestPage(
           contestId={contest.id}
           profileId={profile.id}
           weekId={contest.weekId}
-          rankingDepth={contest.rankingDepth}
+          rankingDepth={submissionDepthFromScoring(contest.rankingDepth)}
+          scoringDepth={contest.rankingDepth}
           eligible={eligible}
           universe={universe.map(toEligibleParserEntry)}
           otherPositions={otherPositions.map(toEligibleParserEntry)}

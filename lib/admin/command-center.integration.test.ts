@@ -125,7 +125,7 @@ describe("admin command-center workflow", () => {
 
   it("lets admin submit a bot board on the existing submission path", async () => {
     entryIds = [];
-    for (let i = 1; i <= 12; i += 1) {
+    for (let i = 1; i <= 14; i += 1) {
       const entry = await prisma.rankableEntry.create({
         data: {
           provider: "test",
@@ -147,12 +147,12 @@ describe("admin command-center workflow", () => {
     const submitted = await submitRanking({
       contestId,
       universalProfileId: botId,
-      rankedEntryIds: entryIds.slice(0, 10),
+      rankedEntryIds: entryIds.slice(0, 12),
       now: zonedLocalToUtc(2026, 9, 9, 12, 0),
     });
     expect(submitted.status).toBe("SUBMITTED");
     expect(submitted.universalProfileId).toBe(botId);
-    expect(submitted.picks).toHaveLength(10);
+    expect(submitted.picks).toHaveLength(12);
   });
 
   it("searches admin users and records audit actions", async () => {
@@ -178,7 +178,7 @@ describe("admin command-center workflow", () => {
     await submitRanking({
       contestId,
       universalProfileId: humanId,
-      rankedEntryIds: [...entryIds.slice(1, 11)],
+      rankedEntryIds: [...entryIds.slice(1, 13)],
       now: beforeKickoff,
     });
     await prisma.rankingSubmission.update({
@@ -197,7 +197,7 @@ describe("admin command-center workflow", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
-        rankedEntryIds: entryIds.slice(0, 10),
+        rankedEntryIds: entryIds.slice(0, 12),
         now: beforeKickoff,
       }),
     ).rejects.toBeInstanceOf(SubmissionError);
@@ -213,6 +213,6 @@ describe("admin command-center workflow", () => {
     });
     expect(preserved.status).toBe("GRADED");
     expect(preserved.normalizedScore).toBe(77.7);
-    expect(preserved.picks).toHaveLength(10);
+    expect(preserved.picks).toHaveLength(12);
   });
 });

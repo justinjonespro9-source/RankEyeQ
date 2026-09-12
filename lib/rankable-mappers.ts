@@ -4,7 +4,7 @@ import type {
   EntryAvailability,
   RankableEntry,
 } from "@/lib/generated/prisma/client";
-import { toUiPosition } from "@/lib/contest-defaults";
+import { toUiPosition, submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { parsePlayerAliases } from "@/lib/nfl/player-aliases";
 import {
   formatContestClock,
@@ -88,12 +88,15 @@ export function buildPositionChallenge(input: {
     te: "Tight End",
     def: "Defense",
   };
+  const scoringDepth = input.rankingDepth;
+  const slotCount = submissionDepthFromScoring(scoringDepth);
 
   return {
     position,
     label: labels[position],
     shortLabel,
-    slotCount: input.rankingDepth,
+    slotCount,
+    scoringDepth,
     description: input.title,
     status: mapContestStatusToUi(input.status),
     lockLabel: input.locksAt

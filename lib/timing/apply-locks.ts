@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 import { captureContestPregameSnapshotsForWeek } from "@/lib/consensus-snapshot";
+import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
+import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
+import { Prisma } from "@/lib/generated/prisma/client";
 
 function kickoffForPick(input: {
   gameStartsAt: Date | null;
@@ -57,8 +60,9 @@ export async function applyKickoffLocksToSubmission(
     ]),
   );
 
+  const scoringDepth = submission.contest.rankingDepth;
+
   for (const pick of submission.picks) {
-    if (pick.slotLocked) continue;
     const kickoff = kickoffForPick({
       contestGameStartsAt: gameByEntry.get(pick.rankableEntryId) ?? null,
       gameStartsAt: pick.rankableEntry.game?.startsAt ?? null,
@@ -66,17 +70,45 @@ export async function applyKickoffLocksToSubmission(
     });
     const lockNow =
       timing.fullBoardLocked || kickoffHasPassed(kickoff, now);
+
+    const isReserve = pick.predictedRank > scoringDepth;
+    const needsPredecessorSnapshot =
+      isReserve && pick.reserveEligiblePredecessorIds == null;
+    const needsUnavailableFreeze = pick.wasUnavailableAtKickoff == null;
+    if (pick.slotLocked && !needsPredecessorSnapshot && !needsUnavailableFreeze) {
+      continue;
+    }
     if (!lockNow) continue;
+
+    const predecessorIds = needsPredecessorSnapshot
+      ? snapshotReservePredecessors({
+          picks: submission.picks,
+          reservePredictedRank: pick.predictedRank,
+          scoringDepth,
+        })
+      : undefined;
 
     await prisma.rankingPick.update({
       where: { id: pick.id },
       data: {
         slotLocked: true,
-        lockedAt: timing.fullBoardLocked
-          ? (week.fullLockAt ?? now)
-          : (kickoff ?? now),
-        lockedRank: pick.predictedRank,
+        lockedAt: pick.lockedAt
+          ? pick.lockedAt
+          : timing.fullBoardLocked
+            ? (week.fullLockAt ?? now)
+            : (kickoff ?? now),
+        lockedRank: pick.lockedRank ?? pick.predictedRank,
         committedAt: pick.committedAt ?? pick.lockedAt ?? now,
+        ...(needsUnavailableFreeze
+          ? {
+              wasUnavailableAtKickoff: freezeUnavailableAtKickoff(
+                pick.rankableEntry.availability,
+              ),
+            }
+          : {}),
+        ...(predecessorIds
+          ? { reserveEligiblePredecessorIds: predecessorIds }
+          : {}),
       },
     });
   }
@@ -218,6 +250,8 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
         slotLocked: false,
         lockedAt: null,
         lockedRank: null,
+        reserveEligiblePredecessorIds: Prisma.DbNull,
+        wasUnavailableAtKickoff: null,
       },
     });
     clearedPickLocks += 1;

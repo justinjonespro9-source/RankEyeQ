@@ -95,12 +95,20 @@ function classifyName(input: {
 
 /**
  * Walk a (possibly deep) source ranking in published order and extract the first
- * eligible RankIQ Top N. Ineligible early names are flagged — never silently skipped.
+ * eligible RankIQ Top N (optionally including reserves when the source has depth).
+ * Ineligible early names are flagged — never silently skipped.
+ * Never fabricates reserve slots the source did not publish.
  */
 export function extractTopNFromSourceOrder(input: {
   lines: ParsedRankLine[];
   eligible: EligibleParserEntry[];
+  /** Max slots to capture (scoring depth, or scoring+reserves when source supports it). */
   rankingDepth: number;
+  /**
+   * Minimum slots required for a ready board. Defaults to rankingDepth.
+   * Set to scoring depth when rankingDepth includes optional reserves.
+   */
+  minDepth?: number;
   universe?: EligibleParserEntry[];
   otherPositions?: EligibleParserEntry[];
   /** Source ranks admin confirmed should be skipped (ineligible/wrong-position). */
@@ -117,6 +125,7 @@ export function extractTopNFromSourceOrder(input: {
   const rows: SourceExtractRow[] = [];
   let nextRankIq = 1;
   const blockingIssues: string[] = [];
+  const minDepth = input.minDepth ?? input.rankingDepth;
 
   const ordered = [...input.lines].sort((a, b) => a.rank - b.rank);
 
@@ -194,7 +203,7 @@ export function extractTopNFromSourceOrder(input: {
 
   const selected = rows.filter((row) => row.selected);
   const rankedEntryIds: (string | null)[] = Array.from(
-    { length: input.rankingDepth },
+    { length: selected.length },
     () => null,
   );
   for (const row of selected) {
@@ -203,15 +212,17 @@ export function extractTopNFromSourceOrder(input: {
     }
   }
 
-  if (selected.length < input.rankingDepth) {
+  if (selected.length < minDepth) {
     blockingIssues.push(
-      `Only ${selected.length} of ${input.rankingDepth} RankIQ slots filled from eligible source order.`,
+      `Only ${selected.length} of ${minDepth} required RankIQ slots filled from eligible source order.`,
     );
   }
 
   const ready =
     blockingIssues.length === 0 &&
-    selected.length === input.rankingDepth &&
+    selected.length >= minDepth &&
+    selected.length <= input.rankingDepth &&
+    rankedEntryIds.length === selected.length &&
     rankedEntryIds.every((id): id is string => Boolean(id));
 
   return { rows, selected, rankedEntryIds, ready, blockingIssues };
@@ -221,6 +232,7 @@ export function extractTopNFromPastedText(input: {
   text: string;
   eligible: EligibleParserEntry[];
   rankingDepth: number;
+  minDepth?: number;
   universe?: EligibleParserEntry[];
   otherPositions?: EligibleParserEntry[];
   confirmedExclusions?: Array<{ sourceRank: number; reason?: string }>;
@@ -231,6 +243,7 @@ export function extractTopNFromPastedText(input: {
     lines: input.lines ?? parseRankingPaste(input.text),
     eligible: input.eligible,
     rankingDepth: input.rankingDepth,
+    minDepth: input.minDepth,
     universe: input.universe,
     otherPositions: input.otherPositions,
     confirmedExclusions: input.confirmedExclusions,

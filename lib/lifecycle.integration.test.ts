@@ -75,7 +75,7 @@ describe("persistent contest lifecycle", () => {
     botId = bot.id;
 
     entryIds = [];
-    for (let i = 1; i <= 12; i += 1) {
+    for (let i = 1; i <= 14; i += 1) {
       const entry = await prisma.rankableEntry.create({
         data: {
           provider: "test",
@@ -141,7 +141,7 @@ describe("persistent contest lifecycle", () => {
   });
 
   it("requires explicit submit for eligibility", async () => {
-    const completeDraftIds = entryIds.slice(0, 10);
+    const completeDraftIds = entryIds.slice(0, 12);
     await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
@@ -160,7 +160,7 @@ describe("persistent contest lifecycle", () => {
     await submitRanking({
       contestId,
       universalProfileId: botId,
-      rankedEntryIds: [...entryIds.slice(1, 11)],
+      rankedEntryIds: [...entryIds.slice(1, 13)],
     });
   });
 
@@ -177,7 +177,7 @@ describe("persistent contest lifecycle", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
-        rankedEntryIds: entryIds.slice(0, 10),
+        rankedEntryIds: entryIds.slice(0, 12),
       }),
     ).rejects.toBeInstanceOf(SubmissionError);
   });
@@ -208,9 +208,14 @@ describe("persistent contest lifecycle", () => {
     });
     expect(humanBefore.status).toBe("GRADED");
     expect(humanBefore.normalizedScore).toBe(100);
-    expect(humanBefore.picks.every((pick) => pick.totalPoints != null)).toBe(
-      true,
-    );
+    // EYEQ scores the effective Top 10; reserves remain unscored on the original board.
+    const scored = humanBefore.picks.filter((pick) => pick.predictedRank <= 10);
+    expect(scored.every((pick) => pick.totalPoints != null)).toBe(true);
+    expect(
+      humanBefore.picks
+        .filter((pick) => pick.predictedRank > 10)
+        .every((pick) => pick.totalPoints == null),
+    ).toBe(true);
 
     const pickCountBefore = await prisma.rankingPick.count({
       where: { submissionId: humanBefore.id },

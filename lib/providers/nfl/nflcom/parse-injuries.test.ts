@@ -150,6 +150,7 @@ describe("Week 1 injury status → human + AI behavior", () => {
         weekNumber: 1,
         position: "WR",
         rankingDepth: 15,
+        submissionDepth: 17,
         rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
         fullLockAt: new Date("2026-09-13T15:00:00.000Z"),
         players,

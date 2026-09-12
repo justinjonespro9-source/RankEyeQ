@@ -9,7 +9,7 @@ import {
   markBenchmarkNotAvailable,
 } from "@/lib/benchmarks/snapshots";
 import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import { rankingDepthForPosition, submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { parseCreatorRankingPaste } from "@/lib/creators/ranking-paste";
 import { assertAdmin } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
@@ -124,6 +124,7 @@ export async function adminCaptureBenchmarkAction(input: {
 
     position = contest.position;
     expectedFieldSize = contest.rankingDepth;
+    const maxCaptureDepth = submissionDepthFromScoring(contest.rankingDepth);
     const defaultDepth = rankingDepthForPosition(contest.position);
     if (contest.position === "WR" && contest.rankingDepth !== defaultDepth) {
       const message = `WR contest must use Top ${defaultDepth} (found Top ${contest.rankingDepth})`;
@@ -180,7 +181,8 @@ export async function adminCaptureBenchmarkAction(input: {
       text: input.rawText,
       lines: tiered.lines,
       eligible,
-      rankingDepth: contest.rankingDepth,
+      rankingDepth: maxCaptureDepth,
+      minDepth: contest.rankingDepth,
       universe,
       otherPositions,
       confirmedExclusions: input.confirmedExclusions,

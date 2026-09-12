@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getContestConsensus } from "@/lib/consensus";
 import { getWeeklyLeaderboard } from "@/lib/leaderboards";
 import { getLeagueWeeklyResults } from "@/lib/player-research-queries";
+import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import { scoreContest } from "@/lib/scoring";
 import type { ContestScoreSummary } from "@/types/scoring";
 
@@ -88,13 +89,17 @@ export async function getContestResultsView(
       }
 
       userScore = scoreContest(
-        submission.picks.map((pick) => ({
-          playerId: pick.rankableEntryId,
-          playerName: pick.rankableEntry.name,
+        scoreableEffectivePicks({
+          picks: submission.picks,
+          scoringDepth: contest.rankingDepth,
+        }).map((pick) => ({
+          playerId: pick.playerId,
+          playerName:
+            submission.picks.find((p) => p.rankableEntryId === pick.playerId)
+              ?.rankableEntry.name ?? pick.playerId,
           predictedRank: pick.predictedRank,
           actualRank:
-            actualRankMap.get(pick.rankableEntryId) ??
-            contest.rankingDepth + 100,
+            actualRankMap.get(pick.playerId) ?? contest.rankingDepth + 100,
         })),
         contest.rankingDepth,
       );

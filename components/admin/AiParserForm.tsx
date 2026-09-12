@@ -17,6 +17,7 @@ export function AiParserForm({
   profileId,
   weekId,
   rankingDepth,
+  scoringDepth,
   eligible,
   universe = [],
   otherPositions = [],
@@ -24,7 +25,10 @@ export function AiParserForm({
   contestId: string;
   profileId: string;
   weekId: string;
+  /** Submission depth including reserves (12 / 17). */
   rankingDepth: number;
+  /** Scoring depth (10 / 15). */
+  scoringDepth: number;
   eligible: EligibleParserEntry[];
   universe?: EligibleParserEntry[];
   otherPositions?: EligibleParserEntry[];
@@ -40,6 +44,7 @@ export function AiParserForm({
       lines,
       eligible,
       rankingDepth,
+      scoringDepth,
       universe,
       otherPositions,
     });
@@ -60,7 +65,8 @@ export function AiParserForm({
         const label = row.rawName
           ? `#${row.rank} “${row.rawName}”`
           : `#${row.rank}`;
-        return `${label}: ${row.issue}`;
+        const reserve = row.isReserve ? ` (R${row.reserveSlot})` : "";
+        return `${label}${reserve}: ${row.issue}`;
       });
   }, [preview]);
 
@@ -93,9 +99,10 @@ export function AiParserForm({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Paste the model&apos;s numbered ranking only. Every name must resolve to
-        an eligible contest entry. Invalid, duplicate, wrong-position, or
-        incomplete boards are rejected — correct the paste and parse again.
+        Paste the model&apos;s numbered ranking only (exactly {rankingDepth}{" "}
+        players). Slots 1–{scoringDepth} are scoring picks;{" "}
+        {scoringDepth + 1}–{rankingDepth} are ordered reserves (R1 / R2). Every
+        name must resolve to an eligible contest entry.
       </p>
       <label className="block text-sm">
         <span className="text-muted">Paste AI response</span>
@@ -128,6 +135,7 @@ export function AiParserForm({
           ) : (
             <p className="rounded-md border border-success/30 bg-success-soft px-3 py-2 text-sm text-success">
               Valid · {rankingDepth} / {rankingDepth} eligible players matched
+              (Top {scoringDepth} + 2 reserves)
             </p>
           )}
 
@@ -147,7 +155,9 @@ export function AiParserForm({
                     key={`${row.rank}-${row.rawName}`}
                     className="border-b border-border last:border-0"
                   >
-                    <td className="px-3 py-2 tabular-nums">{row.rank}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {row.isReserve ? `R${row.reserveSlot}` : row.rank}
+                    </td>
                     <td className="px-3 py-2 text-ink">{row.rawName || "—"}</td>
                     <td className="px-3 py-2 text-ink">
                       {row.matchedName ?? "—"}

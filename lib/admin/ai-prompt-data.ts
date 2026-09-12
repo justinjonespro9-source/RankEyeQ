@@ -9,7 +9,7 @@ import {
   type AiPromptMode,
   type AiPromptPlayer,
 } from "@/lib/admin/ai-prompt";
-import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
+import { CONTEST_POSITIONS, submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
 function kickoffForEntry(entry: {
@@ -106,6 +106,7 @@ export async function loadAiPromptContest(
     weekNumber: contest.week.weekNumber,
     position: contest.position,
     rankingDepth: contest.rankingDepth,
+    submissionDepth: submissionDepthFromScoring(contest.rankingDepth),
     rankingsOpenAt: contest.week.rankingsOpenAt,
     fullLockAt: contest.week.fullLockAt,
     players,

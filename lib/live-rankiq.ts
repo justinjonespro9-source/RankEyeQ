@@ -3,6 +3,8 @@ import { profileAppearsOnPublicSurfaces } from "@/lib/competitor-visibility";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
 import { scoreProvisionalEyeq } from "@/lib/live-provisional";
+import { isScorablePickCount } from "@/lib/contest-defaults";
+import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import type { ContestPosition, ProfileType } from "@/lib/generated/prisma/client";
 
 export type LiveRankerRow = {
@@ -91,7 +93,9 @@ export async function getLiveContestRankerBoard(contestId: string) {
       entries: { where: { excluded: false } },
       submissions: {
         include: {
-          picks: true,
+          picks: {
+            include: { rankableEntry: { include: { game: true } } },
+          },
           universalProfile: true,
         },
       },
@@ -108,7 +112,9 @@ export async function getLiveContestRankerBoard(contestId: string) {
   const rows: Omit<LiveRankerRow, "rank">[] = [];
   for (const submission of contest.submissions) {
     if (!submissionIsEligible(submission.status)) continue;
-    if (submission.picks.length !== contest.rankingDepth) continue;
+    if (!isScorablePickCount(submission.picks.length, contest.rankingDepth)) {
+      continue;
+    }
     if (
       !profileAppearsOnPublicSurfaces({
         profileType: submission.universalProfile.profileType,
@@ -119,12 +125,17 @@ export async function getLiveContestRankerBoard(contestId: string) {
       continue;
     }
 
+    const effective = scoreableEffectivePicks({
+      picks: submission.picks,
+      scoringDepth: contest.rankingDepth,
+    });
+
     const summary = scoreProvisionalEyeq(
-      submission.picks.map((pick) => ({
-        playerId: pick.rankableEntryId,
-        playerName: pick.rankableEntryId,
+      effective.map((pick) => ({
+        playerId: pick.playerId,
+        playerName: pick.playerId,
         predictedRank: pick.predictedRank,
-        provisionalActualRank: actualById.get(pick.rankableEntryId) ?? null,
+        provisionalActualRank: actualById.get(pick.playerId) ?? null,
       })),
       contest.rankingDepth,
     );

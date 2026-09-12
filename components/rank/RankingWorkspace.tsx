@@ -123,7 +123,8 @@ export function RankingWorkspace({
 
   const filledCount = rankedEntryIds.filter(Boolean).length;
   const allFilled = filledCount === challenge.slotCount;
-  const boardTitle = `Your ${challenge.shortLabel.toUpperCase()} Top ${challenge.slotCount}`;
+  const scoringDepth = challenge.scoringDepth ?? challenge.slotCount - 2;
+  const boardTitle = `Your ${challenge.shortLabel.toUpperCase()} Top ${scoringDepth} + reserves`;
 
   const contestOpen =
     contestStatus === "DRAFT" ||
@@ -288,6 +289,7 @@ export function RankingWorkspace({
       <RankingBoard
         slots={slots}
         slotCount={challenge.slotCount}
+        scoringDepth={scoringDepth}
         title={boardTitle}
         editable={editable && !pending}
         lockedIndexes={lockedIndexes}

@@ -9,6 +9,12 @@ import { validatePartialLockEdit } from "@/lib/timing/partial-lock";
 import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
 import { rankingEditWindowError } from "@/lib/timing/submission-window";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
+import {
+  submissionDepthFromScoring,
+  isScorablePickCount,
+} from "@/lib/contest-defaults";
+import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
+import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
 
 export class SubmissionError extends Error {
   constructor(message: string) {
@@ -117,11 +123,11 @@ export async function getOrCreateDraftSubmission(
 
 function assertUniqueOrderedPicks(
   rankedEntryIds: string[],
-  rankingDepth: number,
+  depth: number,
 ) {
-  if (rankedEntryIds.length !== rankingDepth) {
+  if (rankedEntryIds.length !== depth) {
     throw new SubmissionError(
-      `Exactly ${rankingDepth} picks are required (received ${rankedEntryIds.length})`,
+      `Exactly ${depth} picks are required (received ${rankedEntryIds.length})`,
     );
   }
 
@@ -129,6 +135,10 @@ function assertUniqueOrderedPicks(
   if (unique.size !== rankedEntryIds.length) {
     throw new SubmissionError("Duplicate entries are not allowed");
   }
+}
+
+function humanAiSubmissionDepth(scoringDepth: number) {
+  return submissionDepthFromScoring(scoringDepth);
 }
 
 async function assertEntriesBelongToContest(
@@ -239,15 +249,18 @@ export async function saveSubmissionPicks(input: {
     where: { submissionId: submission.id },
   });
 
-  const slots = input.rankedEntryIds.slice(0, contest.rankingDepth);
-  while (slots.length < contest.rankingDepth) slots.push(null);
+  const scoringDepth = contest.rankingDepth;
+  const submissionDepth = humanAiSubmissionDepth(scoringDepth);
+
+  const slots = input.rankedEntryIds.slice(0, submissionDepth);
+  while (slots.length < submissionDepth) slots.push(null);
 
   const filled = slots.filter(
     (id): id is string => typeof id === "string" && id.length > 0,
   );
 
   if (input.requireComplete) {
-    assertUniqueOrderedPicks(filled, contest.rankingDepth);
+    assertUniqueOrderedPicks(filled, submissionDepth);
   } else {
     const unique = new Set(filled);
     if (unique.size !== filled.length) {
@@ -324,6 +337,30 @@ export async function saveSubmissionPicks(input: {
         Boolean(kickoff && now >= kickoff) ||
         timing.fullBoardLocked;
 
+      const isReserve = row.predictedRank > scoringDepth;
+      let reserveEligiblePredecessorIds: string[] | undefined =
+        Array.isArray(prior?.reserveEligiblePredecessorIds)
+          ? (prior!.reserveEligiblePredecessorIds as string[])
+          : undefined;
+      let wasUnavailableAtKickoff = prior?.wasUnavailableAtKickoff ?? null;
+
+      if (slotLocked && wasUnavailableAtKickoff == null) {
+        const availability = availabilityByEntryId.get(row.rankableEntryId);
+        wasUnavailableAtKickoff = freezeUnavailableAtKickoff(availability);
+      }
+
+      if (
+        slotLocked &&
+        isReserve &&
+        reserveEligiblePredecessorIds === undefined
+      ) {
+        reserveEligiblePredecessorIds = snapshotReservePredecessors({
+          picks: rows,
+          reservePredictedRank: row.predictedRank,
+          scoringDepth,
+        });
+      }
+
       await tx.rankingPick.create({
         data: {
           submissionId: submission.id,
@@ -339,6 +376,10 @@ export async function saveSubmissionPicks(input: {
           committedAt: slotLocked
             ? (prior?.committedAt ?? now)
             : now,
+          wasUnavailableAtKickoff,
+          ...(reserveEligiblePredecessorIds !== undefined
+            ? { reserveEligiblePredecessorIds }
+            : {}),
         },
       });
     }
@@ -380,7 +421,10 @@ export async function submitRanking(input: {
   const filled = input.rankedEntryIds.filter(
     (id): id is string => typeof id === "string" && id.length > 0,
   );
-  assertUniqueOrderedPicks(filled, contest.rankingDepth);
+  assertUniqueOrderedPicks(
+    filled,
+    humanAiSubmissionDepth(contest.rankingDepth),
+  );
   await assertEntriesBelongToContest(input.contestId, filled);
 
   const saved = await saveSubmissionPicks({
@@ -431,18 +475,18 @@ export async function lockContestSubmissions(contestId: string, now = new Date()
 
 export function picksToRankedIds(
   picks: { predictedRank: number; rankableEntryId: string }[],
-  rankingDepth: number,
+  depth: number,
 ): (string | null)[] {
   const slots: (string | null)[] = Array.from(
-    { length: rankingDepth },
+    { length: depth },
     () => null,
   );
   for (const pick of picks) {
-    if (pick.predictedRank >= 1 && pick.predictedRank <= rankingDepth) {
+    if (pick.predictedRank >= 1 && pick.predictedRank <= depth) {
       slots[pick.predictedRank - 1] = pick.rankableEntryId;
     }
   }
   return slots;
 }
 
-export { submissionIsEligible };
+export { submissionIsEligible, isScorablePickCount, humanAiSubmissionDepth };

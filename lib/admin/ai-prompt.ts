@@ -1,5 +1,8 @@
 import { formatInChicago, RANKIQ_TIMEZONE } from "@/lib/timing/chicago";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import {
+  rankingDepthForPosition,
+  submissionDepthForPosition,
+} from "@/lib/contest-defaults";
 import type {
   ContestPosition,
   EntryAvailability,
@@ -10,7 +13,7 @@ import {
 } from "@/lib/eligibility/weekly-status";
 
 /** Stable identifier for the weekly AI competition prompt. Bump when instructions change. */
-export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V2" as const;
+export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V3" as const;
 
 export type AiPromptPlayer = {
   name: string;
@@ -35,7 +38,10 @@ export type AiPromptContest = {
   weekLabel: string;
   weekNumber: number;
   position: ContestPosition;
+  /** Scoring depth (Top 10 / Top 15). */
   rankingDepth: number;
+  /** Submission depth including ordered reserves (12 / 17). */
+  submissionDepth: number;
   rankingsOpenAt: Date | null;
   fullLockAt: Date | null;
   /** All field players (eligible + unavailable). Caller may also split. */
@@ -61,6 +67,7 @@ export type AiPromptMeta = {
   weekNumber: number;
   position: ContestPosition;
   fieldSize: number;
+  scoringDepth: number;
   eligiblePoolCount: number;
   unavailableCount: number;
   lockedCount: number;
@@ -79,6 +86,10 @@ export const AI_WEEKLY_SCORING_RULES = [
 ] as const;
 
 export function expectedAiFieldSize(position: ContestPosition): number {
+  return submissionDepthForPosition(position);
+}
+
+export function expectedAiScoringDepth(position: ContestPosition): number {
   return rankingDepthForPosition(position);
 }
 
@@ -197,7 +208,8 @@ export function buildAiPromptMeta(
     weekLabel: contest.weekLabel,
     weekNumber: contest.weekNumber,
     position: contest.position,
-    fieldSize: contest.rankingDepth,
+    fieldSize: contest.submissionDepth,
+    scoringDepth: contest.rankingDepth,
     eligiblePoolCount: options?.eligibleCount ?? contest.players.length,
     unavailableCount: options?.unavailableCount ?? 0,
     lockedCount: options?.lockedCount ?? contest.lockedSelections?.length ?? 0,
@@ -243,7 +255,8 @@ export function buildAiRankingPrompt(
     now?: Date;
   },
 ): string {
-  const depth = contest.rankingDepth;
+  const depth = contest.submissionDepth;
+  const scoringDepth = contest.rankingDepth;
   const now = options?.now ?? options?.generatedAt ?? new Date();
   const locked = contest.lockedSelections ?? [];
   const mode =
@@ -306,7 +319,8 @@ export function buildAiRankingPrompt(
       })
     : `Sunday 10:00 AM ${RANKIQ_TIMEZONE}`;
 
-  const topLabel = `Top ${depth}`;
+  const topLabel = `Top ${scoringDepth}`;
+  const reserveRanks = `${scoringDepth + 1}–${depth}`;
 
   return `You are competing in RankEyeQ, a weekly fantasy-football player-ranking competition.
 
@@ -316,7 +330,11 @@ Contest:
 - Season: ${contest.seasonYear} ${contest.sport}
 - Week: ${contest.weekLabel} (Week ${contest.weekNumber})
 - Position: ${contest.position}
-- Rank exactly ${depth} players (${topLabel})
+- Rank EXACTLY ${depth} players (numbered 1 through ${depth})
+- Slots 1–${scoringDepth} are your scoring board (${topLabel})
+- Slots ${reserveRanks} are ordered reserves (R1 then R2)
+- Reserves may automatically promote into the scoring board if an active pick becomes officially unavailable (OUT / INACTIVE / IR / PUP / SUSPENDED / FREE_AGENT) before that player's kickoff
+- Rank reserves honestly as your next-best choices — do not treat them as throwaway picks
 - ${AI_WEEKLY_SCORING_RULES[0]}
 - ${AI_WEEKLY_SCORING_RULES[1]}
 - ${AI_WEEKLY_SCORING_RULES[2]}
@@ -356,7 +374,7 @@ Only select players from the ELIGIBLE PLAYER POOL below.
 Never select anyone listed under UNAVAILABLE — DO NOT SELECT.
 ${
   locked.length > 0
-    ? "Keep every LOCKED SELECTION in its exact listed slot and fill only unlocked slots from the eligible pool."
+    ? "Keep every LOCKED SELECTION in its exact listed slot (including locked reserves) and fill only unlocked slots from the eligible pool."
     : ""
 }
 
@@ -379,7 +397,8 @@ Mode: ${meta.mode}
 Eligible pool count: ${meta.eligiblePoolCount}
 Unavailable count: ${meta.unavailableCount}
 Locked slots: ${meta.lockedCount}
-Field size: ${meta.fieldSize}`;
+Field size: ${meta.fieldSize}
+Scoring depth: ${meta.scoringDepth}`;
 }
 
 export function buildAiPromptBundle(
@@ -431,7 +450,7 @@ export function buildAllPositionPrompts(
     contests
       .map(
         (contest) =>
-          `===== ${contest.position} · Top ${contest.rankingDepth} =====\n${buildAiRankingPrompt(contest, { aiDisplayName: botDisplayName })}`,
+          `===== ${contest.position} · Top ${contest.rankingDepth} + 2 reserves =====\n${buildAiRankingPrompt(contest, { aiDisplayName: botDisplayName })}`,
       )
       .join("\n\n")
   );

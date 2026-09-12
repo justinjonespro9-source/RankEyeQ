@@ -49,6 +49,9 @@ export type ParsedPickPreview = {
   matchedName: string | null;
   issue: ParserIssue | null;
   candidates: Array<{ id: string; name: string }>;
+  /** True when rank is beyond scoring depth (ordered reserve). */
+  isReserve?: boolean;
+  reserveSlot?: number | null;
 };
 
 import {
@@ -228,6 +231,8 @@ export function matchParsedRankings(input: {
   lines: ParsedRankLine[];
   eligible: EligibleParserEntry[];
   rankingDepth: number;
+  /** Scoring board size; ranks above this are labeled reserves. Defaults to rankingDepth. */
+  scoringDepth?: number;
   /** Broader player universe used to distinguish unknown vs ineligible. */
   universe?: EligibleParserEntry[];
   /** Same-name matches at other positions (wrong_position vs unknown). */
@@ -236,6 +241,7 @@ export function matchParsedRankings(input: {
   const seenRanks = new Map<number, number>();
   const seenPlayers = new Map<string, number>();
   const previews: ParsedPickPreview[] = [];
+  const scoringDepth = input.scoringDepth ?? input.rankingDepth;
 
   for (const line of input.lines) {
     const matches = findNameMatches(line.rawName, input.eligible);
@@ -273,6 +279,7 @@ export function matchParsedRankings(input: {
       issue = "too_many";
     }
 
+    const isReserve = line.rank > scoringDepth && line.rank <= input.rankingDepth;
     previews.push({
       rank: line.rank,
       rawName: line.rawName,
@@ -280,11 +287,14 @@ export function matchParsedRankings(input: {
       matchedName,
       issue,
       candidates: matches.map((entry) => ({ id: entry.id, name: entry.name })),
+      isReserve,
+      reserveSlot: isReserve ? line.rank - scoringDepth : null,
     });
   }
 
   for (let rank = 1; rank <= input.rankingDepth; rank += 1) {
     if (!seenRanks.has(rank)) {
+      const isReserve = rank > scoringDepth;
       previews.push({
         rank,
         rawName: "",
@@ -292,6 +302,8 @@ export function matchParsedRankings(input: {
         matchedName: null,
         issue: "missing_rank",
         candidates: [],
+        isReserve,
+        reserveSlot: isReserve ? rank - scoringDepth : null,
       });
     }
   }

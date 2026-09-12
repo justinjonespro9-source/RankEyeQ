@@ -177,8 +177,11 @@ export function MyRanksDashboard({
               ) : null}
             </div>
           ) : (
+            <>
             <ol className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
-              {dashboard.picks.map((pick) => (
+              {dashboard.picks
+                .filter((pick) => !pick.isReserve)
+                .map((pick) => (
                 <li
                   key={pick.rankableEntryId}
                   className={`flex items-start justify-between gap-3 px-3 py-3 sm:px-4 ${standingRowShellClass(
@@ -197,6 +200,11 @@ export function MyRanksDashboard({
                         #{pick.predictedRank}
                       </span>{" "}
                       {pick.name}
+                      {pick.displaced ? (
+                        <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-warning">
+                          OUT · displaced
+                        </span>
+                      ) : null}
                     </p>
                     <p className="mt-0.5 text-xs text-muted">
                       {pick.team}
@@ -218,6 +226,59 @@ export function MyRanksDashboard({
                 </li>
               ))}
             </ol>
+            {dashboard.picks.some((p) => p.isReserve) ? (
+              <div className="mt-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Reserves
+                </h3>
+                {dashboard.activations.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-xs text-muted">
+                    {dashboard.activations.map((a) => (
+                      <li key={`${a.reserveSlot}-${a.effectiveRank}`}>
+                        R{a.reserveSlot} {a.reserveName} → activated to{" "}
+                        {dashboard.position}
+                        {a.effectiveRank}. Replaced: {a.replacedName}
+                        {a.replacedAvailability
+                          ? ` (${a.replacedAvailability})`
+                          : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <ol className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-dashed border-border bg-surface">
+                  {dashboard.picks
+                    .filter((pick) => pick.isReserve)
+                    .map((pick) => (
+                      <li
+                        key={pick.rankableEntryId}
+                        className="flex items-start justify-between gap-3 px-3 py-3 sm:px-4"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-ink">
+                            <span className="font-display tabular-nums text-muted">
+                              R{pick.reserveSlot}
+                            </span>{" "}
+                            {pick.name}
+                            {pick.activatedToRank != null ? (
+                              <span className="ml-2 text-xs font-medium text-success">
+                                → {dashboard.position}
+                                {pick.activatedToRank}
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted">
+                            {pick.team}
+                            {pick.replacedName
+                              ? ` · Replaced ${pick.replacedName}`
+                              : " · Reserve"}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                </ol>
+              </div>
+            ) : null}
+            </>
           )}
         </section>
 

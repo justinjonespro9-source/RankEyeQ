@@ -837,6 +837,13 @@ model RankingPick {
   slotLocked      Boolean   @default(false)
   /// Original third-party source rank when this pick came from a benchmark snapshot.
   sourceRank      Int?
+  /// When this pick's kickoff locked: active-board entry IDs that were ranked
+  /// ahead of this pick (anti-hindsight eligibility for reserve promotion).
+  /// JSON string[] — only meaningful for reserve slots (predictedRank > scoringDepth).
+  reserveEligiblePredecessorIds Json?
+  /// Frozen at this pick's kickoff: whether availability was promotion-unavailable.
+  /// null = kickoff not yet reached (derive from live availability).
+  wasUnavailableAtKickoff Boolean?
 
   submission    RankingSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   rankableEntry RankableEntry     @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)

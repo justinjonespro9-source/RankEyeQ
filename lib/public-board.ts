@@ -32,6 +32,7 @@ import {
   scoreProvisionalEyeq,
   type ProvisionalStandingStatus,
 } from "@/lib/live-provisional";
+import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 
 export type PublicBoardPick = {
   predictedRank: number;
@@ -423,12 +424,16 @@ export async function getPublicProfileBoard(input: {
   let liveEyeq: PublicBoardLiveEyeq | null = null;
   if (!contestIsFinal && submissionIsEligible(submission.status)) {
     const summary = scoreProvisionalEyeq(
-      submission.picks.map((pick) => ({
-        playerId: pick.rankableEntryId,
-        playerName: pick.rankableEntry.name,
+      scoreableEffectivePicks({
+        picks: submission.picks,
+        scoringDepth: contest.rankingDepth,
+      }).map((pick) => ({
+        playerId: pick.playerId,
+        playerName:
+          submission.picks.find((p) => p.rankableEntryId === pick.playerId)
+            ?.rankableEntry.name ?? pick.playerId,
         predictedRank: pick.predictedRank,
-        provisionalActualRank:
-          provisionalById.get(pick.rankableEntryId) ?? null,
+        provisionalActualRank: provisionalById.get(pick.playerId) ?? null,
       })),
       contest.rankingDepth,
     );

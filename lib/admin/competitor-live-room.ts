@@ -1,5 +1,9 @@
 import { listActiveAiCompetitors } from "@/lib/ai-competitors-sync";
-import { CONTEST_POSITIONS, toUiPosition } from "@/lib/contest-defaults";
+import {
+  CONTEST_POSITIONS,
+  isScorablePickCount,
+  toUiPosition,
+} from "@/lib/contest-defaults";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import {
   competitorVisibilityBadgeLabel,
@@ -17,6 +21,7 @@ import { getActiveSeasonAndWeek } from "@/lib/leaderboards";
 import { scoreProvisionalEyeq } from "@/lib/live-provisional";
 import { provisionalRanksFromPoints } from "@/lib/live-rankiq";
 import { getMyRanksPositionDashboard } from "@/lib/my-ranks";
+import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import type {
   ContestPosition,
   ContestStatus,
@@ -290,6 +295,15 @@ export async function listCompetitorLiveRoom(input: {
               select: {
                 rankableEntryId: true,
                 predictedRank: true,
+                wasUnavailableAtKickoff: true,
+                reserveEligiblePredecessorIds: true,
+                rankableEntry: {
+                  select: {
+                    availability: true,
+                    gameStartsAt: true,
+                    game: { select: { startsAt: true } },
+                  },
+                },
               },
             },
             contest: {
@@ -397,26 +411,36 @@ export async function listCompetitorLiveRoom(input: {
         let totalPicks = contest.rankingDepth;
 
         if (hasSubmission && submission) {
-          totalPicks = submission.picks.length || contest.rankingDepth;
+          totalPicks = contest.rankingDepth;
           if (isFinal && submission.normalizedScore != null) {
             eyeqScore = submission.normalizedScore;
             eyeqIsLive = false;
             resolvedCount = totalPicks;
           } else if (!isFinal) {
-            const rankById = provisionalByContest.get(contest.id) ?? new Map();
-            const summary = scoreProvisionalEyeq(
-              submission.picks.map((pick) => ({
-                playerId: pick.rankableEntryId,
-                playerName: pick.rankableEntryId,
-                predictedRank: pick.predictedRank,
-                provisionalActualRank: rankById.get(pick.rankableEntryId) ?? null,
-              })),
-              contest.rankingDepth,
-            );
-            resolvedCount = summary.resolvedCount;
-            if (summary.resolvedCount > 0) {
-              eyeqScore = summary.liveEyeqScore;
-              eyeqIsLive = true;
+            if (
+              !isScorablePickCount(submission.picks.length, contest.rankingDepth)
+            ) {
+              // incomplete board — leave EYEQ empty
+            } else {
+              const rankById = provisionalByContest.get(contest.id) ?? new Map();
+              const effective = scoreableEffectivePicks({
+                picks: submission.picks,
+                scoringDepth: contest.rankingDepth,
+              });
+              const summary = scoreProvisionalEyeq(
+                effective.map((pick) => ({
+                  playerId: pick.playerId,
+                  playerName: pick.playerId,
+                  predictedRank: pick.predictedRank,
+                  provisionalActualRank: rankById.get(pick.playerId) ?? null,
+                })),
+                contest.rankingDepth,
+              );
+              resolvedCount = summary.resolvedCount;
+              if (summary.resolvedCount > 0) {
+                eyeqScore = summary.liveEyeqScore;
+                eyeqIsLive = true;
+              }
             }
           }
         }

@@ -7,7 +7,7 @@ import {
   type MergePick,
   type MergedSlot,
 } from "@/lib/benchmarks/merge";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import { rankingDepthForPosition, submissionDepthFromScoring, isScorablePickCount } from "@/lib/contest-defaults";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import type {
   BenchmarkCaptureType,
@@ -124,7 +124,9 @@ async function regradeSubmissionIfActualsExist(
     (entry) => entry.actualRank != null && entry.actualRank > 0,
   );
   if (ranked.length < submission.contest.rankingDepth) return;
-  if (submission.picks.length !== submission.contest.rankingDepth) return;
+  if (!isScorablePickCount(submission.picks.length, submission.contest.rankingDepth)) {
+    return;
+  }
 
   const actualByEntryId = new Map(
     submission.contest.entries
@@ -138,11 +140,18 @@ async function regradeSubmissionIfActualsExist(
       ]),
   );
 
-  const scoreable: ScoreablePick[] = submission.picks.map((pick) => {
-    const result = actualByEntryId.get(pick.rankableEntryId);
+  const { scoreableEffectivePicks } = await import(
+    "@/lib/reserves/from-submission"
+  );
+  const effective = scoreableEffectivePicks({
+    picks: submission.picks,
+    scoringDepth: submission.contest.rankingDepth,
+  });
+  const scoreable: ScoreablePick[] = effective.map((pick) => {
+    const result = actualByEntryId.get(pick.playerId);
     return {
-      playerId: pick.rankableEntryId,
-      playerName: pick.rankableEntryId,
+      playerId: pick.playerId,
+      playerName: pick.playerId,
       predictedRank: pick.predictedRank,
       actualRank: result?.actualRank ?? submission.contest.rankingDepth + 100,
     };
@@ -299,9 +308,9 @@ export async function captureBenchmarkSnapshot(input: {
   }
 
   const selectedCount = input.picks.filter((pick) => pick.selected).length;
-  if (selectedCount !== contest.rankingDepth) {
+  if (!isScorablePickCount(selectedCount, contest.rankingDepth)) {
     throw new BenchmarkCaptureError(
-      `Exactly ${contest.rankingDepth} selected eligible picks are required (received ${selectedCount})`,
+      `Selected eligible picks must be Top ${contest.rankingDepth}–${submissionDepthFromScoring(contest.rankingDepth)} (received ${selectedCount}). Do not fabricate reserves.`,
     );
   }
 
@@ -337,7 +346,7 @@ export async function captureBenchmarkSnapshot(input: {
       }));
 
     const merged = mergeSundayWithThursdayLocks({
-      rankingDepth: contest.rankingDepth,
+      rankingDepth: selectedCount,
       now: input.capturedAt,
       thursday: thursdaySnap
         ? { capturedAt: thursdaySnap.capturedAt, selected: thursdayPicks }
@@ -360,7 +369,7 @@ export async function captureBenchmarkSnapshot(input: {
     } else {
       throw new BenchmarkCaptureError(
         merged.warnings.join(" ") ||
-          `Cannot lock official Top ${contest.rankingDepth} board — merged board incomplete.`,
+          `Cannot lock official board (${selectedCount} slots) — merged board incomplete.`,
       );
     }
   }
@@ -461,7 +470,7 @@ export async function captureBenchmarkSnapshot(input: {
         {
           contestId: input.contestId,
           universalProfileId: input.universalProfileId,
-          rankingDepth: contest.rankingDepth,
+          rankingDepth: officialSlots.length,
           capturedAt: input.capturedAt,
           slots: officialSlots,
         },

@@ -6,11 +6,13 @@ import type { RankingPlayer } from "@/types/contest";
 
 export function RankingSlot({
   rank,
+  rankLabel,
   player,
   editable,
   locked,
   isDragging,
   podiumPick = false,
+  reserve = false,
   onRemove,
   onMoveUp,
   onMoveDown,
@@ -22,11 +24,13 @@ export function RankingSlot({
   onDragEnd,
 }: {
   rank: number;
+  rankLabel?: string;
   player: RankingPlayer | null;
   editable: boolean;
   locked: boolean;
   isDragging: boolean;
   podiumPick?: boolean;
+  reserve?: boolean;
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -38,10 +42,12 @@ export function RankingSlot({
   onDragEnd: () => void;
 }) {
   const slotEditable = editable && !locked;
+  const displayRank = rankLabel ?? String(rank);
 
   return (
     <li
       data-slot={rank}
+      data-reserve={reserve ? "true" : "false"}
       data-locked={locked ? "true" : "false"}
       onDragOver={onDragOver}
       onDrop={(event) => {
@@ -51,19 +57,21 @@ export function RankingSlot({
       className={`flex min-h-[3.5rem] min-w-0 items-center gap-2 rounded-md border bg-surface px-2.5 py-2 sm:min-h-14 sm:gap-3 sm:px-3 ${
         locked
           ? "border-warning/50 bg-warning-soft/40"
-          : podiumPick
-            ? "border-accent/35 bg-accent-soft/25"
-            : player
-              ? "border-border"
-              : "border-dashed border-border"
+          : reserve
+            ? "border-border/80 bg-surface"
+            : podiumPick
+              ? "border-accent/35 bg-accent-soft/25"
+              : player
+                ? "border-border"
+                : "border-dashed border-border"
       } ${isDragging ? "opacity-50" : ""}`}
     >
       <span
         className={`font-display w-7 shrink-0 text-center text-sm font-semibold tabular-nums sm:w-8 ${
-          podiumPick ? "text-accent-ink" : "text-accent-ink"
+          reserve ? "text-muted" : "text-accent-ink"
         }`}
       >
-        {rank}
+        {displayRank}
       </span>
 
       {player ? (

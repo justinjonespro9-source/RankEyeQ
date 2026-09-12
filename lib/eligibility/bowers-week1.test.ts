@@ -37,6 +37,7 @@ describe("Brock Bowers Week 1 OUT eligibility", () => {
       weekNumber: 1,
       position: "TE" as const,
       rankingDepth: 10,
+      submissionDepth: 12,
       rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
       fullLockAt: globalLock,
       players: [
@@ -73,6 +74,7 @@ describe("Brock Bowers Week 1 OUT eligibility", () => {
       weekNumber: 1,
       position: "TE" as const,
       rankingDepth: 10,
+      submissionDepth: 12,
       rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
       fullLockAt: globalLock,
       players: [bowers],

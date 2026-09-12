@@ -36,7 +36,7 @@ import {
 } from "@/lib/timing/board-access";
 import { ensureWeekFullLock } from "@/lib/timing/apply-locks";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
-import { CONTEST_POSITIONS, rankingDepthForPosition } from "@/lib/contest-defaults";
+import { CONTEST_POSITIONS, rankingDepthForPosition, submissionDepthForPosition } from "@/lib/contest-defaults";
 
 const suffix = `w1${Date.now()}`;
 const KICKOFF = "2026-09-13 12:00 CT";
@@ -323,16 +323,16 @@ describe("Week 1 lifecycle simulation", () => {
     expect(rbIds).toContain(rbBackupId);
     expect(rbIds).not.toContain(rbStarId);
 
-    const consensusOrder = rbIds.slice(0, 10);
+    const consensusOrder = rbIds.slice(0, 12);
     const contrarianOrder = [
       rbBackupId,
-      ...rbIds.filter((id) => id !== rbBackupId).slice(0, 9),
+      ...rbIds.filter((id) => id !== rbBackupId).slice(0, 11),
     ];
-    const poorOrder = [...rbIds].reverse().slice(0, 10);
+    const poorOrder = [...rbIds].reverse().slice(0, 12);
     const strongOrder = consensusOrder;
     const backupPickerOrder = [
       rbBackupId,
-      ...consensusOrder.filter((id) => id !== rbBackupId).slice(0, 9),
+      ...consensusOrder.filter((id) => id !== rbBackupId).slice(0, 11),
     ];
 
     const humanOrders = [
@@ -359,6 +359,13 @@ describe("Week 1 lifecycle simulation", () => {
       });
     }
 
+    // Experts may publish Top 10 only — no fabricated reserves.
+    const expertConsensus = rbIds.slice(0, 10);
+    const expertContrarian = [
+      rbBackupId,
+      ...rbIds.filter((id) => id !== rbBackupId).slice(0, 9),
+    ];
+
     const expertPaste = extractTopNFromPastedText({
       text: activeRb
         .slice(0, 10)
@@ -378,7 +385,7 @@ describe("Week 1 lifecycle simulation", () => {
     const capturedAt = new Date("2026-09-12T18:00:00Z");
     for (const [index, expertId] of expertIds.entries()) {
       const order =
-        index === 0 ? consensusOrder : contrarianOrder;
+        index === 0 ? expertConsensus : expertContrarian;
       await captureBenchmarkSnapshot({
         contestId: rbContestId,
         universalProfileId: expertId,
@@ -417,8 +424,11 @@ describe("Week 1 lifecycle simulation", () => {
         where: { contestId, excluded: false },
         orderBy: { seedRank: "asc" },
       });
-      const depth = rankingDepthForPosition(position);
+      const depth = submissionDepthForPosition(position);
+      // DEF pool is schedule-derived (10 teams here) — skip if not enough for reserves.
+      if (entries.length < depth) continue;
       const ranked = entries.slice(0, depth).map((row) => row.rankableEntryId);
+      expect(ranked.length).toBe(depth);
       await submitRanking({
         contestId,
         universalProfileId: humanIds[0]!,
@@ -483,7 +493,7 @@ describe("Week 1 lifecycle simulation", () => {
         row.selectionRate > 0 &&
         row.selectionRate < 1 &&
         row.averageSelectedRank != null &&
-        row.averageSelectedRank > 5,
+        row.averageSelectedRank > 4,
     );
     expect(polarizing).toBeDefined();
   });

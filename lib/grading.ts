@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { resolveScoringConfigForContest } from "@/lib/ranking-scoring-versions";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
+import { isScorablePickCount } from "@/lib/contest-defaults";
+import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 
 export class GradingError extends Error {
   constructor(message: string) {
@@ -21,7 +23,10 @@ export async function gradeContest(contestId: string) {
       entries: true,
       submissions: {
         include: {
-          picks: { orderBy: { predictedRank: "asc" } },
+          picks: {
+            orderBy: { predictedRank: "asc" },
+            include: { rankableEntry: { include: { game: true } } },
+          },
         },
       },
     },
@@ -65,23 +70,43 @@ export async function gradeContest(contestId: string) {
   try {
     await prisma.$transaction(async (tx) => {
       for (const submission of eligible) {
-        if (submission.picks.length !== contest.rankingDepth) {
+        if (!isScorablePickCount(submission.picks.length, contest.rankingDepth)) {
           // Incomplete eligible states shouldn't happen for SUBMITTED/LOCKED,
           // but skip rather than invent picks.
           continue;
         }
 
-        const scoreable: ScoreablePick[] = submission.picks.map((pick) => {
-          const result = actualByEntryId.get(pick.rankableEntryId);
+        const effective = scoreableEffectivePicks({
+          picks: submission.picks,
+          scoringDepth: contest.rankingDepth,
+        });
+
+        const scoreable: ScoreablePick[] = effective.map((pick) => {
+          const result = actualByEntryId.get(pick.playerId);
           return {
-            playerId: pick.rankableEntryId,
-            playerName: pick.rankableEntryId,
+            playerId: pick.playerId,
+            playerName: pick.playerId,
             predictedRank: pick.predictedRank,
             actualRank: result?.actualRank ?? contest.rankingDepth + 100,
           };
         });
 
         const summary = scoreContest(scoreable, contest.rankingDepth, config);
+
+        // Clear prior pick scores (reserves / displaced stay unscored).
+        for (const pick of submission.picks) {
+          await tx.rankingPick.update({
+            where: { id: pick.id },
+            data: {
+              actualRank: null,
+              fantasyPoints: null,
+              basePoints: null,
+              accuracyPoints: null,
+              podiumPoints: null,
+              totalPoints: null,
+            },
+          });
+        }
 
         for (const row of summary.players) {
           const pick = submission.picks.find(

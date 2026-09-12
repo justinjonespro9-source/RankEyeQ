@@ -20,7 +20,10 @@ export type ContestPositionConfig = {
   position: Position;
   label: string;
   shortLabel: string;
+  /** Submission slots including ordered reserves. */
   slotCount: number;
+  /** Active EYEQ scoring depth (excludes reserves). */
+  scoringDepth: number;
   description: string;
 };
 
