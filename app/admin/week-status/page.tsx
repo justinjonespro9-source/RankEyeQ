@@ -10,12 +10,14 @@ import {
   bulkMarkActiveAction,
   bulkMarkOutAction,
   setWeekPlayerStatusAction,
+  syncNflInjuryStatusAction,
   syncWeekStatusFromProviderAction,
 } from "@/lib/admin-week-status-actions";
 import {
   loadWeekStatusBoard,
   WEEKLY_AVAILABILITY_VALUES,
 } from "@/lib/admin/week-status";
+import { getLastInjurySyncAt } from "@/lib/nfl/injury-sync";
 import {
   AVAILABILITY_FULL_LABEL,
   isSelectableAvailability,
@@ -48,6 +50,16 @@ export default async function AdminWeekStatusPage({
     position?: string;
     team?: string;
     q?: string;
+    synced?: string;
+    matched?: string;
+    updated?: string;
+    unchanged?: string;
+    questionable?: string;
+    doubtful?: string;
+    out?: string;
+    unmatched?: string;
+    source?: string;
+    syncError?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -78,6 +90,30 @@ export default async function AdminWeekStatusPage({
         query: q || undefined,
       })
     : [];
+  const lastSyncAt = weekId ? await getLastInjurySyncAt(weekId) : null;
+
+  const unmatchedAudit =
+    weekId && params.synced
+      ? await prisma.adminAuditLog.findFirst({
+          where: {
+            action: "week_status.injury_synced",
+            entityId: weekId,
+          },
+          orderBy: { createdAt: "desc" },
+          select: { metadata: true, createdAt: true },
+        })
+      : null;
+  const unmatchedNames =
+    unmatchedAudit?.metadata &&
+    typeof unmatchedAudit.metadata === "object" &&
+    unmatchedAudit.metadata !== null &&
+    "unmatchedNames" in unmatchedAudit.metadata &&
+    Array.isArray(
+      (unmatchedAudit.metadata as { unmatchedNames?: unknown }).unmatchedNames,
+    )
+      ? ((unmatchedAudit.metadata as { unmatchedNames: string[] }).unmatchedNames ??
+        [])
+      : [];
 
   function href(next: {
     weekId?: string;
@@ -101,8 +137,38 @@ export default async function AdminWeekStatusPage({
       <SectionHeading
         eyebrow="Weekly eligibility"
         title="Week player status"
-        description="Canonical RankableEntry.availability for human pool + AI prompts. OUT/IR/PUP/etc. block new adds; QUESTIONABLE/DOUBTFUL stay selectable. Kickoff locks still win after game start."
+        description="Canonical RankableEntry.availability for human pool + AI prompts. Sync from NFL.com official injury report (Game Status). OUT/IR/PUP/etc. block new adds; QUESTIONABLE/DOUBTFUL stay selectable. Kickoff locks still win after game start. Expert/Creator boards are not auto-edited."
       />
+
+      {params.synced ? (
+        <div
+          className={`mb-4 rounded-md border px-3 py-3 text-sm ${
+            params.synced === "1"
+              ? "border-accent/30 bg-accent-soft text-accent-ink"
+              : "border-danger/30 bg-danger-soft text-danger"
+          }`}
+          role="status"
+        >
+          <p className="font-medium">
+            NFL status sync {params.synced === "1" ? "complete" : "failed"} ·
+            source {params.source ?? "none"}
+          </p>
+          <p className="mt-1">
+            Matched {params.matched ?? "0"} · Updated {params.updated ?? "0"} ·
+            Unchanged {params.unchanged ?? "0"} · Q {params.questionable ?? "0"}{" "}
+            · D {params.doubtful ?? "0"} · Out {params.out ?? "0"} · Unmatched{" "}
+            {params.unmatched ?? "0"}
+          </p>
+          {params.syncError ? (
+            <p className="mt-1">{params.syncError}</p>
+          ) : null}
+          {unmatchedNames.length > 0 ? (
+            <p className="mt-2 text-xs">
+              Unmatched for review: {unmatchedNames.join(", ")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         {weeks.map((week) => (
@@ -161,13 +227,33 @@ export default async function AdminWeekStatusPage({
       </form>
 
       {weekId ? (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <form action={syncNflInjuryStatusAction}>
+            <input type="hidden" name="weekId" value={weekId} />
+            <input type="hidden" name="position" value={position} />
+            <Button type="submit">Sync NFL Status</Button>
+          </form>
           <form action={syncWeekStatusFromProviderAction}>
             <input type="hidden" name="weekId" value={weekId} />
             <Button type="submit" variant="secondary">
-              Sync from season NFL status
+              Sync from season roster status
             </Button>
           </form>
+          {lastSyncAt ? (
+            <span className="text-xs text-muted">
+              Last NFL sync:{" "}
+              {formatInChicago(lastSyncAt, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZoneName: "short",
+              })}
+            </span>
+          ) : (
+            <span className="text-xs text-muted">No NFL injury sync yet</span>
+          )}
         </div>
       ) : null}
 
