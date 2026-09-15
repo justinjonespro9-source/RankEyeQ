@@ -193,8 +193,12 @@ export function ResultsWorkflowPanel({
               const formData = new FormData();
               formData.set("weekId", weekId);
               const result = await calculateActualFinishesAction(formData);
+              if (!result.ok) {
+                setMessage(result.error);
+                return;
+              }
               setMessage(
-                `Actual finishes calculated · ${result.summary} · total ${result.totalRanked}`,
+                `Actual finishes calculated · ${result.summary} · total ${result.total}`,
               );
             })
           }

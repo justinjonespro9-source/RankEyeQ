@@ -18,7 +18,10 @@ import {
   buildRankIqPositionPools,
   setContestEntryExcluded,
 } from "@/lib/nfl/pool-builder";
-import { calculateActualFinishesForWeek } from "@/lib/nfl/actual-finishes";
+import {
+  calculateActualFinishesForWeek,
+  summarizeActualFinishCounts,
+} from "@/lib/nfl/actual-finishes";
 import {
   finalizeWeek,
   getFinalizeWeekReadiness,
@@ -200,32 +203,80 @@ export async function commitWeekResultsAction(formData: FormData) {
 export async function calculateActualFinishesAction(formData: FormData) {
   const admin = await assertAdmin();
   const weekId = String(formData.get("weekId") || "");
-  const results = await calculateActualFinishesForWeek(weekId);
-  const summary = results
-    .map((row) => `${row.position}: ${row.contestEntriesRanked} ranked`)
-    .join(" · ");
-  const totalRanked = results.reduce(
-    (sum, row) => sum + row.contestEntriesRanked,
-    0,
-  );
-  if (totalRanked === 0) {
-    throw new Error(
-      `Calculate Actual Finishes wrote 0 ranks (${summary || "no contests"}).`,
-    );
-  }
-  await logAdminAction({
-    adminUserId: admin.user.id,
-    action: "week.actual_finishes_calculated",
-    entityType: "Week",
-    entityId: weekId,
-    metadata: {
+  try {
+    const results = await calculateActualFinishesForWeek(weekId);
+    const { byPosition, total, summary } = summarizeActualFinishCounts(results);
+    if (total === 0) {
+      return {
+        ok: false as const,
+        error: `Calculate Actual Finishes wrote 0 ranks (${summary || "no contests"}).`,
+        byPosition,
+        total,
+        summary,
+      };
+    }
+    await logAdminAction({
+      adminUserId: admin.user.id,
+      action: "week.actual_finishes_calculated",
+      entityType: "Week",
+      entityId: weekId,
+      metadata: {
+        summary,
+        total,
+        byPosition,
+        diagnostics: results.map((row) => ({
+          position: row.position,
+          contestId: row.contestId,
+          poolCount: row.poolCount,
+          withPoints: row.contestEntriesWithPoints,
+          ranked: row.contestEntriesRanked,
+        })),
+      },
+    });
+    revalidateDataPaths(weekId);
+    return {
+      ok: true as const,
+      byPosition,
+      total,
       summary,
-      totalRanked,
-      results,
-    },
-  });
-  revalidateDataPaths(weekId);
-  return { ok: true as const, results, summary, totalRanked };
+      // Alias fields kept for existing UI bindings.
+      totalRanked: total,
+      results: results.map((row) => ({
+        position: row.position,
+        contestId: row.contestId,
+        contestEntriesRanked: row.contestEntriesRanked,
+        contestEntriesWithPoints: row.contestEntriesWithPoints,
+        poolCount: row.poolCount,
+        tiedGroups: row.tiedGroups,
+      })),
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Calculate Actual Finishes failed";
+    logServerEvent(
+      "week.actual_finishes_failed",
+      { weekId, error: message },
+      "error",
+    );
+    // Return a plain object instead of throwing — avoids React #441
+    // (Server Components render error digest) on the admin client.
+    return {
+      ok: false as const,
+      error: message,
+      byPosition: {} as Record<string, number>,
+      total: 0,
+      summary: "",
+      totalRanked: 0,
+      results: [] as Array<{
+        position: string;
+        contestId: string;
+        contestEntriesRanked: number;
+        contestEntriesWithPoints: number;
+        poolCount: number;
+        tiedGroups: number;
+      }>,
+    };
+  }
 }
 
 export async function gradeWeekContestsAction(formData: FormData) {
