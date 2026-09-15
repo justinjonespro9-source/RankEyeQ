@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import { rankingDepthForPosition, RESERVE_COUNT } from "@/lib/contest-defaults";
 import { formatOpponentLabel } from "@/lib/providers/nfl/eligibility";
 import {
   parseWeeklyPoolPaste,
@@ -63,6 +63,7 @@ async function ensureContest(weekId: string, position: ContestPosition) {
       position,
       title: `Week ${week.weekNumber} ${position} Top ${rankingDepthForPosition(position)}`,
       rankingDepth: rankingDepthForPosition(position),
+      reserveCount: RESERVE_COUNT,
       status: "DRAFT",
     },
   });

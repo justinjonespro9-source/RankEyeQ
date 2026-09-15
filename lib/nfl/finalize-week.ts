@@ -17,7 +17,6 @@ import type { NflDataProvider } from "@/lib/providers/nfl/types";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import {
   CONTEST_POSITIONS,
-  isScorablePickCount,
 } from "@/lib/contest-defaults";
 
 export type PreflightStatus = "PASS" | "WARNING" | "BLOCKED";
@@ -578,34 +577,52 @@ export async function finalizeWeek(input: {
     contestId: string;
     graded: number;
     skipped: number;
+    status: string;
+    error?: string;
+    skipSamples?: Array<{
+      pickCount: number;
+      expectedSubmissionDepth: number;
+      reason: string;
+    }>;
   }> = [];
+  const contestErrors: string[] = [];
 
   for (const contest of contests) {
-    const eligible = await prisma.rankingSubmission.findMany({
-      where: {
+    try {
+      const gradeResult = await gradeContest(contest.id);
+      submissionsGraded += gradeResult.graded;
+      submissionsSkipped += gradeResult.skipped;
+      contestResults.push({
+        position: contest.position,
         contestId: contest.id,
-        status: { in: ["SUBMITTED", "LOCKED", "GRADED"] },
-      },
-      include: { picks: { select: { id: true } } },
-    });
-    const skipNow = eligible.filter(
-      (submission) =>
-        !isScorablePickCount(submission.picks.length, contest.rankingDepth),
-    ).length;
+        graded: gradeResult.graded,
+        skipped: gradeResult.skipped,
+        status: gradeResult.status,
+        skipSamples: gradeResult.skips.slice(0, 5).map((skip) => ({
+          pickCount: skip.pickCount,
+          expectedSubmissionDepth: skip.expectedSubmissionDepth,
+          reason: skip.reason,
+        })),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "gradeContest failed";
+      contestErrors.push(`${contest.position} (${contest.id}): ${message}`);
+      contestResults.push({
+        position: contest.position,
+        contestId: contest.id,
+        graded: 0,
+        skipped: 0,
+        status: "ERROR",
+        error: message,
+      });
+    }
+  }
 
-    await gradeContest(contest.id);
-
-    const afterGraded = await prisma.rankingSubmission.count({
-      where: { contestId: contest.id, status: "GRADED" },
-    });
-    submissionsGraded += afterGraded;
-    submissionsSkipped += skipNow;
-    contestResults.push({
-      position: contest.position,
-      contestId: contest.id,
-      graded: afterGraded,
-      skipped: skipNow,
-    });
+  if (contestErrors.length > 0) {
+    throw new Error(
+      `Finalize Week grading failed for ${contestErrors.length} contest(s): ${contestErrors.join(" | ")}`,
+    );
   }
 
   await prisma.week.update({
@@ -627,6 +644,7 @@ export async function finalizeWeek(input: {
           contestsGraded: contests.length,
           submissionsGraded,
           submissionsSkipped,
+          positions: contestResults,
         },
       },
     });

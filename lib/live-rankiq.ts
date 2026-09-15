@@ -112,7 +112,13 @@ export async function getLiveContestRankerBoard(contestId: string) {
   const rows: Omit<LiveRankerRow, "rank">[] = [];
   for (const submission of contest.submissions) {
     if (!submissionIsEligible(submission.status)) continue;
-    if (!isScorablePickCount(submission.picks.length, contest.rankingDepth)) {
+    if (
+      !isScorablePickCount(
+        submission.picks.length,
+        contest.rankingDepth,
+        contest.reserveCount ?? 0,
+      )
+    ) {
       continue;
     }
     if (

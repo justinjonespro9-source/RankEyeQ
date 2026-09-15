@@ -1,7 +1,7 @@
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import type { Position } from "@/types/contest";
 
-/** Ordered reserve slots appended after the scoring board. */
+/** Ordered reserve slots appended after the scoring board (current production). */
 export const RESERVE_COUNT = 2;
 
 /**
@@ -26,18 +26,35 @@ export function rankingDepthForPosition(position: ContestPosition): number {
   return scoringDepthForPosition(position);
 }
 
-/** Human/AI submission size: scoring depth + ordered reserves. */
+/**
+ * Human/AI submission size for a contest.
+ * Uses contest.reserveCount when provided — never invents today's global +2
+ * for legacy contests that were submitted before reserves existed.
+ */
+export function submissionDepthForContest(input: {
+  rankingDepth: number;
+  reserveCount: number;
+}): number {
+  return submissionDepthFromScoring(input.rankingDepth, input.reserveCount);
+}
+
+/** Current-production Human/AI submission size (scoring + default reserves). */
 export function submissionDepthForPosition(position: ContestPosition): number {
   return scoringDepthForPosition(position) + RESERVE_COUNT;
 }
 
-export function submissionDepthFromScoring(scoringDepth: number): number {
-  // Production EYEQ boards always include two ordered reserves.
-  // Nonstandard depths (integration fixtures) stay scoring-only.
-  if (scoringDepth === 10 || scoringDepth === 15) {
-    return scoringDepth + RESERVE_COUNT;
+/**
+ * Map scoring depth → max submission depth for a given reserveCount.
+ * Nonstandard fixture depths (not 10/15) stay scoring-only.
+ */
+export function submissionDepthFromScoring(
+  scoringDepth: number,
+  reserveCount: number = RESERVE_COUNT,
+): number {
+  if (scoringDepth !== 10 && scoringDepth !== 15) {
+    return scoringDepth;
   }
-  return scoringDepth;
+  return scoringDepth + Math.max(0, reserveCount);
 }
 
 export function isReservePredictedRank(
@@ -55,15 +72,19 @@ export function reserveSlotNumber(
   return predictedRank - scoringDepth;
 }
 
-/** Accept boards with scoring-only depth or with 1–2 reserves (external sources). */
+/**
+ * Accept boards from scoring-only depth up through scoring + reserveCount.
+ * Legacy Week 1 (reserveCount=0): exactly Top 10 / Top 15 is complete.
+ * Reserve-enabled (reserveCount=2): Top 10–12 / Top 15–17 are scorable
+ * (experts may still publish scoring-only).
+ */
 export function isScorablePickCount(
   pickCount: number,
   scoringDepth: number,
+  reserveCount: number = RESERVE_COUNT,
 ): boolean {
-  return (
-    pickCount >= scoringDepth &&
-    pickCount <= submissionDepthFromScoring(scoringDepth)
-  );
+  const maxDepth = submissionDepthFromScoring(scoringDepth, reserveCount);
+  return pickCount >= scoringDepth && pickCount <= maxDepth;
 }
 
 export function toUiPosition(position: ContestPosition): Position {

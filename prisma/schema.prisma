@@ -536,7 +536,12 @@ model RankIQContest {
   sport        String          @default("NFL")
   position     ContestPosition
   title        String
+  /// EYEQ scoring field size (Top 10 / Top 15). Unchanged by reserves.
   rankingDepth Int
+  /// Ordered reserve slots required at submission time for this contest.
+  /// 0 = legacy pre-reserve weeks (Week 1 boards are complete at rankingDepth).
+  /// 2 = current production Human/AI boards (rankingDepth + 2).
+  reserveCount Int             @default(2)
   status       ContestStatus   @default(DRAFT)
   opensAt      DateTime?
   locksAt      DateTime?

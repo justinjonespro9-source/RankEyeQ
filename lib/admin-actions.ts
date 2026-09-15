@@ -12,7 +12,7 @@ import {
   RankableEntryType,
   WeekStatus,
 } from "@/lib/generated/prisma/client";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import { rankingDepthForPosition, RESERVE_COUNT } from "@/lib/contest-defaults";
 import { prisma } from "@/lib/db";
 import { logAdminImpact } from "@/lib/log";
 import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
@@ -133,6 +133,7 @@ export async function createContestAction(formData: FormData) {
         title ||
         `Week ${week.weekNumber} ${position} Top ${rankingDepth}`,
       rankingDepth,
+      reserveCount: RESERVE_COUNT,
       status,
       opensAt: parseChicagoFormDate(opensAtRaw),
       locksAt: parseChicagoFormDate(locksAtRaw),

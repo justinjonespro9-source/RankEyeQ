@@ -48,7 +48,7 @@ export default async function ResultsPage({
 
   const contests = await prisma.rankIQContest.findMany({
     where: {
-      status: { in: ["FINAL", "ARCHIVED", "GRADING"] },
+      status: { in: ["FINAL", "ARCHIVED"] },
       week: includeTest
         ? params.weekId
           ? { id: params.weekId, isTest: true }

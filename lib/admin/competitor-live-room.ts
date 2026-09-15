@@ -163,6 +163,7 @@ export async function listCompetitorLiveRoom(input: {
         position: true,
         status: true,
         rankingDepth: true,
+        reserveCount: true,
       },
     }),
   ]);
@@ -418,7 +419,11 @@ export async function listCompetitorLiveRoom(input: {
             resolvedCount = totalPicks;
           } else if (!isFinal) {
             if (
-              !isScorablePickCount(submission.picks.length, contest.rankingDepth)
+              !isScorablePickCount(
+                submission.picks.length,
+                contest.rankingDepth,
+                contest.reserveCount ?? 0,
+              )
             ) {
               // incomplete board — leave EYEQ empty
             } else {

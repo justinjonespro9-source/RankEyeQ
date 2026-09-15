@@ -124,7 +124,13 @@ async function regradeSubmissionIfActualsExist(
     (entry) => entry.actualRank != null && entry.actualRank > 0,
   );
   if (ranked.length < submission.contest.rankingDepth) return;
-  if (!isScorablePickCount(submission.picks.length, submission.contest.rankingDepth)) {
+  if (
+    !isScorablePickCount(
+      submission.picks.length,
+      submission.contest.rankingDepth,
+      submission.contest.reserveCount ?? 0,
+    )
+  ) {
     return;
   }
 
@@ -308,9 +314,10 @@ export async function captureBenchmarkSnapshot(input: {
   }
 
   const selectedCount = input.picks.filter((pick) => pick.selected).length;
-  if (!isScorablePickCount(selectedCount, contest.rankingDepth)) {
+  const reserveCount = contest.reserveCount ?? 0;
+  if (!isScorablePickCount(selectedCount, contest.rankingDepth, reserveCount)) {
     throw new BenchmarkCaptureError(
-      `Selected eligible picks must be Top ${contest.rankingDepth}–${submissionDepthFromScoring(contest.rankingDepth)} (received ${selectedCount}). Do not fabricate reserves.`,
+      `Selected eligible picks must be Top ${contest.rankingDepth}–${submissionDepthFromScoring(contest.rankingDepth, reserveCount)} (received ${selectedCount}). Do not fabricate reserves.`,
     );
   }
 

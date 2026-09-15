@@ -137,8 +137,11 @@ function assertUniqueOrderedPicks(
   }
 }
 
-function humanAiSubmissionDepth(scoringDepth: number) {
-  return submissionDepthFromScoring(scoringDepth);
+function humanAiSubmissionDepth(
+  scoringDepth: number,
+  reserveCount: number = 2,
+) {
+  return submissionDepthFromScoring(scoringDepth, reserveCount);
 }
 
 async function assertEntriesBelongToContest(
@@ -250,7 +253,10 @@ export async function saveSubmissionPicks(input: {
   });
 
   const scoringDepth = contest.rankingDepth;
-  const submissionDepth = humanAiSubmissionDepth(scoringDepth);
+  const submissionDepth = humanAiSubmissionDepth(
+    scoringDepth,
+    contest.reserveCount ?? 0,
+  );
 
   const slots = input.rankedEntryIds.slice(0, submissionDepth);
   while (slots.length < submissionDepth) slots.push(null);
@@ -423,7 +429,7 @@ export async function submitRanking(input: {
   );
   assertUniqueOrderedPicks(
     filled,
-    humanAiSubmissionDepth(contest.rankingDepth),
+    humanAiSubmissionDepth(contest.rankingDepth, contest.reserveCount ?? 0),
   );
   await assertEntriesBelongToContest(input.contestId, filled);
 

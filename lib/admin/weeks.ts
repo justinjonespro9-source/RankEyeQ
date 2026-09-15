@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import {
   CONTEST_POSITIONS,
   rankingDepthForPosition,
+  RESERVE_COUNT,
 } from "@/lib/contest-defaults";
 import type { ContestPosition, WeekStatus } from "@/lib/generated/prisma/client";
 import { getActiveRankingScoringVersion } from "@/lib/ranking-scoring-versions";
@@ -199,6 +200,7 @@ export async function ensureFivePositionContests(weekId: string) {
         position,
         title: defaultContestTitle(position),
         rankingDepth,
+        reserveCount: RESERVE_COUNT,
         status: week.status === "OPEN" ? "OPEN" : "DRAFT",
         opensAt: week.rankingsOpenAt,
         locksAt: week.fullLockAt,

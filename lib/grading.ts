@@ -2,8 +2,12 @@ import { prisma } from "@/lib/db";
 import { resolveScoringConfigForContest } from "@/lib/ranking-scoring-versions";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
-import { isScorablePickCount } from "@/lib/contest-defaults";
+import {
+  isScorablePickCount,
+  submissionDepthFromScoring,
+} from "@/lib/contest-defaults";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { logServerEvent } from "@/lib/log";
 
 export class GradingError extends Error {
   constructor(message: string) {
@@ -12,11 +16,36 @@ export class GradingError extends Error {
   }
 }
 
+export type GradeSkipDiagnostic = {
+  submissionId: string;
+  profileId: string;
+  status: string;
+  pickCount: number;
+  rankingDepth: number;
+  reserveCount: number;
+  expectedSubmissionDepth: number;
+  reason: string;
+};
+
+export type GradeContestResult = {
+  contestId: string;
+  position: string;
+  status: string;
+  graded: number;
+  skipped: number;
+  skips: GradeSkipDiagnostic[];
+};
+
 /**
  * Grade all eligible submissions for a contest using stored ContestEntry results
  * and lib/scoring.ts. Idempotent: re-running updates scores in place.
+ *
+ * Each submission is graded in its own short transaction so a large field
+ * cannot leave the contest stuck in GRADING after an interactive-tx timeout.
  */
-export async function gradeContest(contestId: string) {
+export async function gradeContest(
+  contestId: string,
+): Promise<GradeContestResult> {
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {
@@ -33,6 +62,12 @@ export async function gradeContest(contestId: string) {
   });
 
   if (!contest) throw new GradingError("Contest not found");
+
+  const reserveCount = contest.reserveCount ?? 0;
+  const expectedSubmissionDepth = submissionDepthFromScoring(
+    contest.rankingDepth,
+    reserveCount,
+  );
 
   const { versionId, config } = await resolveScoringConfigForContest(contestId);
 
@@ -62,51 +97,69 @@ export async function gradeContest(contestId: string) {
     submissionIsEligible(submission.status),
   );
 
+  const priorStatus = contest.status;
   await prisma.rankIQContest.update({
     where: { id: contestId },
     data: { status: "GRADING" },
   });
 
+  const skips: GradeSkipDiagnostic[] = [];
+  let graded = 0;
+
   try {
-    await prisma.$transaction(async (tx) => {
-      for (const submission of eligible) {
-        if (!isScorablePickCount(submission.picks.length, contest.rankingDepth)) {
-          // Incomplete eligible states shouldn't happen for SUBMITTED/LOCKED,
-          // but skip rather than invent picks.
-          continue;
-        }
-
-        const effective = scoreableEffectivePicks({
-          picks: submission.picks,
-          scoringDepth: contest.rankingDepth,
+    for (const submission of eligible) {
+      if (
+        !isScorablePickCount(
+          submission.picks.length,
+          contest.rankingDepth,
+          reserveCount,
+        )
+      ) {
+        skips.push({
+          submissionId: submission.id,
+          profileId: submission.universalProfileId,
+          status: submission.status,
+          pickCount: submission.picks.length,
+          rankingDepth: contest.rankingDepth,
+          reserveCount,
+          expectedSubmissionDepth,
+          reason:
+            submission.picks.length < contest.rankingDepth
+              ? `incomplete: pickCount ${submission.picks.length} < rankingDepth ${contest.rankingDepth}`
+              : `over-depth: pickCount ${submission.picks.length} > max submissionDepth ${expectedSubmissionDepth} (reserveCount=${reserveCount})`,
         });
+        continue;
+      }
 
-        const scoreable: ScoreablePick[] = effective.map((pick) => {
-          const result = actualByEntryId.get(pick.playerId);
-          return {
-            playerId: pick.playerId,
-            playerName: pick.playerId,
-            predictedRank: pick.predictedRank,
-            actualRank: result?.actualRank ?? contest.rankingDepth + 100,
-          };
+      const effective = scoreableEffectivePicks({
+        picks: submission.picks,
+        scoringDepth: contest.rankingDepth,
+      });
+
+      const scoreable: ScoreablePick[] = effective.map((pick) => {
+        const result = actualByEntryId.get(pick.playerId);
+        return {
+          playerId: pick.playerId,
+          playerName: pick.playerId,
+          predictedRank: pick.predictedRank,
+          actualRank: result?.actualRank ?? contest.rankingDepth + 100,
+        };
+      });
+
+      const summary = scoreContest(scoreable, contest.rankingDepth, config);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.rankingPick.updateMany({
+          where: { submissionId: submission.id },
+          data: {
+            actualRank: null,
+            fantasyPoints: null,
+            basePoints: null,
+            accuracyPoints: null,
+            podiumPoints: null,
+            totalPoints: null,
+          },
         });
-
-        const summary = scoreContest(scoreable, contest.rankingDepth, config);
-
-        // Clear prior pick scores (reserves / displaced stay unscored).
-        for (const pick of submission.picks) {
-          await tx.rankingPick.update({
-            where: { id: pick.id },
-            data: {
-              actualRank: null,
-              fantasyPoints: null,
-              basePoints: null,
-              accuracyPoints: null,
-              podiumPoints: null,
-              totalPoints: null,
-            },
-          });
-        }
 
         for (const row of summary.players) {
           const pick = submission.picks.find(
@@ -137,41 +190,71 @@ export async function gradeContest(contestId: string) {
             normalizedScore: summary.rankIqScore,
           },
         });
-      }
-
-      await tx.rankIQContest.update({
-        where: { id: contestId },
-        data: {
-          status: "FINAL",
-          ...(versionId
-            ? {
-                rankingScoringVersionId:
-                  contest.rankingScoringVersionId ?? versionId,
-                rankingScoringConfig:
-                  contest.rankingScoringConfig ?? (config as object),
-              }
-            : {}),
-        },
       });
+
+      graded += 1;
+    }
+
+    await prisma.rankIQContest.update({
+      where: { id: contestId },
+      data: {
+        status: "FINAL",
+        ...(versionId
+          ? {
+              rankingScoringVersionId:
+                contest.rankingScoringVersionId ?? versionId,
+              rankingScoringConfig:
+                contest.rankingScoringConfig ?? (config as object),
+            }
+          : {}),
+      },
     });
   } catch (error) {
-    // Leave contest in GRADING on failure so admin can retry
+    // Restore prior status when possible so public Results does not stay stuck
+    // on GRADING / UNOFFICIAL after a mid-grade failure.
+    const restoreTo =
+      priorStatus === "GRADING" || priorStatus === "FINAL"
+        ? "LOCKED"
+        : priorStatus;
+    await prisma.rankIQContest
+      .update({
+        where: { id: contestId },
+        data: { status: restoreTo },
+      })
+      .catch(() => undefined);
+    logServerEvent(
+      "contest.grade_failed",
+      {
+        contestId,
+        position: contest.position,
+        graded,
+        skipped: skips.length,
+        error: error instanceof Error ? error.message : "unknown",
+      },
+      "error",
+    );
     throw error;
   }
 
-  return prisma.rankIQContest.findUnique({
-    where: { id: contestId },
-    include: {
-      _count: {
-        select: {
-          submissions: true,
-          entries: true,
-        },
+  if (skips.length > 0) {
+    logServerEvent(
+      "contest.grade_skips",
+      {
+        contestId,
+        position: contest.position,
+        skipped: skips.length,
+        samples: skips.slice(0, 10),
       },
-      submissions: {
-        where: { status: "GRADED" },
-        select: { id: true, normalizedScore: true },
-      },
-    },
-  });
+      "warn",
+    );
+  }
+
+  return {
+    contestId,
+    position: contest.position,
+    status: "FINAL",
+    graded,
+    skipped: skips.length,
+    skips,
+  };
 }

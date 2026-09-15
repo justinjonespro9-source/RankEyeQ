@@ -11,7 +11,7 @@ import {
   UserRole,
   WeekStatus,
 } from "../lib/generated/prisma/client";
-import { rankingDepthForPosition } from "../lib/contest-defaults";
+import { rankingDepthForPosition, RESERVE_COUNT } from "../lib/contest-defaults";
 import { ensureOfficialAiCompetitors } from "../lib/ai-competitors-sync";
 import { ensureOfficialBenchmarkSources } from "../lib/benchmark-sources-sync";
 import { getSamplePlayers } from "../lib/mock-players";
@@ -241,6 +241,7 @@ async function main() {
       update: {
         title: pos.title,
         rankingDepth: rankingDepthForPosition(pos.db),
+        reserveCount: RESERVE_COUNT,
         status: ContestStatus.OPEN,
         opensAt,
         locksAt,
@@ -253,6 +254,7 @@ async function main() {
         position: pos.db,
         title: pos.title,
         rankingDepth: rankingDepthForPosition(pos.db),
+        reserveCount: RESERVE_COUNT,
         status: ContestStatus.OPEN,
         opensAt,
         locksAt,

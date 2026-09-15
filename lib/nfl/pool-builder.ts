@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { rankingDepthForPosition } from "@/lib/contest-defaults";
+import { rankingDepthForPosition, RESERVE_COUNT } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { normalizeTeamAbbr } from "@/lib/nfl/manual/parse-common";
 import { createNflDataProvider } from "@/lib/providers/nfl";
@@ -70,6 +70,7 @@ export async function buildRankIqPositionPools(input: {
         position,
         title: `Week ${week.weekNumber} ${position} Top ${rankingDepthForPosition(position)}`,
         rankingDepth: rankingDepthForPosition(position),
+        reserveCount: RESERVE_COUNT,
         status: "DRAFT",
       },
     });

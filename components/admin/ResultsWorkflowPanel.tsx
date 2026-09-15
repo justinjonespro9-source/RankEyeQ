@@ -238,13 +238,23 @@ export function ResultsWorkflowPanel({
               if (manualMode) formData.set("resultsVerified", "1");
               const result = await finalizeWeekAction(formData);
               const summary = result.result;
+              const skipDetail = summary.positions
+                ?.filter((row) => row.skipped > 0)
+                .map(
+                  (row) =>
+                    `${row.position}:${row.skipped} skipped` +
+                    (row.skipSamples?.[0]
+                      ? ` (${row.skipSamples[0].reason})`
+                      : ""),
+                )
+                .join("; ");
               setMessage(
                 [
                   `Week ${summary.weekNumber} finalized at ${new Date(summary.finalizedAt).toLocaleString()}`,
                   `${summary.contestsGraded} contests FINAL (${positionsLabel})`,
                   `${summary.submissionsGraded} submissions graded`,
                   summary.submissionsSkipped > 0
-                    ? `${summary.submissionsSkipped} skipped (incomplete boards)`
+                    ? `${summary.submissionsSkipped} skipped${skipDetail ? ` · ${skipDetail}` : ""}`
                     : "no skips",
                 ].join(" · "),
               );
