@@ -9,10 +9,23 @@ import {
   previewWeekResultsAction,
   regradeWeekContestsAction,
 } from "@/lib/nfl/actions";
-import type { FinalizeWeekReadiness } from "@/lib/nfl/finalize-week";
+import type {
+  FinalizeWeekReadiness,
+  PreflightStatus,
+} from "@/lib/nfl/finalize-week";
 import type { ResultsImportPreview } from "@/lib/nfl/results-import";
 import type { ResultsAudit } from "@/lib/nfl/results-audit";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+
+function statusTone(
+  status: PreflightStatus,
+): "success" | "warning" | "danger" | "neutral" {
+  if (status === "PASS") return "success";
+  if (status === "WARNING") return "warning";
+  if (status === "BLOCKED") return "danger";
+  return "neutral";
+}
 
 export function ResultsWorkflowPanel({
   weekId,
@@ -33,6 +46,8 @@ export function ResultsWorkflowPanel({
   const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [resultsVerified, setResultsVerified] = useState(false);
   const manualMode = finalizeReadiness.manualMode;
+  const weekNumber = finalizeReadiness.weekNumber;
+  const positionsLabel = "QB / RB / WR / TE / DEF";
 
   function run(action: () => Promise<void>) {
     startTransition(async () => {
@@ -48,29 +63,87 @@ export function ResultsWorkflowPanel({
   return (
     <section className="rounded-lg border border-border bg-surface-elevated p-5">
       <h2 className="font-display text-lg font-semibold text-ink">
-        Results · {weekLabel}
+        Verify & finalize · {weekLabel}
       </h2>
       <p className="mt-1 text-sm text-muted">
-        {manualMode ? (
-          <>
-            Manual mode: paste final fantasy points in Manual weekly ops, then
-            calculate finishes and grade with{" "}
-            <span className="font-medium text-ink">
-              {resultsAudit.scoringVersion}
-            </span>
-            . No live sports-data API is used.
-          </>
-        ) : (
-          <>
-            Fetch provider stats, score with{" "}
-            <span className="font-medium text-ink">
-              {resultsAudit.scoringVersion}
-            </span>
-            , calculate competition-rank finishes, then grade. Preview never
-            grades.
-          </>
-        )}
+        GAME FINALIZED is not the same as WEEK / POSITION CONTEST FINALIZED.
+        This action runs the canonical finishes → EYEQ grade → contest FINAL →
+        week COMPLETE path. {manualMode ? "No live sports API." : null}
       </p>
+
+      <div className="mt-4 overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[40rem] text-left text-sm">
+          <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th className="px-3 py-2">Check</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {finalizeReadiness.checks.map((check) => (
+              <tr
+                key={check.key}
+                className="border-b border-border last:border-0"
+              >
+                <td className="px-3 py-2 font-medium text-ink">{check.label}</td>
+                <td className="px-3 py-2">
+                  <Badge tone={statusTone(check.status)}>{check.status}</Badge>
+                </td>
+                <td className="px-3 py-2 text-muted">{check.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <h3 className="font-display text-base font-semibold text-ink">
+          Position board · {positionsLabel}
+        </h3>
+        <table className="mt-2 w-full min-w-[40rem] text-left text-sm">
+          <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
+            <tr>
+              <th className="px-2 py-2">Pos</th>
+              <th className="px-2 py-2">Contest</th>
+              <th className="px-2 py-2">Pool</th>
+              <th className="px-2 py-2">Pts</th>
+              <th className="px-2 py-2">Ranks</th>
+              <th className="px-2 py-2">Boards</th>
+              <th className="px-2 py-2">Snapshot</th>
+              <th className="px-2 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {finalizeReadiness.positions.map((row) => (
+              <tr
+                key={row.position}
+                className="border-b border-border last:border-0"
+              >
+                <td className="px-2 py-2 font-medium text-ink">{row.position}</td>
+                <td className="px-2 py-2 text-ink">
+                  {row.contestStatus ?? "—"}
+                </td>
+                <td className="px-2 py-2 tabular-nums">{row.poolSize}</td>
+                <td className="px-2 py-2 tabular-nums">{row.withPoints}</td>
+                <td className="px-2 py-2 tabular-nums">{row.withRanks}</td>
+                <td className="px-2 py-2 tabular-nums">
+                  {row.lockedOrGradedSubmissions}/{row.eligibleSubmissions}
+                  {row.unlockedSubmitted > 0
+                    ? ` (${row.unlockedSubmitted} unlocked)`
+                    : ""}
+                </td>
+                <td className="px-2 py-2">
+                  {row.hasPregameSnapshot ? "Yes" : "No"}
+                </td>
+                <td className="px-2 py-2">
+                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {!manualMode ? (
@@ -137,12 +210,14 @@ export function ResultsWorkflowPanel({
               const formData = new FormData();
               formData.set("weekId", weekId);
               const result = await regradeWeekContestsAction(formData);
-              setMessage(`Graded ${result.graded} contests`);
+              setMessage(
+                `Regraded ${result.graded} contests · ${new Date().toLocaleString()}`,
+              );
               setConfirmGrade(false);
             })
           }
         >
-          Grade All / Regrade
+          Regrade Week
         </Button>
         <Button
           type="button"
@@ -158,17 +233,26 @@ export function ResultsWorkflowPanel({
               formData.set("weekId", weekId);
               if (manualMode) formData.set("resultsVerified", "1");
               const result = await finalizeWeekAction(formData);
+              const summary = result.result;
               setMessage(
-                `Week finalized · ${result.result.contestsGraded} contests FINAL`,
+                [
+                  `Week ${summary.weekNumber} finalized at ${new Date(summary.finalizedAt).toLocaleString()}`,
+                  `${summary.contestsGraded} contests FINAL (${positionsLabel})`,
+                  `${summary.submissionsGraded} submissions graded`,
+                  summary.submissionsSkipped > 0
+                    ? `${summary.submissionsSkipped} skipped (incomplete boards)`
+                    : "no skips",
+                ].join(" · "),
               );
               setConfirmFinalize(false);
               setResultsVerified(false);
             })
           }
         >
-          Finalize Week
+          VERIFY & FINALIZE WEEK
         </Button>
       </div>
+
       <div className="mt-3 space-y-2 text-sm text-ink">
         <label className="flex items-start gap-2">
           <input
@@ -178,8 +262,9 @@ export function ResultsWorkflowPanel({
             onChange={(event) => setConfirmGrade(event.target.checked)}
           />
           <span>
-            Grade/Regrade {weekLabel}: recalculate EYEQ scores for submitted
-            boards. Scoring formulas do not change.
+            Regrade {weekLabel}: replace prior EYEQ scores in place for{" "}
+            {positionsLabel}. Safe after official/stat corrections — does not
+            duplicate history.
           </span>
         </label>
         {manualMode ? (
@@ -208,9 +293,10 @@ export function ResultsWorkflowPanel({
             }
           />
           <span>
-            {manualMode
-              ? `Finalize ${weekLabel}: compute finishes if needed, grade all contests, and mark the week COMPLETE. Does not call an external sports API.`
-              : `Finalize ${weekLabel}: refresh stats, compute finishes, grade all contests, and mark the week COMPLETE. Cannot be undone casually.`}
+            Finalize Week {weekNumber} and grade all position contests? Affected:{" "}
+            {positionsLabel}. Computes finishes if needed, grades with
+            reserve-adjusted effective boards, persists EYEQ, sets contests
+            FINAL, and marks the week COMPLETE.
           </span>
         </label>
       </div>
@@ -222,8 +308,8 @@ export function ResultsWorkflowPanel({
       ) : null}
 
       {!finalizeReadiness.ready ? (
-        <div className="mt-3 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
-          Finalize Week blocked:
+        <div className="mt-3 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm text-danger">
+          VERIFY & FINALIZE WEEK blocked until critical checks pass:
           <ul className="mt-1 list-disc pl-5">
             {finalizeReadiness.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -232,9 +318,11 @@ export function ResultsWorkflowPanel({
         </div>
       ) : (
         <p className="mt-3 text-sm text-accent-ink">
-          {manualMode
-            ? "Week is ready to finalize (pools ready, final points + ranks present). Confirm verified results above."
-            : "Week is ready to finalize (all games final, stats + ranks present)."}
+          Preflight clear
+          {finalizeReadiness.checks.some((c) => c.status === "WARNING")
+            ? " (warnings present — review above)"
+            : ""}
+          . Confirm and run VERIFY & FINALIZE WEEK.
         </p>
       )}
 
@@ -291,38 +379,6 @@ export function ResultsWorkflowPanel({
             value={String(resultsAudit.unmatchedDefenseStats)}
           />
         </dl>
-
-        <table className="mt-4 w-full min-w-[36rem] text-left text-sm">
-          <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
-            <tr>
-              <th className="px-2 py-2">Pos</th>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2">Pool</th>
-              <th className="px-2 py-2">Pts</th>
-              <th className="px-2 py-2">Ranks</th>
-              <th className="px-2 py-2">Grade-ready</th>
-            </tr>
-          </thead>
-          <tbody>
-            {resultsAudit.contests.map((contest) => (
-              <tr
-                key={contest.position}
-                className="border-b border-border last:border-0"
-              >
-                <td className="px-2 py-2 font-medium text-ink">
-                  {contest.position}
-                </td>
-                <td className="px-2 py-2 text-ink">{contest.status}</td>
-                <td className="px-2 py-2 tabular-nums">{contest.poolSize}</td>
-                <td className="px-2 py-2 tabular-nums">{contest.withPoints}</td>
-                <td className="px-2 py-2 tabular-nums">{contest.withRanks}</td>
-                <td className="px-2 py-2">
-                  {contest.readyToGrade ? "Yes" : "No"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </section>
   );

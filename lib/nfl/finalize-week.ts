@@ -14,10 +14,43 @@ import {
   resolveNflProviderName,
 } from "@/lib/providers/nfl";
 import type { NflDataProvider } from "@/lib/providers/nfl/types";
+import type { ContestPosition } from "@/lib/generated/prisma/client";
+import {
+  CONTEST_POSITIONS,
+  isScorablePickCount,
+} from "@/lib/contest-defaults";
+
+export type PreflightStatus = "PASS" | "WARNING" | "BLOCKED";
+
+export type FinalizePreflightCheck = {
+  key: string;
+  label: string;
+  status: PreflightStatus;
+  detail: string;
+  position?: ContestPosition | null;
+};
+
+export type FinalizePositionRow = {
+  position: ContestPosition;
+  contestId: string | null;
+  contestStatus: string | null;
+  poolSize: number;
+  withPoints: number;
+  withRanks: number;
+  eligibleSubmissions: number;
+  lockedOrGradedSubmissions: number;
+  unlockedSubmitted: number;
+  hasPregameSnapshot: boolean;
+  readyToGrade: boolean;
+  status: PreflightStatus;
+  notes: string[];
+};
 
 export type FinalizeWeekReadiness = {
   ready: boolean;
   reasons: string[];
+  checks: FinalizePreflightCheck[];
+  positions: FinalizePositionRow[];
   gamesTotal: number;
   gamesFinal: number;
   contests: number;
@@ -25,9 +58,21 @@ export type FinalizeWeekReadiness = {
   entriesWithPoints: number;
   entriesWithRanks: number;
   provisionalStats: number;
+  unlockedSubmittedBoards: number;
+  missingPregameSnapshots: number;
   manualMode: boolean;
   poolsReady: boolean;
+  weekLabel: string;
+  weekNumber: number;
+  weekStatus: string;
 };
+
+function pushCheck(
+  checks: FinalizePreflightCheck[],
+  check: FinalizePreflightCheck,
+) {
+  checks.push(check);
+}
 
 export async function getFinalizeWeekReadiness(
   weekId: string,
@@ -40,6 +85,10 @@ export async function getFinalizeWeekReadiness(
       contests: {
         include: {
           entries: { where: { excluded: false } },
+          submissions: {
+            select: { id: true, status: true },
+          },
+          pregameSnapshot: { select: { id: true } },
         },
       },
       playerWeekStats: true,
@@ -47,21 +96,56 @@ export async function getFinalizeWeekReadiness(
     },
   });
 
+  const checks: FinalizePreflightCheck[] = [];
   const reasons: string[] = [];
+
   const gamesTotal = week.games.length;
   const gamesFinal = week.games.filter((game) => game.status === "FINAL").length;
 
   const poolAudit = await auditAllPools(weekId);
   if (!poolAudit.ready) {
-    reasons.push(
-      `Player pools not ready (${poolAudit.blockers[0] ?? "see pool audit"})`,
-    );
+    const detail = `Player pools not ready (${poolAudit.blockers[0] ?? "see pool audit"})`;
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "pools",
+      label: "Position pools ready",
+      status: "BLOCKED",
+      detail,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "pools",
+      label: "Position pools ready",
+      status: "PASS",
+      detail: "QB/RB/WR/TE/DEF pools audited",
+    });
   }
 
   if (gamesTotal === 0) {
-    reasons.push("No NFL games imported for this week");
-  } else if (!manualMode && gamesFinal < gamesTotal) {
-    reasons.push(`${gamesTotal - gamesFinal} game(s) are not FINAL`);
+    const detail = "No NFL games imported for this week";
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "games",
+      label: "All NFL games finalized",
+      status: "BLOCKED",
+      detail,
+    });
+  } else if (gamesFinal < gamesTotal) {
+    const detail = `${gamesTotal - gamesFinal} game(s) are not FINAL (GAME FINALIZED ≠ WEEK FINALIZED)`;
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "games",
+      label: "All NFL games finalized",
+      status: "BLOCKED",
+      detail,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "games",
+      label: "All NFL games finalized",
+      status: "PASS",
+      detail: `${gamesFinal}/${gamesTotal} games FINAL`,
+    });
   }
 
   const allEntries = week.contests.flatMap((contest) => contest.entries);
@@ -74,66 +158,317 @@ export async function getFinalizeWeekReadiness(
   ).length;
 
   if (week.contests.length < 5) {
-    reasons.push("Expected five position contests before finalizing");
+    const detail = "Expected five position contests before finalizing";
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "contests",
+      label: "Five position contests present",
+      status: "BLOCKED",
+      detail,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "contests",
+      label: "Five position contests present",
+      status: "PASS",
+      detail: "QB / RB / WR / TE / DEF",
+    });
   }
 
   if (entriesNeedingPoints > 0) {
-    reasons.push(
-      `${entriesNeedingPoints} player(s) in weekly pools are missing fantasy points — paste or import results for each position.`,
-    );
+    const detail = `${entriesNeedingPoints} player(s) in weekly pools are missing fantasy points — paste or import results for each position.`;
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "fantasy_points",
+      label: "Contest entries have fantasy points",
+      status: "BLOCKED",
+      detail,
+    });
+  } else if (allEntries.length === 0) {
+    const detail = "No contest entries found";
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "fantasy_points",
+      label: "Contest entries have fantasy points",
+      status: "BLOCKED",
+      detail,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "fantasy_points",
+      label: "Contest entries have fantasy points",
+      status: "PASS",
+      detail: `${entriesWithPoints} entries with points`,
+    });
   }
 
   const provisionalStats =
     week.playerWeekStats.filter((row) => row.isProvisional).length +
     week.defenseWeekStats.filter((row) => row.isProvisional).length;
   if (provisionalStats > 0) {
-    reasons.push(`${provisionalStats} provisional (non-final) stat row(s)`);
+    const detail = `${provisionalStats} provisional (non-final) WeekStat row(s) remain`;
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "provisional",
+      label: "No provisional WeekStat rows for completed games",
+      status: "BLOCKED",
+      detail,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "provisional",
+      label: "No provisional WeekStat rows for completed games",
+      status: "PASS",
+      detail: manualMode
+        ? "No provisional rows (manual mode)"
+        : "No provisional player/DEF week stats",
+    });
   }
 
   const configuredProvider = resolveNflProviderName();
   if (configuredProvider === "sportsdataio" && !process.env.SPORTSDATAIO_API_KEY) {
-    reasons.push("SportsDataIO is selected but the API key is not configured");
+    const detail = "SportsDataIO is selected but the API key is not configured";
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "provider",
+      label: "Provider configuration",
+      status: "BLOCKED",
+      detail,
+    });
   }
 
   if (!manualMode) {
     if (week.playerWeekStats.length === 0 && week.defenseWeekStats.length === 0) {
-      reasons.push("No fantasy stat rows imported — provider readiness is ambiguous");
+      const detail =
+        "No fantasy stat rows imported — provider readiness is ambiguous";
+      reasons.push(detail);
+      pushCheck(checks, {
+        key: "stat_rows",
+        label: "Required player/DEF stats present",
+        status: "BLOCKED",
+        detail,
+      });
+    } else {
+      const defContest = week.contests.find(
+        (contest) => contest.position === "DEF",
+      );
+      if (defContest && week.defenseWeekStats.length === 0) {
+        const detail = "DEF contest exists but no D/ST stat rows were imported";
+        reasons.push(detail);
+        pushCheck(checks, {
+          key: "stat_rows",
+          label: "Required player/DEF stats present",
+          status: "BLOCKED",
+          detail,
+        });
+      } else {
+        pushCheck(checks, {
+          key: "stat_rows",
+          label: "Required player/DEF stats present",
+          status: "PASS",
+          detail: `${week.playerWeekStats.length} player + ${week.defenseWeekStats.length} DEF week stats`,
+        });
+      }
     }
-    const defContest = week.contests.find((contest) => contest.position === "DEF");
-    if (defContest && week.defenseWeekStats.length === 0) {
-      reasons.push("DEF contest exists but no D/ST stat rows were imported");
-    }
+  } else if (entriesWithPoints === 0) {
+    const detail = "No final fantasy points have been pasted for this week";
+    reasons.push(detail);
+    pushCheck(checks, {
+      key: "stat_rows",
+      label: "Required player/DEF stats present",
+      status: "BLOCKED",
+      detail,
+    });
   } else {
-    // Manual mode: fantasy points on ContestEntry are enough; week stats are optional audit.
-    if (entriesWithPoints === 0) {
-      reasons.push("No final fantasy points have been pasted for this week");
-    }
+    pushCheck(checks, {
+      key: "stat_rows",
+      label: "Required player/DEF stats present",
+      status: "PASS",
+      detail: "Manual fantasy points present on contest entries",
+    });
   }
 
-  for (const contest of week.contests) {
+  const contestByPosition = new Map(
+    week.contests.map((contest) => [contest.position, contest]),
+  );
+
+  const positions: FinalizePositionRow[] = [];
+  let unlockedSubmittedBoards = 0;
+  let missingPregameSnapshots = 0;
+
+  for (const position of CONTEST_POSITIONS) {
+    const contest = contestByPosition.get(position);
+    const notes: string[] = [];
+    let status: PreflightStatus = "PASS";
+
+    if (!contest) {
+      notes.push("Contest missing");
+      status = "BLOCKED";
+      reasons.push(`${position} contest missing`);
+      positions.push({
+        position,
+        contestId: null,
+        contestStatus: null,
+        poolSize: 0,
+        withPoints: 0,
+        withRanks: 0,
+        eligibleSubmissions: 0,
+        lockedOrGradedSubmissions: 0,
+        unlockedSubmitted: 0,
+        hasPregameSnapshot: false,
+        readyToGrade: false,
+        status,
+        notes,
+      });
+      continue;
+    }
+
+    const withPoints = contest.entries.filter(
+      (entry) => entry.fantasyPoints != null,
+    ).length;
+    const withRanks = contest.entries.filter(
+      (entry) => entry.actualRank != null,
+    ).length;
+    const eligibleSubmissions = contest.submissions.filter((submission) =>
+      ["SUBMITTED", "LOCKED", "GRADED"].includes(submission.status),
+    ).length;
+    const lockedOrGradedSubmissions = contest.submissions.filter((submission) =>
+      ["LOCKED", "GRADED"].includes(submission.status),
+    ).length;
+    const unlockedSubmitted = contest.submissions.filter(
+      (submission) => submission.status === "SUBMITTED",
+    ).length;
+    unlockedSubmittedBoards += unlockedSubmitted;
+
+    const hasPregameSnapshot = Boolean(contest.pregameSnapshot);
+    if (!hasPregameSnapshot && week.fullLockAt && new Date() >= week.fullLockAt) {
+      missingPregameSnapshots += 1;
+      notes.push("Pregame consensus snapshot missing");
+      if (status === "PASS") status = "WARNING";
+    }
+
+    if (unlockedSubmitted > 0) {
+      notes.push(
+        `${unlockedSubmitted} SUBMITTED board(s) not LOCKED yet (still grade-eligible)`,
+      );
+      if (status === "PASS") status = "WARNING";
+    }
+
     const minLeagueDepth = Math.min(40, contest.rankingDepth);
     const leagueRanked = await countLeagueRankedForPosition(
       weekId,
       contest.position,
       minLeagueDepth,
     );
-
-    const withRank = contest.entries.filter(
-      (e) =>
-        e.actualRank != null && e.actualRank <= minLeagueDepth,
+    const withRankTop = contest.entries.filter(
+      (e) => e.actualRank != null && e.actualRank <= minLeagueDepth,
     ).length;
 
-    if (leagueRanked < minLeagueDepth && withRank < minLeagueDepth) {
-      const found = Math.max(leagueRanked, withRank);
+    if (leagueRanked < minLeagueDepth && withRankTop < minLeagueDepth) {
+      const found = Math.max(leagueRanked, withRankTop);
+      const detail = formatLeagueDepthMessage(
+        contest.position,
+        minLeagueDepth,
+        found,
+      );
+      notes.push(detail);
+      status = "BLOCKED";
+      reasons.push(detail);
+    }
+
+    const readyToGrade = withRanks >= contest.rankingDepth;
+    if (!readyToGrade) {
+      notes.push(
+        `Need actualRank for at least Top ${contest.rankingDepth} (have ${withRanks})`,
+      );
+      status = "BLOCKED";
       reasons.push(
-        formatLeagueDepthMessage(contest.position, minLeagueDepth, found),
+        `${position}: need Top ${contest.rankingDepth} actual ranks (have ${withRanks})`,
       );
     }
+
+    if (withPoints < contest.entries.length) {
+      notes.push(
+        `${contest.entries.length - withPoints} pool entries missing fantasy points`,
+      );
+      status = "BLOCKED";
+    }
+
+    if (notes.length === 0) {
+      notes.push("Ready to grade");
+    }
+
+    positions.push({
+      position,
+      contestId: contest.id,
+      contestStatus: contest.status,
+      poolSize: contest.entries.length,
+      withPoints,
+      withRanks,
+      eligibleSubmissions,
+      lockedOrGradedSubmissions,
+      unlockedSubmitted,
+      hasPregameSnapshot,
+      readyToGrade,
+      status,
+      notes,
+    });
+
+    pushCheck(checks, {
+      key: `position_${position}`,
+      label: `${position} contest ready`,
+      status,
+      detail: notes.join("; "),
+      position,
+    });
   }
 
+  if (unlockedSubmittedBoards > 0) {
+    pushCheck(checks, {
+      key: "submissions_locked",
+      label: "Submissions locked",
+      status: "WARNING",
+      detail: `${unlockedSubmittedBoards} SUBMITTED board(s) are still unlocked — they remain eligible and will grade, but prefer Sunday full lock first`,
+    });
+  } else {
+    pushCheck(checks, {
+      key: "submissions_locked",
+      label: "Submissions locked",
+      status: "PASS",
+      detail: "No unlocked SUBMITTED boards remaining",
+    });
+  }
+
+  if (missingPregameSnapshots > 0) {
+    pushCheck(checks, {
+      key: "consensus_snapshot",
+      label: "Consensus snapshot / freeze",
+      status: "WARNING",
+      detail: `${missingPregameSnapshots} position(s) missing pregame consensus snapshot after full lock`,
+    });
+  } else if (week.fullLockAt && new Date() >= week.fullLockAt) {
+    pushCheck(checks, {
+      key: "consensus_snapshot",
+      label: "Consensus snapshot / freeze",
+      status: "PASS",
+      detail: "Pregame snapshots present for locked week",
+    });
+  } else {
+    pushCheck(checks, {
+      key: "consensus_snapshot",
+      label: "Consensus snapshot / freeze",
+      status: "WARNING",
+      detail: "Full lock has not passed yet — snapshot may still be pending",
+    });
+  }
+
+  const blocked = checks.some((check) => check.status === "BLOCKED");
+
   return {
-    ready: reasons.length === 0,
-    reasons,
+    ready: !blocked,
+    reasons: [...new Set(reasons)],
+    checks,
+    positions,
     gamesTotal,
     gamesFinal,
     contests: week.contests.length,
@@ -141,14 +476,20 @@ export async function getFinalizeWeekReadiness(
     entriesWithPoints,
     entriesWithRanks,
     provisionalStats,
+    unlockedSubmittedBoards,
+    missingPregameSnapshots,
     manualMode,
     poolsReady: poolAudit.ready,
+    weekLabel: week.label,
+    weekNumber: week.weekNumber,
+    weekStatus: week.status,
   };
 }
 
 /**
  * Refresh final stats → calculate finishes → grade all contests → mark COMPLETE.
  * Manual mode skips provider fetch and requires verified-results confirmation.
+ * Idempotent: re-running regrades in place and keeps Week COMPLETE.
  */
 export async function finalizeWeek(input: {
   weekId: string;
@@ -227,16 +568,52 @@ export async function finalizeWeek(input: {
 
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId: input.weekId },
+    orderBy: { position: "asc" },
   });
 
+  let submissionsGraded = 0;
+  let submissionsSkipped = 0;
+  const contestResults: Array<{
+    position: ContestPosition;
+    contestId: string;
+    graded: number;
+    skipped: number;
+  }> = [];
+
   for (const contest of contests) {
+    const eligible = await prisma.rankingSubmission.findMany({
+      where: {
+        contestId: contest.id,
+        status: { in: ["SUBMITTED", "LOCKED", "GRADED"] },
+      },
+      include: { picks: { select: { id: true } } },
+    });
+    const skipNow = eligible.filter(
+      (submission) =>
+        !isScorablePickCount(submission.picks.length, contest.rankingDepth),
+    ).length;
+
     await gradeContest(contest.id);
+
+    const afterGraded = await prisma.rankingSubmission.count({
+      where: { contestId: contest.id, status: "GRADED" },
+    });
+    submissionsGraded += afterGraded;
+    submissionsSkipped += skipNow;
+    contestResults.push({
+      position: contest.position,
+      contestId: contest.id,
+      graded: afterGraded,
+      skipped: skipNow,
+    });
   }
 
   await prisma.week.update({
     where: { id: input.weekId },
     data: { status: "COMPLETE" },
   });
+
+  const finalizedAt = new Date();
 
   if (input.adminUserId && manualMode) {
     await prisma.adminAuditLog.create({
@@ -248,6 +625,8 @@ export async function finalizeWeek(input: {
         metadata: {
           resultsVerified: true,
           contestsGraded: contests.length,
+          submissionsGraded,
+          submissionsSkipped,
         },
       },
     });
@@ -256,12 +635,20 @@ export async function finalizeWeek(input: {
   logServerEvent("week.finalized", {
     weekId: input.weekId,
     contestsGraded: contests.length,
+    submissionsGraded,
+    submissionsSkipped,
     manualMode,
   });
 
   return {
     weekId: input.weekId,
+    weekLabel: readiness.weekLabel,
+    weekNumber: readiness.weekNumber,
     contestsGraded: contests.length,
+    submissionsGraded,
+    submissionsSkipped,
+    positions: contestResults,
+    finalizedAt: finalizedAt.toISOString(),
     readiness,
   };
 }

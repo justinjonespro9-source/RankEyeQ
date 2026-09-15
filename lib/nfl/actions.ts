@@ -37,9 +37,15 @@ function revalidateDataPaths(weekId?: string) {
   revalidatePath("/admin/contests");
   revalidatePath("/rank");
   revalidatePath("/results");
+  revalidatePath("/receipts");
+  revalidatePath("/my-ranks");
   revalidatePath("/leaderboards");
+  revalidatePath("/leaderboards/live");
+  revalidatePath("/players");
+  revalidatePath("/consensus");
   for (const position of ["qb", "rb", "wr", "te", "def"]) {
     revalidatePath(`/rank/${position}`);
+    revalidatePath(`/leaderboards/live/${position}`);
   }
   if (weekId) {
     revalidatePath(`/admin/data?weekId=${weekId}`);
@@ -245,7 +251,14 @@ export async function finalizeWeekAction(formData: FormData) {
     action: "week.finalized",
     entityType: "Week",
     entityId: weekId,
-    metadata: { resultsVerified, manualMode: result.readiness.manualMode },
+    metadata: {
+      resultsVerified,
+      manualMode: result.readiness.manualMode,
+      contestsGraded: result.contestsGraded,
+      submissionsGraded: result.submissionsGraded,
+      submissionsSkipped: result.submissionsSkipped,
+      finalizedAt: result.finalizedAt,
+    },
   });
   revalidateDataPaths(weekId);
   revalidatePath("/profile");

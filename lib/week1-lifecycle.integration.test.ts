@@ -62,6 +62,7 @@ describe("Week 1 lifecycle simulation", () => {
   let rbStarId = "";
   let excludedEntryId = "";
   let lockAt: Date;
+  let beforeLock: Date;
   let revealStartsAt: Date;
   let publicReleaseAt: Date;
 
@@ -91,6 +92,7 @@ describe("Week 1 lifecycle simulation", () => {
     const startsAt = new Date("2026-09-07T00:00:00Z");
     const endsAt = new Date("2026-09-15T00:00:00Z");
     lockAt = new Date("2026-09-14T15:00:00Z");
+    beforeLock = new Date("2026-09-12T18:00:00Z");
     revealStartsAt = new Date("2026-09-14T16:00:00Z");
     publicReleaseAt = new Date("2026-09-14T18:00:00Z");
     const rankingsOpenAt = new Date("2026-09-01T00:00:00Z");
@@ -348,6 +350,7 @@ describe("Week 1 lifecycle simulation", () => {
         contestId: rbContestId,
         universalProfileId: profileId,
         rankedEntryIds: humanOrders[index]!,
+        now: beforeLock,
       });
     }
 
@@ -356,6 +359,7 @@ describe("Week 1 lifecycle simulation", () => {
         contestId: rbContestId,
         universalProfileId: profileId,
         rankedEntryIds: consensusOrder,
+        now: beforeLock,
       });
     }
 
@@ -433,11 +437,13 @@ describe("Week 1 lifecycle simulation", () => {
         contestId,
         universalProfileId: humanIds[0]!,
         rankedEntryIds: ranked,
+        now: beforeLock,
       });
       await submitRanking({
         contestId,
         universalProfileId: aiIds[0]!,
         rankedEntryIds: ranked,
+        now: beforeLock,
       });
     }
   });
