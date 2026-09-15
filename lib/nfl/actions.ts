@@ -198,11 +198,34 @@ export async function commitWeekResultsAction(formData: FormData) {
 }
 
 export async function calculateActualFinishesAction(formData: FormData) {
-  await assertAdmin();
+  const admin = await assertAdmin();
   const weekId = String(formData.get("weekId") || "");
   const results = await calculateActualFinishesForWeek(weekId);
+  const summary = results
+    .map((row) => `${row.position}: ${row.contestEntriesRanked} ranked`)
+    .join(" · ");
+  const totalRanked = results.reduce(
+    (sum, row) => sum + row.contestEntriesRanked,
+    0,
+  );
+  if (totalRanked === 0) {
+    throw new Error(
+      `Calculate Actual Finishes wrote 0 ranks (${summary || "no contests"}).`,
+    );
+  }
+  await logAdminAction({
+    adminUserId: admin.user.id,
+    action: "week.actual_finishes_calculated",
+    entityType: "Week",
+    entityId: weekId,
+    metadata: {
+      summary,
+      totalRanked,
+      results,
+    },
+  });
   revalidateDataPaths(weekId);
-  return { ok: true as const, results };
+  return { ok: true as const, results, summary, totalRanked };
 }
 
 export async function gradeWeekContestsAction(formData: FormData) {

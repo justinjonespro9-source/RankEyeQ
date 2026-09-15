@@ -7,19 +7,29 @@ export type ActualFinishResult = {
   position: ContestPosition;
   ranked: number;
   tiedGroups: number;
+  /** ContestEntry rows with non-null fantasyPoints that received actualRank. */
+  contestEntriesRanked: number;
+  /** ContestEntry rows with fantasyPoints before this run. */
+  contestEntriesWithPoints: number;
 };
 
 const OFFENSIVE_POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE"];
 
 type ScoredRow = {
+  /** ContestEntry id — canonical row being ranked. */
   id: string;
   rankableEntryId: string;
   fantasyPoints: number;
 };
 
 /**
- * Rank all NFL performers at a position for a week from normalized stat rows.
- * Writes leagueActualRank on stat rows and syncs ContestEntry.actualRank / fantasyPoints.
+ * RankEyeQ weekly positional finishes.
+ *
+ * Canonical source of truth: ContestEntry.fantasyPoints on the position contest
+ * (manual live scoring, manual paste, or provider import all land here).
+ *
+ * Also mirrors leagueActualRank onto matching PlayerWeekStat / DefenseWeekStat
+ * rows when present — does not require WeekStats to compute ranks.
  */
 export async function calculateLeagueActualFinishesForWeek(weekId: string) {
   const contests = await prisma.rankIQContest.findMany({
@@ -27,10 +37,30 @@ export async function calculateLeagueActualFinishesForWeek(weekId: string) {
     orderBy: { position: "asc" },
   });
 
+  if (contests.length === 0) {
+    throw new Error(`No position contests found for week ${weekId}`);
+  }
+
   const results: ActualFinishResult[] = [];
   for (const contest of contests) {
     results.push(await calculateLeagueActualFinishesForContest(contest.id));
   }
+
+  const totalRanked = results.reduce(
+    (sum, row) => sum + row.contestEntriesRanked,
+    0,
+  );
+  const totalWithPoints = results.reduce(
+    (sum, row) => sum + row.contestEntriesWithPoints,
+    0,
+  );
+
+  if (totalWithPoints > 0 && totalRanked === 0) {
+    throw new Error(
+      `Calculate Actual Finishes produced 0 ranks while ${totalWithPoints} ContestEntry rows have fantasyPoints. Refusing silent no-op.`,
+    );
+  }
+
   return results;
 }
 
@@ -39,16 +69,30 @@ export async function calculateLeagueActualFinishesForContest(
 ): Promise<ActualFinishResult> {
   const contest = await prisma.rankIQContest.findUniqueOrThrow({
     where: { id: contestId },
+    include: {
+      entries: {
+        where: {
+          excluded: false,
+          fantasyPoints: { not: null },
+        },
+        select: {
+          id: true,
+          rankableEntryId: true,
+          fantasyPoints: true,
+        },
+      },
+    },
   });
 
-  const scored =
-    contest.position === "DEF"
-      ? await loadDefenseScoredRows(contest.weekId)
-      : await loadOffensiveScoredRows(contest.weekId, contest.position);
+  const scored: ScoredRow[] = contest.entries.map((entry) => ({
+    id: entry.id,
+    rankableEntryId: entry.rankableEntryId,
+    fantasyPoints: entry.fantasyPoints as number,
+  }));
 
   if (scored.length === 0) {
     throw new Error(
-      `No fantasy stat rows for ${contest.position} in week ${contest.weekId}`,
+      `No ContestEntry fantasyPoints for ${contest.position} (contest ${contest.id}). Paste/import or finalize live stats before calculating finishes.`,
     );
   }
 
@@ -61,149 +105,68 @@ export async function calculateLeagueActualFinishesForContest(
   const tiedGroups = [...scoreCounts.values()].filter((count) => count > 1)
     .length;
 
+  let contestEntriesRanked = 0;
+
   await prisma.$transaction(async (tx) => {
+    // Clear prior ranks for this contest so removals / re-runs stay deterministic.
+    await tx.contestEntry.updateMany({
+      where: { contestId: contest.id },
+      data: { actualRank: null },
+    });
+
     for (const row of ranked) {
-      const isStatRow =
-        contest.position === "DEF"
-          ? Boolean(
-              await tx.defenseWeekStat.findUnique({
-                where: { id: row.item.id },
-                select: { id: true },
-              }),
-            )
-          : Boolean(
-              await tx.playerWeekStat.findUnique({
-                where: { id: row.item.id },
-                select: { id: true },
-              }),
-            );
-
-      if (isStatRow) {
-        if (contest.position === "DEF") {
-          await tx.defenseWeekStat.update({
-            where: { id: row.item.id },
-            data: { leagueActualRank: row.rank },
-          });
-        } else {
-          await tx.playerWeekStat.update({
-            where: { id: row.item.id },
-            data: { leagueActualRank: row.rank },
-          });
-        }
-      }
-
-      await tx.contestEntry.updateMany({
+      const updated = await tx.contestEntry.updateMany({
         where: {
+          id: row.item.id,
           contestId: contest.id,
-          rankableEntryId: row.item.rankableEntryId,
         },
         data: {
           actualRank: row.rank,
           fantasyPoints: row.item.fantasyPoints,
         },
       });
+      contestEntriesRanked += updated.count;
+
+      if (contest.position === "DEF") {
+        await tx.defenseWeekStat.updateMany({
+          where: {
+            weekId: contest.weekId,
+            rankableEntryId: row.item.rankableEntryId,
+          },
+          data: { leagueActualRank: row.rank },
+        });
+      } else {
+        await tx.playerWeekStat.updateMany({
+          where: {
+            weekId: contest.weekId,
+            rankableEntryId: row.item.rankableEntryId,
+          },
+          data: { leagueActualRank: row.rank },
+        });
+      }
     }
   });
+
+  if (contestEntriesRanked === 0) {
+    throw new Error(
+      `${contest.position}: scored ${scored.length} ContestEntry rows but wrote 0 actualRank values`,
+    );
+  }
+
+  if (contestEntriesRanked !== scored.length) {
+    throw new Error(
+      `${contest.position}: expected to rank ${scored.length} ContestEntry rows but wrote ${contestEntriesRanked}`,
+    );
+  }
 
   return {
     contestId,
     position: contest.position,
     ranked: ranked.length,
     tiedGroups,
+    contestEntriesRanked,
+    contestEntriesWithPoints: scored.length,
   };
-}
-
-async function loadOffensiveScoredRows(
-  weekId: string,
-  position: ContestPosition,
-): Promise<ScoredRow[]> {
-  const stats = await prisma.playerWeekStat.findMany({
-    where: {
-      weekId,
-      rankableEntryId: { not: null },
-      rankableEntry: { position },
-    },
-    select: {
-      id: true,
-      rankableEntryId: true,
-      fantasyPoints: true,
-    },
-  });
-
-  const fromStats = stats
-    .filter((row): row is typeof row & { rankableEntryId: string } =>
-      Boolean(row.rankableEntryId),
-    )
-    .map((row) => ({
-      id: row.id,
-      rankableEntryId: row.rankableEntryId,
-      fantasyPoints: row.fantasyPoints,
-    }));
-
-  if (fromStats.length > 0) return fromStats;
-
-  // Legacy/manual fallback when normalized stat rows are absent.
-  const contest = await prisma.rankIQContest.findUnique({
-    where: { weekId_position: { weekId, position } },
-    include: {
-      entries: {
-        where: { fantasyPoints: { not: null } },
-        select: { id: true, rankableEntryId: true, fantasyPoints: true },
-      },
-    },
-  });
-
-  return (
-    contest?.entries.map((entry) => ({
-      id: entry.id,
-      rankableEntryId: entry.rankableEntryId,
-      fantasyPoints: entry.fantasyPoints as number,
-    })) ?? []
-  );
-}
-
-async function loadDefenseScoredRows(weekId: string): Promise<ScoredRow[]> {
-  const stats = await prisma.defenseWeekStat.findMany({
-    where: {
-      weekId,
-      rankableEntryId: { not: null },
-    },
-    select: {
-      id: true,
-      rankableEntryId: true,
-      fantasyPoints: true,
-    },
-  });
-
-  const fromStats = stats
-    .filter((row): row is typeof row & { rankableEntryId: string } =>
-      Boolean(row.rankableEntryId),
-    )
-    .map((row) => ({
-      id: row.id,
-      rankableEntryId: row.rankableEntryId,
-      fantasyPoints: row.fantasyPoints,
-    }));
-
-  if (fromStats.length > 0) return fromStats;
-
-  const contest = await prisma.rankIQContest.findUnique({
-    where: { weekId_position: { weekId, position: "DEF" } },
-    include: {
-      entries: {
-        where: { fantasyPoints: { not: null } },
-        select: { id: true, rankableEntryId: true, fantasyPoints: true },
-      },
-    },
-  });
-
-  return (
-    contest?.entries.map((entry) => ({
-      id: entry.id,
-      rankableEntryId: entry.rankableEntryId,
-      fantasyPoints: entry.fantasyPoints as number,
-    })) ?? []
-  );
 }
 
 /** @deprecated Use calculateLeagueActualFinishesForWeek — kept as alias. */

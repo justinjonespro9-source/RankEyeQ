@@ -334,6 +334,15 @@ describe("results import + finishes + finalize readiness", () => {
       },
       data: { fantasyPoints: 0 },
     });
+    // ContestEntry.fantasyPoints is the finish canonical source — zero the rest
+    // of the scored field so the forced 50/40/40 trio owns ranks 1 / 2 / 2.
+    await prisma.contestEntry.updateMany({
+      where: {
+        contestId: qb.id,
+        id: { notIn: entries.map((entry) => entry.id) },
+      },
+      data: { fantasyPoints: 0, actualRank: null },
+    });
 
     await calculateActualFinishesForContest(qb.id);
     const ranks = await prisma.contestEntry.findMany({
