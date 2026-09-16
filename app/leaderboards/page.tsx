@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { FollowButton } from "@/components/social/FollowButton";
+import { LeaderboardRowMetrics } from "@/components/leaderboards/LeaderboardRowMetrics";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
 import {
   isAdminTestPreviewRequested,
@@ -22,7 +23,6 @@ import {
   type LeaderboardRow,
 } from "@/lib/leaderboards";
 import { prisma } from "@/lib/db";
-import { formatRankIqScore } from "@/lib/scoring";
 import { publicPageMetadata } from "@/lib/seo";
 import { SEASON_LEADERBOARD_NOTE } from "@/lib/weekly-messaging";
 import { getFollowerCountsForProfiles, getFollowingIdSet } from "@/lib/social/follows";
@@ -142,38 +142,8 @@ function BoardTable({
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-muted sm:min-w-[18rem] sm:text-right">
-              <span className="sm:col-span-2">
-                Contests played{" "}
-                <strong className="font-display text-base text-ink">
-                  {entry.contestsPlayed}
-                </strong>
-              </span>
-              <span>
-                Avg{" "}
-                <strong className="text-ink">
-                  {formatRankIqScore(entry.averageScore)}
-                </strong>
-              </span>
-              <span>
-                Best{" "}
-                <strong className="text-ink">
-                  {formatRankIqScore(entry.bestScore)}
-                </strong>
-              </span>
-              <span>
-                Top-N{" "}
-                <strong className="text-ink">
-                  {Math.round(entry.topNHitRate * 100)}%
-                </strong>
-              </span>
-              <span>
-                Exact{" "}
-                <strong className="text-ink">{entry.exactHits}</strong>
-              </span>
-              <span>
-                #1 <strong className="text-ink">{entry.numberOneHits}</strong>
-              </span>
+            <div className="w-full min-w-0 sm:w-auto sm:shrink-0">
+              <LeaderboardRowMetrics row={entry} />
             </div>
             {follow &&
             follow.viewerProfileId !== entry.universalProfileId &&
