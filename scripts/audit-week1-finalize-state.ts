@@ -154,18 +154,24 @@ async function main() {
     });
 
     console.log(`\n=== ${contest.position} contest ===`);
-    console.log({
-      contestId: contest.id,
-      status: contest.status,
-      rankingDepth: contest.rankingDepth,
-      reserveCount: contest.reserveCount,
-      entries,
-      withPoints,
-      withRanks,
-      submissionStatus: byStatus,
-      byProfileType: byType,
-      pregameSnapshot: contest.pregameSnapshot,
-    });
+    console.log(
+      JSON.stringify(
+        {
+          contestId: contest.id,
+          status: contest.status,
+          rankingDepth: contest.rankingDepth,
+          reserveCount: contest.reserveCount,
+          entries,
+          withPoints,
+          withRanks,
+          submissionStatus: byStatus,
+          byProfileType: byType,
+          pregameSnapshot: contest.pregameSnapshot,
+        },
+        null,
+        2,
+      ),
+    );
   }
 
   const audits = await prisma.adminAuditLog.findMany({

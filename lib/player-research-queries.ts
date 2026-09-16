@@ -18,6 +18,8 @@ export type LeagueWeeklyResultRow = {
   averageSelectedRank: number | null;
   consensusRank: number | null;
   consensusVsActual: number | null;
+  /** Raw individual ballots that selected this player (pregame snapshot). */
+  ballots: number | null;
 };
 
 /**
@@ -79,24 +81,29 @@ export async function getLeagueWeeklyResults(input: {
     let selectionRate: number | null = null;
     let averageSelectedRank: number | null = null;
     let consensusRank: number | null = null;
+    let ballots: number | null = null;
 
     if (snap) {
       if (segment === "HUMAN") {
         selectionRate = snap.selectionRateHuman;
         averageSelectedRank = snap.averageSelectedRankHuman;
         consensusRank = snap.consensusRankHuman;
+        ballots = snap.selectedCountHuman;
       } else if (segment === "AI") {
         selectionRate = snap.selectionRateAi;
         averageSelectedRank = snap.averageSelectedRankAi;
         consensusRank = snap.consensusRankAi;
+        ballots = snap.selectedCountAi;
       } else if (segment === "EXPERT") {
         selectionRate = snap.selectionRateExpert;
         averageSelectedRank = snap.averageSelectedRankExpert;
         consensusRank = snap.consensusRankExpert;
+        ballots = snap.selectedCountExpert;
       } else {
         selectionRate = snap.selectionRateAll;
         averageSelectedRank = snap.averageSelectedRankAll;
         consensusRank = snap.consensusRankAll;
+        ballots = snap.selectedCountAll;
       }
     }
 
@@ -112,6 +119,7 @@ export async function getLeagueWeeklyResults(input: {
       consensusRank,
       consensusVsActual:
         consensusRank == null ? null : actualRank - consensusRank,
+      ballots,
     };
   });
 }

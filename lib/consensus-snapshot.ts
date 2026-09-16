@@ -13,6 +13,8 @@ import {
   isAnalystExpertSource,
   isPublisherConsensusSource,
 } from "@/lib/expert-identity";
+import { isStalePregameSnapshot } from "@/lib/consensus-snapshot-rebuild";
+import { logServerEvent } from "@/lib/log";
 import type { ProfileType, SubmissionStatus } from "@/lib/generated/prisma/client";
 
 export type SegmentMetrics = {
@@ -73,11 +75,20 @@ function buildSegmentConsensus(input: {
 
 /**
  * Capture immutable pregame selection + consensus metrics at Sunday full lock.
- * Idempotent — skips contests that already have a snapshot.
+ *
+ * Behavior when a snapshot already exists:
+ * - lockedAt matches `lockedAt` arg → skip (true idempotent reuse)
+ * - lockedAt mismatches (stale early lock) → do NOT silently reuse;
+ *   log a warning and skip write unless `replaceStale: true`
  */
 export async function captureContestPregameSnapshotsForWeek(
   weekId: string,
   lockedAt: Date,
+  options?: {
+    replaceStale?: boolean;
+    /** When set, only these RankingSubmission IDs contribute to consensus. */
+    submissionIdAllowlist?: ReadonlySet<string>;
+  },
 ) {
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId },
@@ -98,11 +109,47 @@ export async function captureContestPregameSnapshotsForWeek(
 
   let captured = 0;
   let skipped = 0;
+  let staleDetected = 0;
+  let staleReplaced = 0;
 
   for (const contest of contests) {
     if (contest.pregameSnapshot) {
-      skipped += 1;
-      continue;
+      const stale = isStalePregameSnapshot({
+        snapshotLockedAt: contest.pregameSnapshot.lockedAt,
+        weekFullLockAt: lockedAt,
+      });
+      if (!stale) {
+        skipped += 1;
+        continue;
+      }
+
+      staleDetected += 1;
+      logServerEvent(
+        "consensus.pregame_snapshot_stale",
+        {
+          weekId,
+          contestId: contest.id,
+          position: contest.position,
+          snapshotLockedAt: contest.pregameSnapshot.lockedAt.toISOString(),
+          canonicalLockedAt: lockedAt.toISOString(),
+          replaceStale: Boolean(options?.replaceStale),
+        },
+        "warn",
+      );
+
+      if (!options?.replaceStale) {
+        // Controlled replacement only — never silently overwrite in ordinary runtime.
+        skipped += 1;
+        continue;
+      }
+
+      await prisma.contestPregameSnapshotEntry.deleteMany({
+        where: { snapshotId: contest.pregameSnapshot.id },
+      });
+      await prisma.contestPregameSnapshot.delete({
+        where: { id: contest.pregameSnapshot.id },
+      });
+      staleReplaced += 1;
     }
 
     const contestInput = {
@@ -113,29 +160,37 @@ export async function captureContestPregameSnapshotsForWeek(
         actualRank: entry.actualRank,
         fantasyPoints: entry.fantasyPoints,
       })),
-      submissions: contest.submissions.map((submission) => ({
-        status: submission.status,
-        profileType: submission.universalProfile.profileType,
-        sourceKind: submission.universalProfile.expertSource?.sourceKind ?? null,
-        competitorActive: submission.universalProfile.competitorActive,
-        publicVisible: submission.universalProfile.publicVisible,
-        publicFromWeekId: submission.universalProfile.publicFromWeekId,
-        publicFromWeek: submission.universalProfile.publicFromWeek
-          ? {
-              id: submission.universalProfile.publicFromWeek.id,
-              seasonId: submission.universalProfile.publicFromWeek.seasonId,
-              weekNumber: submission.universalProfile.publicFromWeek.weekNumber,
-              startsAt: submission.universalProfile.publicFromWeek.startsAt,
-            }
-          : null,
-        week: {
-          id: contest.week.id,
-          seasonId: contest.week.seasonId,
-          weekNumber: contest.week.weekNumber,
-          startsAt: contest.week.startsAt,
-        },
-        picks: submission.picks,
-      })),
+      submissions: contest.submissions
+        .filter(
+          (submission) =>
+            !options?.submissionIdAllowlist ||
+            options.submissionIdAllowlist.has(submission.id),
+        )
+        .map((submission) => ({
+          status: submission.status,
+          profileType: submission.universalProfile.profileType,
+          sourceKind:
+            submission.universalProfile.expertSource?.sourceKind ?? null,
+          competitorActive: submission.universalProfile.competitorActive,
+          publicVisible: submission.universalProfile.publicVisible,
+          publicFromWeekId: submission.universalProfile.publicFromWeekId,
+          publicFromWeek: submission.universalProfile.publicFromWeek
+            ? {
+                id: submission.universalProfile.publicFromWeek.id,
+                seasonId: submission.universalProfile.publicFromWeek.seasonId,
+                weekNumber:
+                  submission.universalProfile.publicFromWeek.weekNumber,
+                startsAt: submission.universalProfile.publicFromWeek.startsAt,
+              }
+            : null,
+          week: {
+            id: contest.week.id,
+            seasonId: contest.week.seasonId,
+            weekNumber: contest.week.weekNumber,
+            startsAt: contest.week.startsAt,
+          },
+          picks: submission.picks,
+        })),
     };
 
     const human = buildSegmentConsensus({ contest: contestInput, filter: "HUMAN" });
@@ -248,7 +303,7 @@ export async function captureContestPregameSnapshotsForWeek(
     captured += 1;
   }
 
-  return { captured, skipped };
+  return { captured, skipped, staleDetected, staleReplaced };
 }
 
 export { segmentForProfile };

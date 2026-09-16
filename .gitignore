@@ -46,3 +46,7 @@ next-env.d.ts
 
 /lib/generated/prisma
 .tmp-*.png
+
+# Local production audit dumps
+week1-audit*.txt
+week1-repair*.txt

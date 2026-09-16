@@ -58,6 +58,7 @@ const FILTERS: { key: LeaderboardFilter; label: string }[] = [
 function BoardTable({
   rows,
   follow,
+  viewCard,
 }: {
   rows: LeaderboardRow[];
   follow?: {
@@ -67,6 +68,11 @@ function BoardTable({
     followerCounts: Map<string, number>;
     canFollow: boolean;
   };
+  /** Position weekly boards only — never Overall. */
+  viewCard?: {
+    weekNumber: number;
+    position: ContestPosition;
+  } | null;
 }) {
   if (rows.length === 0) {
     return (
@@ -81,91 +87,110 @@ function BoardTable({
 
   return (
     <ol className="divide-y divide-border">
-      {rows.map((entry) => (
-        <li
-          key={entry.universalProfileId}
-          className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="font-display w-7 shrink-0 text-center text-base font-semibold tabular-nums text-ink sm:w-8">
-              {entry.rank}
-            </span>
-            <div className="min-w-0 flex-1">
-              <ProfileLink
-                username={entry.username}
-                displayName={entry.displayName}
-                avatarUrl={entry.avatarUrl}
-                profileType={entry.profileType}
-                isAi={entry.profileType === "AI"}
-                isExpert={
-                  entry.profileType === "BENCHMARK" &&
-                  !isPublisherConsensusSource(entry.expertSourceKind)
-                }
-                isCreator={entry.profileType === "CREATOR"}
-                expertPublisher={entry.expertPublisher}
-                expertSourceKind={entry.expertSourceKind}
-                creatorBrand={entry.creatorBrand}
-                aiModel={
-                  entry.profileType === "AI" ? entry.displayName : null
-                }
-              />
-              {follow &&
-              entry.profileType !== "BENCHMARK" &&
-              entry.profileType !== "CREATOR" &&
-              entry.profileType !== "AI" ? (
-                <p className="mt-1 text-xs text-muted">
-                  {follow.followerCounts.get(entry.universalProfileId) ?? 0}{" "}
-                  followers
-                </p>
-              ) : null}
+      {rows.map((entry) => {
+        const cardHref =
+          viewCard != null
+            ? `/profile/${entry.username}/rankings/${viewCard.weekNumber}/${viewCard.position.toLowerCase()}`
+            : null;
+        return (
+          <li
+            key={entry.universalProfileId}
+            className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="font-display w-7 shrink-0 text-center text-base font-semibold tabular-nums text-ink sm:w-8">
+                {entry.rank}
+              </span>
+              <div className="min-w-0 flex-1">
+                <ProfileLink
+                  username={entry.username}
+                  displayName={entry.displayName}
+                  avatarUrl={entry.avatarUrl}
+                  profileType={entry.profileType}
+                  isAi={entry.profileType === "AI"}
+                  isExpert={
+                    entry.profileType === "BENCHMARK" &&
+                    !isPublisherConsensusSource(entry.expertSourceKind)
+                  }
+                  isCreator={entry.profileType === "CREATOR"}
+                  expertPublisher={entry.expertPublisher}
+                  expertSourceKind={entry.expertSourceKind}
+                  creatorBrand={entry.creatorBrand}
+                  aiModel={
+                    entry.profileType === "AI" ? entry.displayName : null
+                  }
+                />
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {follow &&
+                  entry.profileType !== "BENCHMARK" &&
+                  entry.profileType !== "CREATOR" &&
+                  entry.profileType !== "AI" ? (
+                    <p className="text-xs text-muted">
+                      {follow.followerCounts.get(entry.universalProfileId) ??
+                        0}{" "}
+                      followers
+                    </p>
+                  ) : null}
+                  {cardHref ? (
+                    <Link
+                      href={cardHref}
+                      className="text-xs font-medium text-accent-ink hover:underline"
+                    >
+                      View Card
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-muted sm:min-w-[18rem] sm:text-right">
-            <span className="sm:col-span-2">
-              Contests played{" "}
-              <strong className="font-display text-base text-ink">
-                {entry.contestsPlayed}
-              </strong>
-            </span>
-            <span>
-              Avg{" "}
-              <strong className="text-ink">
-                {formatRankIqScore(entry.averageScore)}
-              </strong>
-            </span>
-            <span>
-              Best{" "}
-              <strong className="text-ink">
-                {formatRankIqScore(entry.bestScore)}
-              </strong>
-            </span>
-            <span>
-              Top-N{" "}
-              <strong className="text-ink">
-                {Math.round(entry.topNHitRate * 100)}%
-              </strong>
-            </span>
-            <span>
-              Exact{" "}
-              <strong className="text-ink">{entry.exactHits}</strong>
-            </span>
-            <span>
-              #1 <strong className="text-ink">{entry.numberOneHits}</strong>
-            </span>
-          </div>
-          {follow &&
-          follow.viewerProfileId !== entry.universalProfileId &&
-          entry.profileType !== "BENCHMARK" &&
-          entry.profileType !== "CREATOR" ? (
-            <FollowButton
-              targetProfileId={entry.universalProfileId}
-              initialFollowing={follow.followingIds.has(entry.universalProfileId)}
-              signedIn={follow.signedIn}
-              canFollow={follow.canFollow}
-            />
-          ) : null}
-        </li>
-      ))}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-muted sm:min-w-[18rem] sm:text-right">
+              <span className="sm:col-span-2">
+                Contests played{" "}
+                <strong className="font-display text-base text-ink">
+                  {entry.contestsPlayed}
+                </strong>
+              </span>
+              <span>
+                Avg{" "}
+                <strong className="text-ink">
+                  {formatRankIqScore(entry.averageScore)}
+                </strong>
+              </span>
+              <span>
+                Best{" "}
+                <strong className="text-ink">
+                  {formatRankIqScore(entry.bestScore)}
+                </strong>
+              </span>
+              <span>
+                Top-N{" "}
+                <strong className="text-ink">
+                  {Math.round(entry.topNHitRate * 100)}%
+                </strong>
+              </span>
+              <span>
+                Exact{" "}
+                <strong className="text-ink">{entry.exactHits}</strong>
+              </span>
+              <span>
+                #1 <strong className="text-ink">{entry.numberOneHits}</strong>
+              </span>
+            </div>
+            {follow &&
+            follow.viewerProfileId !== entry.universalProfileId &&
+            entry.profileType !== "BENCHMARK" &&
+            entry.profileType !== "CREATOR" ? (
+              <FollowButton
+                targetProfileId={entry.universalProfileId}
+                initialFollowing={follow.followingIds.has(
+                  entry.universalProfileId,
+                )}
+                signedIn={follow.signedIn}
+                canFollow={follow.canFollow}
+              />
+            ) : null}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -300,6 +325,17 @@ export default async function LeaderboardsPage({
     rows.map((row) => row.universalProfileId),
   );
 
+  const viewCardWeekNumber =
+    testWeek?.isTest
+      ? testWeek.weekNumber
+      : scope === "weekly" && context?.week
+        ? context.week.weekNumber
+        : null;
+  const viewCard =
+    viewCardWeekNumber != null && position != null
+      ? { weekNumber: viewCardWeekNumber, position }
+      : null;
+
   function href(next: {
     scope?: string;
     position?: string;
@@ -383,12 +419,15 @@ export default async function LeaderboardsPage({
               ? SEASON_LEADERBOARD_NOTE
               : "Weekly results for the selected NFL week."}{" "}
             {context
-              ? "Click any profile to open their RankEyeQ page."
+              ? position
+                ? "Profile opens identity; View Card opens that week’s graded position board."
+                : "Click any profile to open their RankEyeQ page."
               : "No active season found."}
           </p>
         </div>
         <BoardTable
           rows={rows}
+          viewCard={viewCard}
           follow={{
             signedIn: Boolean(auth),
             viewerProfileId: auth?.universalProfile?.id ?? null,

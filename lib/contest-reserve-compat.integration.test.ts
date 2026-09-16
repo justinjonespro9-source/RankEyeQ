@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import {
   CONTEST_POSITIONS,
+  isGradeablePickCount,
   isScorablePickCount,
   RESERVE_COUNT,
   rankingDepthForPosition,
@@ -308,5 +309,14 @@ describe("reserve-enabled week still uses +2 submission depth", () => {
     expect(isScorablePickCount(10, 10, 2)).toBe(true); // experts still ok
     expect(isScorablePickCount(12, 10, 2)).toBe(true);
     expect(isScorablePickCount(9, 10, 2)).toBe(false);
+  });
+
+  it("gradeable allows +2 even when contest reserveCount=0", () => {
+    expect(isGradeablePickCount(10, 10)).toBe(true);
+    expect(isGradeablePickCount(12, 10)).toBe(true);
+    expect(isGradeablePickCount(9, 10)).toBe(false);
+    expect(isGradeablePickCount(13, 10)).toBe(false);
+    // Strict scorable with reserveCount=0 still rejects 12.
+    expect(isScorablePickCount(12, 10, 0)).toBe(false);
   });
 });

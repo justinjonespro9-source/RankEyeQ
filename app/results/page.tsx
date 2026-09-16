@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ScoredPlayerRow } from "@/components/rank/ScoredPlayerRow";
 import { ScoreSummary } from "@/components/rank/ScoreSummary";
+import { ResultsVsConsensusTable } from "@/components/results/ResultsVsConsensusTable";
 import { Container } from "@/components/layout/Container";
 import { ResultsSubnav } from "@/components/layout/ResultsSubnav";
 import { Badge } from "@/components/ui/Badge";
@@ -21,22 +22,22 @@ import { toUiPosition } from "@/lib/contest-defaults";
 import { publicPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = publicPageMetadata({
-  title: 'Results',
-  description: 'Graded weekly contest results: actual fantasy-point finishes, consensus vs actual, and top EYEQ performers.',
-  path: '/results',
+  title: "Results",
+  description:
+    "Final weekly results vs consensus: actual fantasy finishes, comparison metrics, and top EYEQ performers.",
+  path: "/results",
 });
 
 export const dynamic = "force-dynamic";
 
-function formatDelta(value: number | null) {
-  if (value == null) return "—";
-  return value > 0 ? `+${value}` : String(value);
-}
-
 export default async function ResultsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ contestId?: string; adminTest?: string; weekId?: string }>;
+  searchParams: Promise<{
+    contestId?: string;
+    adminTest?: string;
+    weekId?: string;
+  }>;
 }) {
   const params = await searchParams;
   const auth = await getAuthContext();
@@ -67,9 +68,9 @@ export default async function ResultsPage({
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
-        eyebrow="Graded weeks"
-        title="Results"
-        description="Weekly results after grading: actual fantasy-point finishes, consensus comparison, and top EYEQ performers for that NFL week."
+        eyebrow="Postgame"
+        title="Final Results vs Consensus"
+        description="What actually finished — fantasy points and league ranks — with pregame consensus as the comparison layer. For market-only Selected % / ballots views, use Consensus."
       />
       <ResultsSubnav />
 
@@ -129,20 +130,23 @@ export default async function ResultsPage({
                   Ranking board
                 </Link>
                 <Link
-                  href={`/consensus?weekId=${view.contest.weekId}&position=${view.contest.position}&view=actual`}
+                  href={`/consensus?weekId=${view.contest.weekId}&position=${view.contest.position}`}
                   className="inline-flex min-h-10 items-center text-sm text-accent-ink hover:underline"
                 >
-                  Consensus
+                  Pregame consensus
                 </Link>
               </div>
 
               <section>
                 <div className="mb-3">
                   <h2 className="font-display text-xl font-semibold text-ink">
-                    {view.contest.status === "FINAL"
-                      ? "League-wide actual finishes (Top 40)"
-                      : "League-wide finishes (provisional, Top 40)"}
+                    Actual finishes vs consensus
                   </h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Sorted by Actual ascending by default. Vs Con. shows
+                    movement vs pregame consensus (up = better finish, down =
+                    worse).
+                  </p>
                 </div>
 
                 {view.leagueResults.length === 0 ? (
@@ -151,115 +155,7 @@ export default async function ResultsPage({
                     description="Actual fantasy-point finishes appear here after grading imports complete for this contest."
                   />
                 ) : (
-                  <>
-                    <div className="space-y-3 md:hidden">
-                      {view.leagueResults.map((entry) => (
-                        <article
-                          key={entry.rankableEntryId}
-                          className="rounded-lg border border-border bg-surface-elevated p-3.5"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-medium text-ink">
-                                <span className="font-display font-semibold text-accent-ink">
-                                  #{entry.actualRank}
-                                </span>{" "}
-                                {entry.name}
-                              </p>
-                              <p className="mt-0.5 text-sm text-muted">
-                                {entry.team} · {entry.opponent}
-                              </p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                                Fantasy Pts
-                              </p>
-                              <p className="font-display text-lg font-semibold tabular-nums text-ink">
-                                {entry.fantasyPoints.toFixed(1)}
-                              </p>
-                            </div>
-                          </div>
-                          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-                            <div className="rounded-md bg-surface px-2 py-2">
-                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                                Selected
-                              </dt>
-                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
-                                {entry.selectionRate == null
-                                  ? "—"
-                                  : `${(entry.selectionRate * 100).toFixed(1)}%`}
-                              </dd>
-                            </div>
-                            <div className="rounded-md bg-surface px-2 py-2">
-                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                                Consensus
-                              </dt>
-                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
-                                {entry.consensusRank ?? "—"}
-                              </dd>
-                            </div>
-                            <div className="rounded-md bg-surface px-2 py-2">
-                              <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-                                Δ
-                              </dt>
-                              <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">
-                                {formatDelta(entry.consensusVsActual)}
-                              </dd>
-                            </div>
-                          </dl>
-                        </article>
-                      ))}
-                    </div>
-
-                    <div className="table-scroll hidden overflow-x-auto rounded-lg border border-border bg-surface-elevated md:block">
-                      <table className="w-full min-w-[52rem] text-left text-sm">
-                        <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
-                          <tr>
-                            <th className="px-4 py-3">Actual</th>
-                            <th className="px-4 py-3">Selected %</th>
-                            <th className="px-4 py-3">Consensus</th>
-                            <th className="px-4 py-3">Δ</th>
-                            <th className="px-4 py-3">Player</th>
-                            <th className="px-4 py-3">Pts</th>
-                            <th className="px-4 py-3">Avg sel rank</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {view.leagueResults.map((entry) => (
-                            <tr
-                              key={entry.rankableEntryId}
-                              className="border-b border-border last:border-0"
-                            >
-                              <td className="px-4 py-3 font-display font-semibold text-ink">
-                                {entry.actualRank}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums text-ink">
-                                {entry.selectionRate == null
-                                  ? "—"
-                                  : `${(entry.selectionRate * 100).toFixed(1)}%`}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums text-ink">
-                                {entry.consensusRank ?? "—"}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums text-ink">
-                                {formatDelta(entry.consensusVsActual)}
-                              </td>
-                              <td className="px-4 py-3 text-ink">
-                                {entry.name}{" "}
-                                <span className="text-muted">{entry.team}</span>
-                              </td>
-                              <td className="px-4 py-3 tabular-nums text-ink">
-                                {entry.fantasyPoints.toFixed(1)}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums text-ink">
-                                {entry.averageSelectedRank?.toFixed(1) ?? "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
+                  <ResultsVsConsensusTable rows={view.leagueResults} />
                 )}
               </section>
 

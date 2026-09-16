@@ -2,8 +2,10 @@ import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 import { captureContestPregameSnapshotsForWeek } from "@/lib/consensus-snapshot";
+import { isStalePregameSnapshot } from "@/lib/consensus-snapshot-rebuild";
 import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
+import { logServerEvent } from "@/lib/log";
 import { Prisma } from "@/lib/generated/prisma/client";
 
 function kickoffForPick(input: {
@@ -179,16 +181,60 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
     reopenedContests: 0,
     reopenedSubmissions: 0,
     clearedPickLocks: 0,
+    stalePregameSnapshots: 0,
   };
-  const week = await prisma.week.findUnique({ where: { id: weekId } });
+  const week = await prisma.week.findUnique({
+    where: { id: weekId },
+    include: {
+      contests: { include: { pregameSnapshot: { select: { id: true, lockedAt: true } } } },
+    },
+  });
   if (!week?.fullLockAt) {
     return empty;
   }
+
+  // Always surface stale snapshots when week timing was corrected, even after lock.
+  let stalePregameSnapshots = 0;
+  for (const contest of week.contests) {
+    if (!contest.pregameSnapshot) continue;
+    if (
+      !isStalePregameSnapshot({
+        snapshotLockedAt: contest.pregameSnapshot.lockedAt,
+        weekFullLockAt: week.fullLockAt,
+      })
+    ) {
+      continue;
+    }
+    stalePregameSnapshots += 1;
+    logServerEvent(
+      "consensus.pregame_snapshot_stale",
+      {
+        weekId,
+        contestId: contest.id,
+        position: contest.position,
+        snapshotLockedAt: contest.pregameSnapshot.lockedAt.toISOString(),
+        weekFullLockAt: week.fullLockAt.toISOString(),
+        source: "healPrematureWeekLocks",
+      },
+      "warn",
+    );
+  }
+
   if (now >= week.fullLockAt) {
-    return empty;
+    return {
+      reopenedContests: 0,
+      reopenedSubmissions: 0,
+      clearedPickLocks: 0,
+      stalePregameSnapshots,
+    };
   }
   if (week.status === "COMPLETE" || week.status === "ARCHIVED") {
-    return empty;
+    return {
+      reopenedContests: 0,
+      reopenedSubmissions: 0,
+      clearedPickLocks: 0,
+      stalePregameSnapshots,
+    };
   }
 
   const contests = await prisma.rankIQContest.updateMany({
@@ -261,5 +307,6 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
     reopenedContests: contests.count,
     reopenedSubmissions: submissions.count,
     clearedPickLocks,
+    stalePregameSnapshots,
   };
 }

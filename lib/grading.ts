@@ -3,7 +3,7 @@ import { resolveScoringConfigForContest } from "@/lib/ranking-scoring-versions";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import {
-  isScorablePickCount,
+  isGradeablePickCount,
   submissionDepthFromScoring,
 } from "@/lib/contest-defaults";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
@@ -109,11 +109,7 @@ export async function gradeContest(
   try {
     for (const submission of eligible) {
       if (
-        !isScorablePickCount(
-          submission.picks.length,
-          contest.rankingDepth,
-          reserveCount,
-        )
+        !isGradeablePickCount(submission.picks.length, contest.rankingDepth)
       ) {
         skips.push({
           submissionId: submission.id,
@@ -126,7 +122,7 @@ export async function gradeContest(
           reason:
             submission.picks.length < contest.rankingDepth
               ? `incomplete: pickCount ${submission.picks.length} < rankingDepth ${contest.rankingDepth}`
-              : `over-depth: pickCount ${submission.picks.length} > max submissionDepth ${expectedSubmissionDepth} (reserveCount=${reserveCount})`,
+              : `over-depth: pickCount ${submission.picks.length} > max gradeable ${submissionDepthFromScoring(contest.rankingDepth, 2)}`,
         });
         continue;
       }

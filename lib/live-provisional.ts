@@ -38,15 +38,15 @@ export function provisionalStandingRowClass(
 ): string {
   switch (status) {
     case "GOLD":
-      return "border-amber-400/55 bg-amber-50";
+      return "border-l-[3px] border-l-amber-500 border-amber-400/70 bg-gradient-to-r from-amber-100 via-amber-50 to-surface-elevated";
     case "SILVER":
-      return "border-slate-300 bg-slate-100";
+      return "border-l-[3px] border-l-slate-400 border-slate-300/80 bg-gradient-to-r from-slate-200/90 via-slate-100 to-surface-elevated";
     case "BRONZE":
-      return "border-orange-300/70 bg-orange-50";
+      return "border-l-[3px] border-l-orange-500 border-orange-300/80 bg-gradient-to-r from-orange-100 via-orange-50 to-surface-elevated";
     case "IN_FIELD":
-      return "border-emerald-300/55 bg-emerald-50";
+      return "border-l-[3px] border-l-emerald-500/80 border-emerald-300/55 bg-emerald-50/90";
     case "OUTSIDE_FIELD":
-      return "border-border bg-surface";
+      return "border-border/70 bg-surface";
     case "PENDING":
     default:
       return "border-border/80 bg-surface-elevated";

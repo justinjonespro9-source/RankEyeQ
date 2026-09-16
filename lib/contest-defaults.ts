@@ -87,6 +87,21 @@ export function isScorablePickCount(
   return pickCount >= scoringDepth && pickCount <= maxDepth;
 }
 
+/**
+ * Grading eligibility: always allow up to the production reserve ceiling
+ * (scoringDepth + RESERVE_COUNT) so a legacy contest with reserveCount=0 can
+ * still grade boards that happen to include +1/+2 reserve slots. EYEQ scores
+ * only the effective Top scoringDepth via scoreableEffectivePicks.
+ *
+ * Still rejects incomplete boards (< scoringDepth).
+ */
+export function isGradeablePickCount(
+  pickCount: number,
+  scoringDepth: number,
+): boolean {
+  return isScorablePickCount(pickCount, scoringDepth, RESERVE_COUNT);
+}
+
 export function toUiPosition(position: ContestPosition): Position {
   return position.toLowerCase() as Position;
 }

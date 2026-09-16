@@ -26,6 +26,7 @@ import {
 } from "@/lib/admin/test-preview";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { trackEvent } from "@/lib/analytics";
+import { ConsensusDeltaMove } from "@/components/results/ConsensusDeltaMove";
 import { publicPageMetadata } from "@/lib/seo";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 
@@ -223,9 +224,9 @@ export default async function ConsensusPage({
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
-        eyebrow="Community board"
-        title="Community EYEQ"
-        description="Free after Sunday 10:00 AM America/Chicago. Compare Human, Expert, Creator, and AI pregame consensus with Selected % and average selected rank. Publisher Consensus is a separate benchmark lane and is not included in All. The All view blends intelligence groups with equal weight when configured."
+        eyebrow="Pregame market"
+        title="Consensus"
+        description="Who Humans, Experts, Creators, and AI ranked before lock — Selected %, average selected rank, and ballots. Publisher Consensus stays a separate benchmark lane and is not in All. For what actually finished vs this market, open Results."
       />
 
       {weeks.length === 0 ? (
@@ -451,12 +452,11 @@ export default async function ConsensusPage({
                               : ""}
                           </p>
                         </div>
-                        {showActual && entry.consensusVsActual != null ? (
-                          <span className="shrink-0 text-sm tabular-nums text-ink">
-                            {entry.consensusVsActual > 0
-                              ? `+${entry.consensusVsActual}`
-                              : entry.consensusVsActual}
-                          </span>
+                        {showActual ? (
+                          <ConsensusDeltaMove
+                            value={entry.consensusVsActual}
+                            className="shrink-0 text-sm"
+                          />
                         ) : null}
                       </div>
                       <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -512,7 +512,12 @@ export default async function ConsensusPage({
                         Ballots
                       </th>
                       {showActual ? (
-                        <th className="px-3 py-3">Δ</th>
+                        <th
+                          className="px-3 py-3"
+                          title="Movement vs consensus (Actual − Consensus)"
+                        >
+                          Vs Con.
+                        </th>
                       ) : null}
                     </tr>
                   </thead>
@@ -549,12 +554,10 @@ export default async function ConsensusPage({
                             {entry.timesRanked}
                           </td>
                           {showActual ? (
-                            <td className="px-3 py-3 tabular-nums text-ink">
-                              {entry.consensusVsActual == null
-                                ? "—"
-                                : entry.consensusVsActual > 0
-                                  ? `+${entry.consensusVsActual}`
-                                  : entry.consensusVsActual}
+                            <td className="px-3 py-3">
+                              <ConsensusDeltaMove
+                                value={entry.consensusVsActual}
+                              />
                             </td>
                           ) : null}
                         </tr>
