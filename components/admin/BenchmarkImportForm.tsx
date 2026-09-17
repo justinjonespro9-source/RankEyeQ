@@ -4,6 +4,13 @@ import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
 import {
+  HISTORICAL_BACKFILL_BADGE,
+  HISTORICAL_BACKFILL_HELP,
+  HISTORICAL_LATE_WARNING,
+  HISTORICAL_OFFICIAL_NOTICE,
+  isCompetitivelyLate,
+} from "@/lib/benchmarks/historical-backfill";
+import {
   extractTopNFromPastedText,
   type SourceExtractRow,
 } from "@/lib/benchmarks/parser";
@@ -51,13 +58,29 @@ export function BenchmarkImportForm({
   const [sourcePublishedAt, setSourcePublishedAt] = useState("");
   const [notes, setNotes] = useState("");
   const [publicBoardAllowed, setPublicBoardAllowed] = useState(true);
+  const [historicalBackfill, setHistoricalBackfill] = useState(false);
   const [correctionReason, setCorrectionReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const late = useMemo(() => {
+  const competitiveLate = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
-    const captured = parseChicagoDateTimeLocal(capturedAt) ?? new Date(capturedAt);
+    if (historicalBackfill) {
+      if (!sourcePublishedAt.trim()) return false;
+      const published =
+        parseChicagoDateTimeLocal(sourcePublishedAt) ??
+        new Date(sourcePublishedAt);
+      return isCompetitivelyLate(published, lock);
+    }
+    const captured =
+      parseChicagoDateTimeLocal(capturedAt) ?? new Date(capturedAt);
+    return isLateCapture(captured, lock);
+  }, [capturedAt, fullLockAt, historicalBackfill, sourcePublishedAt]);
+
+  const wallClockLate = useMemo(() => {
+    const lock = fullLockAt ? new Date(fullLockAt) : null;
+    const captured =
+      parseChicagoDateTimeLocal(capturedAt) ?? new Date(capturedAt);
     return isLateCapture(captured, lock);
   }, [capturedAt, fullLockAt]);
 
@@ -120,6 +143,10 @@ export function BenchmarkImportForm({
       setMessage("Corrections require a reason.");
       return;
     }
+    if (historicalBackfill && !sourcePublishedAt.trim()) {
+      setMessage("Historical / Backfill Entry requires Source published at.");
+      return;
+    }
     startTransition(async () => {
       try {
         const result = await adminCaptureBenchmarkAction({
@@ -141,7 +168,8 @@ export function BenchmarkImportForm({
             })),
           correctionOfId: asCorrection ? latestSnapshotId : null,
           correctionReason: asCorrection ? correctionReason : null,
-          commitOfficial: !late,
+          commitOfficial: !competitiveLate,
+          historicalBackfill,
         });
         setMessage(
           result.ok
@@ -210,14 +238,22 @@ export function BenchmarkImportForm({
         </label>
         <label className="block text-sm sm:col-span-2">
           <span className="text-muted">
-            Source published at (America/Chicago, optional)
+            Source published at (America/Chicago
+            {historicalBackfill ? ", required" : ", optional"})
           </span>
           <input
             type="datetime-local"
             value={sourcePublishedAt}
             onChange={(event) => setSourcePublishedAt(event.target.value)}
+            required={historicalBackfill}
             className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2"
           />
+          {historicalBackfill && sourcePublishedAt ? (
+            <p className="mt-1 text-xs text-muted">
+              Historical source time: {sourcePublishedAt.replace("T", " ")} CT
+              (stored as absolute UTC)
+            </p>
+          ) : null}
         </label>
         <label className="block text-sm sm:col-span-2">
           <span className="text-muted">Notes (optional)</span>
@@ -228,6 +264,28 @@ export function BenchmarkImportForm({
           />
         </label>
       </div>
+      <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={historicalBackfill}
+          onChange={(event) => setHistoricalBackfill(event.target.checked)}
+        />
+        <span>
+          <span className="font-medium">
+            Historical / Backfill Entry{" "}
+            <span className="rounded border border-warning/40 bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+              {HISTORICAL_BACKFILL_BADGE}
+            </span>
+          </span>
+          <span className="mt-1 block text-xs text-muted">
+            {HISTORICAL_BACKFILL_HELP} Ignores kickoff/full-lock UI barriers for
+            data entry. Official eligibility still requires source published
+            time ≤ Week.fullLockAt. Frozen consensus is never rewritten
+            automatically.
+          </span>
+        </span>
+      </label>
       <label className="flex items-center gap-2 text-sm text-ink">
         <input
           type="checkbox"
@@ -236,9 +294,13 @@ export function BenchmarkImportForm({
         />
         Public board may show RankEyeQ Top {rankingDepth} (uncheck for restricted sources)
       </label>
-      {late ? (
+      {competitiveLate ? (
         <p className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
-          {LATE_CAPTURE_WARNING}
+          {historicalBackfill ? HISTORICAL_LATE_WARNING : LATE_CAPTURE_WARNING}
+        </p>
+      ) : historicalBackfill && wallClockLate ? (
+        <p className="rounded-md border border-accent/30 bg-accent-soft/40 px-3 py-2 text-sm text-ink">
+          {HISTORICAL_OFFICIAL_NOTICE}
         </p>
       ) : null}
       <Button type="button" variant="secondary" onClick={parse}>

@@ -93,6 +93,8 @@ export async function adminCaptureBenchmarkAction(input: {
   correctionOfId?: string | null;
   correctionReason?: string | null;
   commitOfficial?: boolean;
+  /** Admin-only Historical / Backfill Entry. */
+  historicalBackfill?: boolean;
 }) {
   let position = "unknown";
   let expectedFieldSize = 0;
@@ -208,10 +210,29 @@ export async function adminCaptureBenchmarkAction(input: {
 
     failingStep = "capture_snapshot";
     const now = new Date();
+    const historicalBackfill = Boolean(input.historicalBackfill);
     const capturedAt = parseCapturedAt(input.capturedAt, now);
     const sourcePublishedAt = input.sourcePublishedAt
       ? parseCapturedAt(input.sourcePublishedAt, capturedAt)
       : null;
+
+    if (historicalBackfill && !sourcePublishedAt) {
+      return {
+        ok: false as const,
+        error:
+          "Historical / Backfill Entry requires Source published at (America/Chicago).",
+      };
+    }
+
+    // Competitive lateness: source time in backfill mode, else wall-clock capturedAt.
+    const competitiveAt = historicalBackfill
+      ? (sourcePublishedAt as Date)
+      : capturedAt;
+    const competitivelyLate =
+      contest.week.fullLockAt != null &&
+      competitiveAt.getTime() >= contest.week.fullLockAt.getTime();
+    const commitOfficial =
+      input.commitOfficial ?? !competitivelyLate;
 
     const result = await captureBenchmarkSnapshot({
       contestId: input.contestId,
@@ -236,7 +257,8 @@ export async function adminCaptureBenchmarkAction(input: {
       })),
       correctionOfId: input.correctionOfId,
       correctionReason: input.correctionReason,
-      commitOfficial: input.commitOfficial ?? true,
+      commitOfficial,
+      historicalBackfill,
     });
 
     failingStep = "audit_log";
@@ -247,7 +269,9 @@ export async function adminCaptureBenchmarkAction(input: {
         : result.late
           ? "benchmark.snapshot_late"
           : result.official
-            ? "benchmark.board_locked"
+            ? historicalBackfill
+              ? "benchmark.board_locked_historical_backfill"
+              : "benchmark.board_locked"
             : "benchmark.snapshot_captured",
       entityType: "BenchmarkSnapshot",
       entityId: result.snapshot.id,
@@ -257,11 +281,19 @@ export async function adminCaptureBenchmarkAction(input: {
         captureType: input.captureType,
         late: result.late,
         official: result.official,
+        historicalBackfill,
+        sourcePublishedAt: sourcePublishedAt?.toISOString() ?? null,
+        capturedAt: capturedAt.toISOString(),
+        enteredAfterFullLock: result.snapshot.enteredAfterFullLock,
+        enteredAfterWeekComplete: result.snapshot.enteredAfterWeekComplete,
+        weekStatus: contest.week.status,
         position: contest.position,
         rankingDepth: contest.rankingDepth,
         selectedCount: extracted.selected.length,
         correctionOfId: input.correctionOfId ?? null,
         correctionReason: input.correctionReason ?? null,
+        // Explicit: never rewrite frozen consensus from this path.
+        consensusSnapshotRewritten: false,
       },
     });
 
@@ -275,12 +307,17 @@ export async function adminCaptureBenchmarkAction(input: {
       ok: true as const,
       late: result.late,
       official: result.official,
+      historicalBackfill,
       warnings: result.warnings,
       snapshotId: result.snapshot.id,
       message: result.late
-        ? LATE_CAPTURE_WARNING
+        ? historicalBackfill
+          ? "Historical source time is after lock — tracking-only (not official)."
+          : LATE_CAPTURE_WARNING
         : result.official
-          ? "Official benchmark board locked and eligible for RankEYEQ scoring"
+          ? historicalBackfill
+            ? "Historical board locked using source published time. Graded if actuals exist. Frozen consensus was not rewritten."
+            : "Official benchmark board locked and eligible for RankEYEQ scoring"
           : "Snapshot saved",
     };
   } catch (error) {

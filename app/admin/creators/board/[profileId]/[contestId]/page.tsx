@@ -156,6 +156,7 @@ export default async function AdminCreatorBoardPage(props: {
               <li key={snapshot.id}>
                 {snapshot.captureType} · {snapshot.status}
                 {snapshot.late ? " · LATE" : ""}
+                {snapshot.historicalBackfill ? " · BACKFILLED" : ""}
                 {snapshot.sourceUrl ? (
                   <>
                     {" · "}

@@ -49,6 +49,7 @@ export type CreatorBoardPageModel = {
     captureType: string;
     status: string;
     late: boolean;
+    historicalBackfill: boolean;
     sourceUrl: string | null;
     capturedAt: Date;
     sourcePublishedAt: Date | null;
@@ -150,6 +151,7 @@ export async function loadCreatorBoardPage(input: {
           captureType: true,
           status: true,
           late: true,
+          historicalBackfill: true,
           sourceUrl: true,
           capturedAt: true,
           sourcePublishedAt: true,

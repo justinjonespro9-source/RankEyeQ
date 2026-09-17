@@ -10,6 +10,13 @@ import {
 } from "react";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
+import {
+  HISTORICAL_BACKFILL_BADGE,
+  HISTORICAL_BACKFILL_HELP,
+  HISTORICAL_LATE_WARNING,
+  HISTORICAL_OFFICIAL_NOTICE,
+  isCompetitivelyLate,
+} from "@/lib/benchmarks/historical-backfill";
 import { extractTopNFromPastedText } from "@/lib/benchmarks/parser";
 import { isLateCapture } from "@/lib/benchmarks/merge";
 import { adminCaptureBenchmarkAction } from "@/lib/admin-benchmark-actions";
@@ -151,7 +158,28 @@ export function CreatorImportForm({
 
   const displayCapturedAt = draft.capturedAt || "";
 
-  const late = useMemo(() => {
+  const competitiveLate = useMemo(() => {
+    const lock = fullLockAt ? new Date(fullLockAt) : null;
+    if (draft.historicalBackfill) {
+      const raw = draft.sourcePublishedAt.trim();
+      if (!raw) return false;
+      const published = parseChicagoDateTimeLocal(raw) ?? new Date(raw);
+      if (Number.isNaN(published.getTime())) return false;
+      return isCompetitivelyLate(published, lock);
+    }
+    const raw = draft.capturedAt.trim();
+    if (!raw) return false;
+    const captured = parseChicagoDateTimeLocal(raw) ?? new Date(raw);
+    if (Number.isNaN(captured.getTime())) return false;
+    return isLateCapture(captured, lock);
+  }, [
+    draft.capturedAt,
+    draft.historicalBackfill,
+    draft.sourcePublishedAt,
+    fullLockAt,
+  ]);
+
+  const wallClockLate = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
     const raw = draft.capturedAt.trim();
     if (!raw) return false;
@@ -288,6 +316,10 @@ export function CreatorImportForm({
       setMessage("Corrections require a reason.");
       return;
     }
+    if (draft.historicalBackfill && !draft.sourcePublishedAt.trim()) {
+      setMessage("Historical / Backfill Entry requires Source published at.");
+      return;
+    }
     const withTime = ensureCapturedAt(draft);
     if (withTime.capturedAt !== draft.capturedAt) {
       commitDraft(withTime);
@@ -313,7 +345,8 @@ export function CreatorImportForm({
             })),
           correctionOfId: asCorrection ? latestSnapshotId : null,
           correctionReason: asCorrection ? withTime.correctionReason : null,
-          commitOfficial: !late,
+          commitOfficial: !competitiveLate,
+          historicalBackfill: withTime.historicalBackfill,
         });
         setMessage(
           result.ok
@@ -386,7 +419,8 @@ export function CreatorImportForm({
         </label>
         <label className="block text-sm">
           <span className="text-muted">
-            Source published (Chicago, optional)
+            Source published (Chicago
+            {draft.historicalBackfill ? ", required" : ", optional"})
           </span>
           <input
             type="datetime-local"
@@ -437,6 +471,30 @@ export function CreatorImportForm({
         </label>
       </div>
 
+      <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={draft.historicalBackfill}
+          onChange={(event) =>
+            patchDraft({ historicalBackfill: event.target.checked })
+          }
+        />
+        <span>
+          <span className="font-medium">
+            Historical / Backfill Entry{" "}
+            <span className="rounded border border-warning/40 bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+              {HISTORICAL_BACKFILL_BADGE}
+            </span>
+          </span>
+          <span className="mt-1 block text-xs text-muted">
+            {HISTORICAL_BACKFILL_HELP} Requires Source published at. Official
+            eligibility uses that historical time — not import wall-clock.
+            Frozen consensus is never rewritten automatically.
+          </span>
+        </span>
+      </label>
+
       <label className="flex items-center gap-2 text-sm text-ink">
         <input
           type="checkbox"
@@ -448,10 +506,15 @@ export function CreatorImportForm({
         Public board may show RankEyeQ Top {rankingDepth}
       </label>
 
-      {late ? (
+      {competitiveLate ? (
         <p className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
-          {LATE_CAPTURE_WARNING} Source published time is stored separately from
-          import time and does not bypass lock rules.
+          {draft.historicalBackfill
+            ? HISTORICAL_LATE_WARNING
+            : `${LATE_CAPTURE_WARNING} Source published time is stored separately from import time and does not bypass lock rules.`}
+        </p>
+      ) : draft.historicalBackfill && wallClockLate ? (
+        <p className="rounded-md border border-accent/30 bg-accent-soft/40 px-3 py-2 text-sm text-ink">
+          {HISTORICAL_OFFICIAL_NOTICE}
         </p>
       ) : null}
 
@@ -512,9 +575,13 @@ export function CreatorImportForm({
               <li>
                 Source published: {draft.sourcePublishedAt || "—"} · Import:{" "}
                 {draft.capturedAt || "—"}
+                {draft.historicalBackfill ? " · BACKFILLED" : ""}
               </li>
               <li>
-                Lock: {late ? "LATE vs full lock" : "On-time for official board"}
+                Lock:{" "}
+                {competitiveLate
+                  ? "LATE vs full lock (competitive)"
+                  : "On-time for official board"}
               </li>
             </ul>
           </div>

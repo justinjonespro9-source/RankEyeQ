@@ -10,6 +10,7 @@ export type CreatorImportDraft = {
   notes: string;
   captureType: BenchmarkCaptureType;
   publicBoardAllowed: boolean;
+  historicalBackfill: boolean;
   correctionReason: string;
   rows: SourceExtractRow[] | null;
   blocking: string[];
@@ -43,6 +44,7 @@ export function emptyCreatorImportDraft(
     notes: "",
     captureType: "SUNDAY",
     publicBoardAllowed: true,
+    historicalBackfill: false,
     correctionReason: "",
     rows: null,
     blocking: [],
@@ -63,7 +65,11 @@ export function parseCreatorImportDraft(
   try {
     const parsed = JSON.parse(raw) as CreatorImportDraft;
     if (typeof parsed?.raw !== "string") return null;
-    return parsed;
+    return {
+      ...emptyCreatorImportDraft(),
+      ...parsed,
+      historicalBackfill: Boolean(parsed.historicalBackfill),
+    };
   } catch {
     return null;
   }

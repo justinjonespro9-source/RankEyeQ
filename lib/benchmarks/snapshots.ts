@@ -1,6 +1,14 @@
 import { prisma } from "@/lib/db";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
 import {
+  HISTORICAL_LATE_WARNING,
+  HISTORICAL_OFFICIAL_NOTICE,
+  HISTORICAL_SOURCE_REQUIRED,
+  competitiveCaptureTimestamp,
+  historicalBackfillAuditFlags,
+  isCompetitivelyLate,
+} from "@/lib/benchmarks/historical-backfill";
+import {
   isLateCapture,
   isThursdayKickoff,
   mergeSundayWithThursdayLocks,
@@ -196,7 +204,9 @@ async function upsertOfficialBenchmarkSubmission(
     contestId: string;
     universalProfileId: string;
     rankingDepth: number;
-    capturedAt: Date;
+    /** Competitive clock — sourcePublishedAt for backfill, else capturedAt. */
+    competitiveAt: Date;
+    historicalBackfill?: boolean;
     slots: MergedSlot[];
   },
   db: Tx | typeof prisma = prisma,
@@ -221,8 +231,10 @@ async function upsertOfficialBenchmarkSubmission(
         where: { id: existing.id },
         data: {
           status: existing.status === "GRADED" ? "GRADED" : "LOCKED",
-          submittedAt: existing.submittedAt ?? input.capturedAt,
-          lockedAt: existing.lockedAt ?? input.capturedAt,
+          submittedAt: existing.submittedAt ?? input.competitiveAt,
+          lockedAt: existing.lockedAt ?? input.competitiveAt,
+          historicalBackfill:
+            existing.historicalBackfill || Boolean(input.historicalBackfill),
         },
       })
     : await db.rankingSubmission.create({
@@ -230,8 +242,9 @@ async function upsertOfficialBenchmarkSubmission(
           contestId: input.contestId,
           universalProfileId: input.universalProfileId,
           status: "LOCKED",
-          submittedAt: input.capturedAt,
-          lockedAt: input.capturedAt,
+          submittedAt: input.competitiveAt,
+          lockedAt: input.competitiveAt,
+          historicalBackfill: Boolean(input.historicalBackfill),
         },
       });
 
@@ -246,13 +259,12 @@ async function upsertOfficialBenchmarkSubmission(
       slotLocked: slot.slotLocked,
       lockedAt: slot.lockedAt,
       lockedRank: slot.lockedRank,
-      committedAt: slot.lockedAt ?? input.capturedAt,
+      committedAt: slot.lockedAt ?? input.competitiveAt,
     })),
   });
 
-  if (existing?.status === "GRADED") {
-    await regradeSubmissionIfActualsExist(submission.id, db);
-  }
+  // Grade (or regrade) whenever actuals already exist — including Week COMPLETE backfill.
+  await regradeSubmissionIfActualsExist(submission.id, db);
 
   return submission.id;
 }
@@ -272,6 +284,8 @@ export async function captureBenchmarkSnapshot(input: {
   correctionOfId?: string | null;
   correctionReason?: string | null;
   commitOfficial?: boolean;
+  /** Admin-only Historical / Backfill Entry. */
+  historicalBackfill?: boolean;
 }) {
   const [profile, contest] = await Promise.all([
     prisma.universalProfile.findUnique({
@@ -313,6 +327,11 @@ export async function captureBenchmarkSnapshot(input: {
     throw new BenchmarkCaptureError("Corrections require a reason");
   }
 
+  const historicalBackfill = Boolean(input.historicalBackfill);
+  if (historicalBackfill && !input.sourcePublishedAt) {
+    throw new BenchmarkCaptureError(HISTORICAL_SOURCE_REQUIRED);
+  }
+
   const selectedCount = input.picks.filter((pick) => pick.selected).length;
   const reserveCount = contest.reserveCount ?? 0;
   if (!isScorablePickCount(selectedCount, contest.rankingDepth, reserveCount)) {
@@ -321,11 +340,42 @@ export async function captureBenchmarkSnapshot(input: {
     );
   }
 
-  const late =
-    !isCorrection && isLateCapture(input.capturedAt, contest.week.fullLockAt);
-  const kickoffs = await loadKickoffMap(input.contestId);
+  let competitiveAt: Date;
+  try {
+    competitiveAt = competitiveCaptureTimestamp({
+      historicalBackfill,
+      sourcePublishedAt: input.sourcePublishedAt,
+      capturedAt: input.capturedAt,
+    });
+  } catch (error) {
+    throw new BenchmarkCaptureError(
+      error instanceof Error ? error.message : HISTORICAL_SOURCE_REQUIRED,
+    );
+  }
 
-  if (late) warnings.push(LATE_CAPTURE_WARNING);
+  // Competitive lateness uses historical source time in backfill mode,
+  // otherwise wall-clock capturedAt (existing behavior).
+  const late =
+    !isCorrection && isCompetitivelyLate(competitiveAt, contest.week.fullLockAt);
+  const wallClockLate = isLateCapture(
+    input.capturedAt,
+    contest.week.fullLockAt,
+  );
+  const kickoffs = await loadKickoffMap(input.contestId);
+  const audit = historicalBackfillAuditFlags({
+    historicalBackfill,
+    wallClockNow: input.capturedAt,
+    fullLockAt: contest.week.fullLockAt,
+    weekStatus: contest.week.status,
+  });
+
+  if (late) {
+    warnings.push(
+      historicalBackfill ? HISTORICAL_LATE_WARNING : LATE_CAPTURE_WARNING,
+    );
+  } else if (historicalBackfill && wallClockLate) {
+    warnings.push(HISTORICAL_OFFICIAL_NOTICE);
+  }
 
   const shouldAttemptOfficial =
     input.commitOfficial !== false &&
@@ -352,14 +402,16 @@ export async function captureBenchmarkSnapshot(input: {
         rawName: pick.rawName,
       }));
 
+    // Backfill evaluates Thursday kickoff locks against the historical source
+    // time so later admin transcription does not invent kickoff blocks.
     const merged = mergeSundayWithThursdayLocks({
       rankingDepth: selectedCount,
-      now: input.capturedAt,
+      now: competitiveAt,
       thursday: thursdaySnap
         ? { capturedAt: thursdaySnap.capturedAt, selected: thursdayPicks }
         : null,
       sunday: {
-        capturedAt: input.capturedAt,
+        capturedAt: competitiveAt,
         selected: selectedMergePicks(input.picks, kickoffs),
       },
     });
@@ -400,6 +452,10 @@ export async function captureBenchmarkSnapshot(input: {
     status,
     publicBoardAllowed: input.publicBoardAllowed ?? true,
     late,
+    historicalBackfill: audit.historicalBackfill,
+    backfilledAt: audit.backfilledAt,
+    enteredAfterFullLock: audit.enteredAfterFullLock,
+    enteredAfterWeekComplete: audit.enteredAfterWeekComplete,
     adminUserId: input.adminUserId,
     correctionOfId: input.correctionOfId ?? null,
     correctionReason: input.correctionReason?.trim() || null,
@@ -423,7 +479,7 @@ export async function captureBenchmarkSnapshot(input: {
       issue: pick.issue,
       selected: pick.selected,
       slotLocked: thursdayLock,
-      lockedAt: thursdayLock ? input.capturedAt : null,
+      lockedAt: thursdayLock ? competitiveAt : null,
       lockedRank: thursdayLock ? pick.rankIqRank : null,
       kickoffAt: kickoff,
     };
@@ -478,7 +534,8 @@ export async function captureBenchmarkSnapshot(input: {
           contestId: input.contestId,
           universalProfileId: input.universalProfileId,
           rankingDepth: officialSlots.length,
-          capturedAt: input.capturedAt,
+          competitiveAt,
+          historicalBackfill,
           slots: officialSlots,
         },
         tx,
@@ -497,6 +554,7 @@ export async function captureBenchmarkSnapshot(input: {
     snapshot: saved,
     late,
     official: Boolean(officialSlots),
+    historicalBackfill,
     warnings,
   };
 }

@@ -810,6 +810,8 @@ model RankingSubmission {
   lockedAt           DateTime?
   rawScore           Float?
   normalizedScore    Float?
+  /// Official board entered via admin Historical / Backfill Entry.
+  historicalBackfill Boolean                @default(false)
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
@@ -873,6 +875,14 @@ model BenchmarkSnapshot {
   status             BenchmarkSnapshotStatus   @default(CAPTURED)
   publicBoardAllowed Boolean                   @default(true)
   late               Boolean                   @default(false)
+  /// Admin Historical / Backfill Entry — wall-clock transcription after lock.
+  historicalBackfill Boolean                   @default(false)
+  /// Wall-clock instant when admin used Backfill Mode (distinct from sourcePublishedAt).
+  backfilledAt       DateTime?
+  /// Admin entry occurred after Week.fullLockAt (wall clock).
+  enteredAfterFullLock Boolean                 @default(false)
+  /// Admin entry occurred while Week.status was COMPLETE.
+  enteredAfterWeekComplete Boolean             @default(false)
   adminUserId        String
   correctionOfId     String?
   correctionReason   String?

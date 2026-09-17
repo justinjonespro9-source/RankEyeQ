@@ -153,6 +153,11 @@ export default async function AdminBenchmarkContestPage(
                 {snapshot.late ? (
                   <span className="ml-2 text-warning">Late / non-competing</span>
                 ) : null}
+                {snapshot.historicalBackfill ? (
+                  <span className="ml-2 rounded border border-warning/40 bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                    BACKFILLED
+                  </span>
+                ) : null}
                 <span className="block text-muted">
                   Captured{" "}
                   {formatInChicago(snapshot.capturedAt, {
@@ -164,6 +169,18 @@ export default async function AdminBenchmarkContestPage(
                   })}{" "}
                   by {snapshot.adminUser.email ?? snapshot.adminUser.name ?? "admin"}
                   {snapshot.correctionOfId ? " · correction" : ""}
+                  {snapshot.sourcePublishedAt
+                    ? ` · historical source ${formatInChicago(
+                        snapshot.sourcePublishedAt,
+                        {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZoneName: "short",
+                        },
+                      )}`
+                    : ""}
                 </span>
                 {snapshot.correctionReason ? (
                   <span className="block text-muted">
