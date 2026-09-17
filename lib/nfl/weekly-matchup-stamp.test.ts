@@ -285,4 +285,68 @@ describe("weekly eligibility matchup stamping", () => {
       data: { status: "OPEN" },
     });
   });
+
+  it("clears prior-week RankableEntry matchup when this week has no game for the team", async () => {
+    const entry = await prisma.rankableEntry.findFirstOrThrow({
+      where: {
+        name: "Aidan O'Connell",
+        externalId: { endsWith: suffix },
+      },
+    });
+    const otherWeek = await prisma.week.create({
+      data: {
+        seasonId,
+        weekNumber: 98,
+        label: `Other ${suffix}`,
+        startsAt: new Date("2091-11-01T00:00:00Z"),
+        endsAt: new Date("2091-11-08T00:00:00Z"),
+        status: "UPCOMING",
+        isTest: true,
+      },
+    });
+    const foreignGame = await prisma.nflGame.create({
+      data: {
+        provider: "manual",
+        externalId: `foreign-${suffix}`,
+        seasonId,
+        weekId: otherWeek.id,
+        seasonYear: 2091,
+        weekNumber: 98,
+        homeTeam: "LV",
+        awayTeam: "DEN",
+        startsAt: new Date("2091-11-01T17:00:00Z"),
+      },
+    });
+    await prisma.rankableEntry.update({
+      where: { id: entry.id },
+      data: {
+        opponent: "@ DEN",
+        gameId: foreignGame.id,
+        gameStartsAt: foreignGame.startsAt,
+        team: "XXX",
+      },
+    });
+    await prisma.seasonPlayer.updateMany({
+      where: { rankableEntryId: entry.id },
+      data: { team: "XXX" },
+    });
+
+    await syncWeeklyEligibleFieldFromSeason({
+      weekId,
+      position: "QB",
+      scheduledTeamsOnly: false,
+    });
+
+    const after = await prisma.rankableEntry.findUniqueOrThrow({
+      where: { id: entry.id },
+    });
+    expect(after.opponent).toBe("TBD");
+    expect(after.gameId).toBeNull();
+    expect(after.gameStartsAt).toBeNull();
+
+    const contestEntry = await prisma.contestEntry.findFirst({
+      where: { rankableEntryId: entry.id, contest: { weekId } },
+    });
+    expect(contestEntry?.gameId ?? null).toBeNull();
+  });
 });

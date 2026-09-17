@@ -411,6 +411,22 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
         });
         matchupsStamped += 1;
       }
+    } else {
+      // Never inherit the prior week's denormalized matchup onto a new slate.
+      const needsClear =
+        player.rankableEntry.opponent !== "TBD" ||
+        player.rankableEntry.gameId != null ||
+        player.rankableEntry.gameStartsAt != null;
+      if (needsClear) {
+        await prisma.rankableEntry.update({
+          where: { id: player.rankableEntryId },
+          data: {
+            opponent: "TBD",
+            gameId: null,
+            gameStartsAt: null,
+          },
+        });
+      }
     }
 
     const existing = await prisma.contestEntry.findUnique({
@@ -422,13 +438,16 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
       },
     });
 
+    // Always use this week's game id (or null). Never preserve a prior ContestEntry.gameId.
+    const weekGameId = game?.id ?? null;
+
     if (existing) {
       if (shouldPreserveAdminExclusion(existing)) {
         await prisma.contestEntry.update({
           where: { id: existing.id },
           data: {
             weekTeam: player.team,
-            gameId: game?.id ?? existing.gameId,
+            gameId: weekGameId,
             seedRank: index + 1,
           },
         });
@@ -444,7 +463,7 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
             suggested: false,
             inactiveReason: null,
             weekTeam: player.team,
-            gameId: game?.id ?? existing.gameId,
+            gameId: weekGameId,
             seedRank: index + 1,
           },
         });
@@ -457,7 +476,7 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
         where: { id: existing.id },
         data: {
           weekTeam: player.team,
-          gameId: game?.id ?? existing.gameId,
+          gameId: weekGameId,
           seedRank: index + 1,
         },
       });
@@ -469,7 +488,7 @@ export async function syncWeeklyEligibleFieldFromSeason(input: {
       data: {
         contestId: contest.id,
         rankableEntryId: player.rankableEntryId,
-        gameId: game?.id ?? null,
+        gameId: weekGameId,
         weekTeam: player.team,
         excluded: false,
         suggested: false,
@@ -590,6 +609,15 @@ export async function activateWeeklyPlayer(input: {
         gameStartsAt: game.startsAt,
       },
     });
+  } else {
+    await prisma.rankableEntry.update({
+      where: { id: input.rankableEntryId },
+      data: {
+        opponent: "TBD",
+        gameId: null,
+        gameStartsAt: null,
+      },
+    });
   }
 
   return prisma.contestEntry.upsert({
@@ -604,7 +632,7 @@ export async function activateWeeklyPlayer(input: {
       suggested: false,
       manuallyAdded: true,
       weekTeam: player.team,
-      gameId: game?.id ?? undefined,
+      gameId: game?.id ?? null,
       inactiveReason: null,
     },
     create: {

@@ -109,8 +109,37 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
     extraProfileIds.push(humanId, expertId);
 
     entryIds = [];
+    const thursdayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `bm-thu-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2097,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "THU",
+        startsAt: thursdayKickoff,
+      },
+    });
+    const sundayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `bm-sun-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2097,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "SUN",
+        startsAt: sundayKickoff,
+      },
+    });
+
     for (let i = 1; i <= 6; i += 1) {
       const thursday = i === 2;
+      const team = thursday ? "THU" : "SUN";
+      const game = thursday ? thursdayGame : sundayGame;
       const entry = await prisma.rankableEntry.create({
         data: {
           provider: "test",
@@ -118,16 +147,18 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
           type: "PLAYER",
           name: `Bench QB ${i}`,
           shortName: `BQ${i}`,
-          team: "TST",
+          team,
           opponent: "@ OPP",
           position: "QB",
-          gameStartsAt: thursday ? thursdayKickoff : sundayKickoff,
+          gameStartsAt: game.startsAt,
+          gameId: game.id,
         },
       });
       await prisma.contestEntry.create({
         data: {
           contestId,
           rankableEntryId: entry.id,
+          gameId: game.id,
           actualRank: i <= 4 ? i : null,
           fantasyPoints: i <= 4 ? 40 - i : null,
         },
@@ -153,6 +184,7 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
     await prisma.rankableEntry.deleteMany({
       where: { provider: "test", externalId: { startsWith: `bm-${suffix}-` } },
     });
+    await prisma.nflGame.deleteMany({ where: { weekId } });
     await prisma.rankIQContest.deleteMany({ where: { weekId } });
     await prisma.week.delete({ where: { id: weekId } });
     await prisma.season.delete({ where: { id: seasonId } });

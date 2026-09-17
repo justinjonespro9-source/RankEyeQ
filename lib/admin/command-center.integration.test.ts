@@ -95,6 +95,7 @@ describe("admin command-center workflow", () => {
       startsAt: zonedLocalToUtc(2026, 9, 10, 19, 15),
       endsAt: zonedLocalToUtc(2026, 9, 14, 23, 0),
       status: "OPEN",
+      isTest: true,
     });
     weekId = week.id;
     expect(week.rankingsOpenAt).toBeTruthy();

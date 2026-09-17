@@ -17,6 +17,11 @@ import {
 } from "@/lib/benchmarks/merge";
 import { rankingDepthForPosition, submissionDepthFromScoring, isScorablePickCount } from "@/lib/contest-defaults";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
+import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
+import {
+  WeekMatchupNotStampedError,
+  assertWeekMatchupsStamped,
+} from "@/lib/nfl/week-matchup-health";
 import type {
   BenchmarkCaptureType,
   BenchmarkSnapshotStatus,
@@ -61,21 +66,27 @@ export type SnapshotPickInput = {
 };
 
 async function loadKickoffMap(contestId: string, db: Tx | typeof prisma = prisma) {
+  const contest = await db.rankIQContest.findUnique({
+    where: { id: contestId },
+    select: { weekId: true },
+  });
   const entries = await db.contestEntry.findMany({
     where: { contestId, excluded: false },
     include: {
       game: true,
-      rankableEntry: { include: { game: true } },
+      rankableEntry: { select: { id: true } },
     },
   });
   const map = new Map<string, Date | null>();
   for (const entry of entries) {
     map.set(
       entry.rankableEntryId,
-      entry.game?.startsAt ??
-        entry.rankableEntry.game?.startsAt ??
-        entry.rankableEntry.gameStartsAt ??
-        null,
+      contest
+        ? resolveWeekScopedKickoff({
+            weekId: contest.weekId,
+            contestGame: entry.game,
+          })
+        : null,
     );
   }
   return map;
@@ -337,6 +348,17 @@ export async function captureBenchmarkSnapshot(input: {
     throw new BenchmarkCaptureError("This benchmark source is suspended");
   }
   if (!contest) throw new BenchmarkCaptureError("Contest not found");
+
+  if (!input.historicalBackfill) {
+    try {
+      await assertWeekMatchupsStamped(contest.weekId);
+    } catch (error) {
+      if (error instanceof WeekMatchupNotStampedError) {
+        throw new BenchmarkCaptureError(error.message);
+      }
+      throw error;
+    }
+  }
 
   const warnings: string[] = [];
   const expectedDepth = rankingDepthForPosition(contest.position);

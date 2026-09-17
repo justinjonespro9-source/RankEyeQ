@@ -67,8 +67,39 @@ describe("loadCreatorBoardPage — empty WR/RB boards", () => {
     creatorId = creator.id;
 
     wrEntryIds = [];
+    const thursdayKickoff = zonedLocalToUtc(2026, 9, 10, 19, 20);
+    const sundayKickoff = zonedLocalToUtc(2026, 9, 13, 12, 0);
+    const thursdayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `cbp-thu-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2099,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "THU",
+        startsAt: thursdayKickoff,
+      },
+    });
+    const sundayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `cbp-sun-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2099,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "SUN",
+        startsAt: sundayKickoff,
+      },
+    });
+
     for (let i = 1; i <= 16; i += 1) {
       const thursday = i <= 3;
+      const team = thursday ? "THU" : "SUN";
+      const game = thursday ? thursdayGame : sundayGame;
       const entry = await prisma.rankableEntry.create({
         data: {
           provider: "test",
@@ -76,16 +107,19 @@ describe("loadCreatorBoardPage — empty WR/RB boards", () => {
           type: "PLAYER",
           name: `Board WR ${i}`,
           shortName: `BWR${i}`,
-          team: "TST",
+          team,
           opponent: "@ OPP",
           position: "WR",
-          gameStartsAt: thursday
-            ? zonedLocalToUtc(2026, 9, 10, 19, 20)
-            : zonedLocalToUtc(2026, 9, 13, 12, 0),
+          gameStartsAt: game.startsAt,
+          gameId: game.id,
         },
       });
       await prisma.contestEntry.create({
-        data: { contestId: wrContestId, rankableEntryId: entry.id },
+        data: {
+          contestId: wrContestId,
+          rankableEntryId: entry.id,
+          gameId: game.id,
+        },
       });
       wrEntryIds.push(entry.id);
     }
@@ -125,6 +159,7 @@ describe("loadCreatorBoardPage — empty WR/RB boards", () => {
     await prisma.rankableEntry.deleteMany({
       where: { provider: "test", externalId: { startsWith: `cbp-` } },
     });
+    await prisma.nflGame.deleteMany({ where: { weekId } });
     await prisma.rankIQContest.deleteMany({ where: { weekId } });
     await prisma.week.delete({ where: { id: weekId } });
     await prisma.season.delete({ where: { id: seasonId } });

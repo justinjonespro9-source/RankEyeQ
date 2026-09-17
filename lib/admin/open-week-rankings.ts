@@ -10,6 +10,7 @@ import {
   buildWeekTimingDisplay,
   type WeekTimingWarning,
 } from "@/lib/admin/week-timing-validation";
+import { assessWeekMatchupHealth } from "@/lib/nfl/week-matchup-health";
 import type { ContestPosition, ContestStatus } from "@/lib/generated/prisma/client";
 
 export class OpenWeekRankingsError extends Error {
@@ -71,6 +72,12 @@ export async function getOpenWeekRankingsReadiness(
     blockers.push(
       "No schedule imported — paste or sync NFL games before opening rankings.",
     );
+  }
+  if (!week.isTest) {
+    const matchupHealth = await assessWeekMatchupHealth(weekId);
+    for (const blocker of matchupHealth.blockers) {
+      if (!blockers.includes(blocker)) blockers.push(blocker);
+    }
   }
 
   const missingPositions = CONTEST_POSITIONS.filter(

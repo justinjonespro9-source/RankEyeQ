@@ -1,0 +1,21 @@
+/**
+ * Official 2026 Week 2 slate (NFL Football Operations / NFL.com).
+ * Kickoffs as America/Chicago local (ET − 1h during CDT).
+ */
+export const WEEK2_2026_REAL_SCHEDULE = `Away | Home | Kickoff
+DET | BUF | 2026-09-17 19:15 CT
+CAR | ATL | 2026-09-20 12:00 CT
+MIN | CHI | 2026-09-20 12:00 CT
+PHI | TEN | 2026-09-20 12:00 CT
+PIT | NE | 2026-09-20 12:00 CT
+GB | NYJ | 2026-09-20 12:00 CT
+CLE | TB | 2026-09-20 12:00 CT
+NO | BAL | 2026-09-20 12:00 CT
+CIN | HOU | 2026-09-20 12:00 CT
+JAX | DEN | 2026-09-20 15:05 CT
+LV | LAC | 2026-09-20 15:05 CT
+WAS | DAL | 2026-09-20 15:25 CT
+SEA | ARI | 2026-09-20 15:25 CT
+MIA | SF | 2026-09-20 15:25 CT
+IND | KC | 2026-09-20 19:20 CT
+NYG | LAR | 2026-09-21 19:15 CT`;

@@ -74,6 +74,20 @@ describe("persistent contest lifecycle", () => {
     });
     botId = bot.id;
 
+    const game = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `lifecycle-game-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2099,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "TST",
+        startsAt: new Date("2099-01-02T18:00:00Z"),
+      },
+    });
+
     entryIds = [];
     for (let i = 1; i <= 14; i += 1) {
       const entry = await prisma.rankableEntry.create({
@@ -86,13 +100,15 @@ describe("persistent contest lifecycle", () => {
           team: "TST",
           opponent: "@ OPP",
           position: "QB",
-          gameStartsAt: new Date("2099-01-02T18:00:00Z"),
+          gameStartsAt: game.startsAt,
+          gameId: game.id,
         },
       });
       await prisma.contestEntry.create({
         data: {
           contestId,
           rankableEntryId: entry.id,
+          gameId: game.id,
         },
       });
       entryIds.push(entry.id);
@@ -105,6 +121,11 @@ describe("persistent contest lifecycle", () => {
     });
     await prisma.rankingSubmission.deleteMany({ where: { contestId } });
     await prisma.contestEntry.deleteMany({ where: { contestId } });
+    await prisma.rankableEntry.updateMany({
+      where: { externalId: { startsWith: `test-${suffix}-` } },
+      data: { gameId: null },
+    });
+    await prisma.nflGame.deleteMany({ where: { weekId } });
     await prisma.rankIQContest.deleteMany({ where: { id: contestId } });
     await prisma.week.deleteMany({ where: { id: weekId } });
     await prisma.season.deleteMany({ where: { id: seasonId } });

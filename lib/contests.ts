@@ -274,9 +274,9 @@ export async function getPublicPositionContest(
         actualFinishes[entry.rankableEntryId] = entry.actualRank;
       }
       const kickoff =
-        entry.game?.startsAt ??
-        entry.rankableEntry.gameStartsAt ??
-        null;
+        entry.game?.weekId === contest.weekId
+          ? entry.game.startsAt
+          : null;
       if (kickoff) kickoffByEntryId[entry.rankableEntryId] = kickoff.toISOString();
     }
 

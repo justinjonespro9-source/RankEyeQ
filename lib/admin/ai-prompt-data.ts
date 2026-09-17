@@ -12,20 +12,29 @@ import {
 import { CONTEST_POSITIONS, submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
+import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
+import {
+  WeekMatchupNotStampedError,
+  assertWeekMatchupsStamped,
+} from "@/lib/nfl/week-matchup-health";
+import { formatOpponentLabel } from "@/lib/providers/nfl/eligibility";
 
-function kickoffForEntry(entry: {
-  game: { startsAt: Date } | null;
-  rankableEntry: {
-    gameStartsAt: Date | null;
-    game: { startsAt: Date } | null;
-  };
-}): Date | null {
-  return (
-    entry.game?.startsAt ??
-    entry.rankableEntry.game?.startsAt ??
-    entry.rankableEntry.gameStartsAt ??
-    null
-  );
+function kickoffForEntry(
+  weekId: string,
+  entry: {
+    game: {
+      id: string;
+      weekId: string | null;
+      homeTeam: string;
+      awayTeam: string;
+      startsAt: Date;
+    } | null;
+  },
+): Date | null {
+  return resolveWeekScopedKickoff({
+    weekId,
+    contestGame: entry.game,
+  });
 }
 
 export async function loadAiPromptContest(
@@ -52,6 +61,15 @@ export async function loadAiPromptContest(
   });
   if (!contest) return null;
 
+  try {
+    await assertWeekMatchupsStamped(contest.weekId);
+  } catch (error) {
+    if (error instanceof WeekMatchupNotStampedError) {
+      throw error;
+    }
+    throw error;
+  }
+
   const resolvedById = await loadResolvedStatusesForWeek({
     weekId: contest.weekId,
     seasonId: contest.week.seasonId,
@@ -60,11 +78,16 @@ export async function loadAiPromptContest(
 
   const players: AiPromptPlayer[] = contest.entries.map((entry) => {
     const resolved = resolvedById.get(entry.rankableEntryId);
+    const team = entry.weekTeam ?? entry.rankableEntry.team;
+    const opponent =
+      entry.game && entry.game.weekId === contest.weekId
+        ? formatOpponentLabel(team, entry.game.homeTeam, entry.game.awayTeam)
+        : "TBD";
     return {
       name: entry.rankableEntry.name,
-      team: entry.rankableEntry.team,
-      opponent: entry.rankableEntry.opponent,
-      gameStartsAt: kickoffForEntry(entry),
+      team,
+      opponent,
+      gameStartsAt: kickoffForEntry(contest.weekId, entry),
       availability:
         resolved?.effectiveEntryAvailability ??
         entry.rankableEntry.availability,

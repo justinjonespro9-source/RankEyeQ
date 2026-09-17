@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { evaluateWeeklyEligibility } from "@/lib/nfl/manual/eligibility";
 import { isMissingTeam, teamCodesMatch } from "@/lib/nfl/manual/parse-common";
 import { normalizePlayerName } from "@/lib/admin/ai-parser";
+import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
+import { formatOpponentLabel } from "@/lib/providers/nfl/eligibility";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
 export type PoolAudit = {
@@ -72,12 +74,16 @@ export async function auditContestPool(
   for (const entry of active) {
     const team = entry.weekTeam ?? entry.rankableEntry.team;
     const hasGame =
-      Boolean(entry.gameId) ||
-      Boolean(entry.game) ||
+      Boolean(entry.gameId && entry.game && entry.game.weekId === weekId) ||
       [...teamsWithGames].some((scheduled) => teamCodesMatch(scheduled, team));
-    const kickoff =
-      entry.game?.startsAt ?? entry.rankableEntry.gameStartsAt ?? null;
-    const opponent = entry.rankableEntry.opponent;
+    const kickoff = resolveWeekScopedKickoff({
+      weekId,
+      contestGame: entry.game,
+    });
+    const opponent =
+      entry.game && entry.game.weekId === weekId
+        ? formatOpponentLabel(team, entry.game.homeTeam, entry.game.awayTeam)
+        : "TBD";
     const eligibility = evaluateWeeklyEligibility({
       position: entry.rankableEntry.position,
       contestPosition: position,

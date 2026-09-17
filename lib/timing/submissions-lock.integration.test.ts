@@ -75,14 +75,42 @@ describe("submission partial lock + Sunday lock", () => {
     humanId = human.id;
 
     const names = [
-      ["Gibbs", thursdayKickoff],
-      ["Bijan", sundayNoonKickoff],
-      ["Taylor", sundayNoonKickoff],
-      ["Achane", sundayNoonKickoff],
-      ["Henry", sundayNoonKickoff],
+      ["Gibbs", thursdayKickoff, "THU"],
+      ["Bijan", sundayNoonKickoff, "SUN"],
+      ["Taylor", sundayNoonKickoff, "SUN"],
+      ["Achane", sundayNoonKickoff, "SUN"],
+      ["Henry", sundayNoonKickoff, "SUN"],
     ] as const;
 
-    for (const [name, kickoff] of names) {
+    const thursdayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `lock-thu-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2098,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "THU",
+        startsAt: thursdayKickoff,
+      },
+    });
+    const sundayGame = await prisma.nflGame.create({
+      data: {
+        provider: "test",
+        externalId: `lock-sun-${suffix}`,
+        seasonId,
+        weekId,
+        seasonYear: 2098,
+        weekNumber: 1,
+        homeTeam: "OPP",
+        awayTeam: "SUN",
+        startsAt: sundayNoonKickoff,
+      },
+    });
+
+    for (const [name, kickoff, team] of names) {
+      const game = team === "THU" ? thursdayGame : sundayGame;
       const entry = await prisma.rankableEntry.create({
         data: {
           provider: "test",
@@ -90,16 +118,18 @@ describe("submission partial lock + Sunday lock", () => {
           type: "PLAYER",
           name,
           shortName: name,
-          team: "TST",
+          team,
           opponent: "@ OPP",
           position: "RB",
           gameStartsAt: kickoff,
+          gameId: game.id,
         },
       });
       await prisma.contestEntry.create({
         data: {
           contestId,
           rankableEntryId: entry.id,
+          gameId: game.id,
         },
       });
       if (name === "Gibbs") gibbsId = entry.id;
@@ -116,6 +146,7 @@ describe("submission partial lock + Sunday lock", () => {
     });
     await prisma.rankingSubmission.deleteMany({ where: { contestId } });
     await prisma.contestEntry.deleteMany({ where: { contestId } });
+    await prisma.nflGame.deleteMany({ where: { weekId } });
     await prisma.rankIQContest.deleteMany({ where: { id: contestId } });
     await prisma.week.deleteMany({ where: { id: weekId } });
     await prisma.season.deleteMany({ where: { id: seasonId } });

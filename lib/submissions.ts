@@ -16,6 +16,11 @@ import {
 } from "@/lib/contest-defaults";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
 import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
+import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
+import {
+  WeekMatchupNotStampedError,
+  assertWeekMatchupsStamped,
+} from "@/lib/nfl/week-matchup-health";
 
 export class SubmissionError extends Error {
   constructor(message: string) {
@@ -192,10 +197,12 @@ async function loadKickoffMap(contestId: string) {
   for (const entry of entries) {
     map.set(
       entry.rankableEntryId,
-      entry.game?.startsAt ??
-        entry.rankableEntry.game?.startsAt ??
-        entry.rankableEntry.gameStartsAt ??
-        null,
+      contest
+        ? resolveWeekScopedKickoff({
+            weekId: contest.weekId,
+            contestGame: entry.game,
+          })
+        : null,
     );
     names.set(entry.rankableEntryId, entry.rankableEntry.name);
     const status = resolved.get(entry.rankableEntryId);
@@ -232,6 +239,14 @@ export async function saveSubmissionPicks(input: {
     include: { week: true },
   });
   if (!contest) throw new SubmissionError("Contest not found");
+  try {
+    await assertWeekMatchupsStamped(contest.weekId);
+  } catch (error) {
+    if (error instanceof WeekMatchupNotStampedError) {
+      throw new SubmissionError(error.message);
+    }
+    throw error;
+  }
   await assertProfileCanSubmit(input.universalProfileId);
 
   const timing = getWeekTimingState({

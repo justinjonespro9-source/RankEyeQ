@@ -106,7 +106,7 @@ export async function loadCreatorBoardPage(input: {
         where: { id: input.contestId },
         include: {
           week: true,
-          entries: { include: { rankableEntry: true } },
+          entries: { include: { rankableEntry: true, game: true } },
           submissions: {
             where: { universalProfileId: input.profileId },
             include: { picks: true },
@@ -200,7 +200,8 @@ export async function loadCreatorBoardPage(input: {
     let thursdayStartedCount = 0;
     for (const entry of contest.entries) {
       if (entry.excluded) continue;
-      const kickoff = entry.rankableEntry.gameStartsAt;
+      const kickoff =
+        entry.game?.weekId === contest.weekId ? entry.game.startsAt : null;
       if (!isThursdayKickoff(kickoff)) continue;
       thursdayEligibleCount += 1;
       if (kickoff && now.getTime() >= kickoff.getTime()) {

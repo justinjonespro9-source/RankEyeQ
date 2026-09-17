@@ -8,6 +8,11 @@ import {
 } from "@/lib/nfl/manual/parse-schedule";
 import { enrollSeasonPlayer } from "@/lib/season-players";
 import { syncWeeklyEligibleFieldFromSeason } from "@/lib/nfl/weekly-eligibility";
+import {
+  cleanupOrphanNflGames,
+  scheduleKeepExternalIds,
+  type OrphanGameCleanupReport,
+} from "@/lib/nfl/orphan-game-cleanup";
 
 export async function recordManualImport(input: {
   adminUserId: string;
@@ -45,9 +50,19 @@ export async function commitManualSchedule(input: {
   adminUserId: string;
   /** Default true — keep Week.fullLockAt aligned with imported kickoffs. */
   recomputeWeekTiming?: boolean;
-  /** Default true — delete manual games on this week not present in the paste. */
+  /**
+   * Default true — remove leftover week games not present in this paste.
+   * Only unreferenced rows are deleted; referenced orphans are reported as conflicts.
+   */
   replaceOrphanGames?: boolean;
-}) {
+  /** When false with replaceOrphanGames, only plans orphan cleanup (no deletes). */
+  applyOrphanCleanup?: boolean;
+}): Promise<{
+  created: number;
+  updated: number;
+  games: number;
+  orphanCleanup: OrphanGameCleanupReport | null;
+}> {
   const week = await prisma.week.findUniqueOrThrow({
     where: { id: input.weekId },
     include: { season: true },
@@ -154,20 +169,17 @@ export async function commitManualSchedule(input: {
     await applyWeekTimingFromSchedule(week.id);
   }
 
-  // Drop leftover games whose away/home pair is not in this paste (mock → real replace).
+  let orphanCleanup: OrphanGameCleanupReport | null = null;
   if (input.replaceOrphanGames !== false) {
-    const keep = new Set(
-      parsed.rows.map(
-        (row) =>
-          `manual-${week.season.year}-w${week.weekNumber}-${row.awayTeam}-${row.homeTeam}`,
-      ),
-    );
-    await prisma.nflGame.deleteMany({
-      where: {
-        weekId: week.id,
-        provider: "manual",
-        externalId: { notIn: [...keep] },
-      },
+    const keepExternalIds = scheduleKeepExternalIds({
+      seasonYear: week.season.year,
+      weekNumber: week.weekNumber,
+      rows: parsed.rows,
+    });
+    orphanCleanup = await cleanupOrphanNflGames({
+      weekId: week.id,
+      keepExternalIds,
+      apply: input.applyOrphanCleanup !== false,
     });
     if (input.recomputeWeekTiming !== false) {
       const { applyWeekTimingFromSchedule } = await import("@/lib/admin/weeks");
@@ -175,7 +187,12 @@ export async function commitManualSchedule(input: {
     }
   }
 
-  return { created, updated, games: parsed.rows.length };
+  return {
+    created,
+    updated,
+    games: parsed.rows.length,
+    orphanCleanup,
+  };
 }
 
 export async function buildDefensePoolFromSchedule(input: {
