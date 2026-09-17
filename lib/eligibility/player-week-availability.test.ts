@@ -186,7 +186,7 @@ describe("AI prompt weekly availability sections", () => {
   };
 
   it("puts OUT and IR only under UNAVAILABLE; Q/D stay eligible with disclosure", () => {
-    const { eligible, unavailable } = partitionAiPromptPlayers(
+    const { eligible, unavailable, kickedOff } = partitionAiPromptPlayers(
       contest.players,
       generatedAt,
     );
@@ -199,6 +199,7 @@ describe("AI prompt weekly availability sections", () => {
       "Example Player",
       "Sam Darnold",
     ]);
+    expect(kickedOff).toHaveLength(0);
 
     const prompt = buildAiRankingPrompt(contest, { generatedAt });
     expect(prompt).toContain("ELIGIBLE PLAYER POOL");
@@ -213,7 +214,8 @@ describe("AI prompt weekly availability sections", () => {
     expect(prompt).toContain("QUESTIONABLE and DOUBTFUL players appear in the eligible pool");
     expect(prompt).toContain("Eligible pool count: 3");
     expect(prompt).toContain("Unavailable count: 2");
-    expect(prompt).toContain("RANKEYEQ_AI_WEEKLY_V4");
+    expect(prompt).toContain("RANKEYEQ_AI_WEEKLY_V5");
+    expect(prompt).not.toContain("AI competitor:");
   });
 
   it("shows empty eligible pool when count is zero", () => {

@@ -341,3 +341,168 @@ export function previewToRankedIds(
   }
   return slots;
 }
+
+export type ImmutableLockedPick = {
+  /** 1-based board slot that must remain fixed. */
+  rank: number;
+  rankableEntryId: string;
+};
+
+export type UniversalMergeResult =
+  | {
+      ok: true;
+      rankedEntryIds: string[];
+      filledUnlocked: number;
+      preservedLocks: number;
+      skippedDuplicateLocks: number;
+      skippedKickedOff: number;
+      truncated: number;
+    }
+  | {
+      ok: false;
+      error: string;
+      rankedEntryIds: (string | null)[];
+      filledUnlocked: number;
+      preservedLocks: number;
+      skippedDuplicateLocks: number;
+      skippedKickedOff: number;
+      truncated: number;
+    };
+
+/**
+ * Merge a universal model response (ordered selectable players) into a
+ * profile board that may already have immutable kickoff-locked picks.
+ *
+ * - Preserves locked picks in their original slots
+ * - Fills only unlocked slots from the response order
+ * - Skips duplicates of locked players and kicked-off IDs
+ * - Truncates excess response players safely
+ * - Rejects when the merged board cannot be completed
+ */
+export function mergeUniversalRankingIntoLockedBoard(input: {
+  submissionDepth: number;
+  lockedPicks: ImmutableLockedPick[];
+  orderedResponseIds: string[];
+  kickedOffIds?: Iterable<string>;
+}): UniversalMergeResult {
+  const depth = input.submissionDepth;
+  const slots: (string | null)[] = Array.from({ length: depth }, () => null);
+  const kickedOff = new Set(input.kickedOffIds ?? []);
+  let preservedLocks = 0;
+  let skippedDuplicateLocks = 0;
+  let skippedKickedOff = 0;
+  let truncated = 0;
+
+  const used = new Set<string>();
+  for (const pick of input.lockedPicks) {
+    if (pick.rank < 1 || pick.rank > depth) {
+      return {
+        ok: false,
+        error: `Locked pick rank ${pick.rank} is outside the ${depth}-player board`,
+        rankedEntryIds: slots,
+        filledUnlocked: 0,
+        preservedLocks,
+        skippedDuplicateLocks,
+        skippedKickedOff,
+        truncated,
+      };
+    }
+    const index = pick.rank - 1;
+    if (slots[index] != null && slots[index] !== pick.rankableEntryId) {
+      return {
+        ok: false,
+        error: `Two locked picks claim slot #${pick.rank}`,
+        rankedEntryIds: slots,
+        filledUnlocked: 0,
+        preservedLocks,
+        skippedDuplicateLocks,
+        skippedKickedOff,
+        truncated,
+      };
+    }
+    if (used.has(pick.rankableEntryId) && slots[index] !== pick.rankableEntryId) {
+      return {
+        ok: false,
+        error: `Locked player appears in multiple slots`,
+        rankedEntryIds: slots,
+        filledUnlocked: 0,
+        preservedLocks,
+        skippedDuplicateLocks,
+        skippedKickedOff,
+        truncated,
+      };
+    }
+    slots[index] = pick.rankableEntryId;
+    used.add(pick.rankableEntryId);
+    preservedLocks += 1;
+  }
+
+  let filledUnlocked = 0;
+  for (const id of input.orderedResponseIds) {
+    if (!id) continue;
+    if (used.has(id)) {
+      skippedDuplicateLocks += 1;
+      continue;
+    }
+    if (kickedOff.has(id)) {
+      skippedKickedOff += 1;
+      continue;
+    }
+    const emptyIndex = slots.findIndex((slot) => slot == null);
+    if (emptyIndex < 0) {
+      truncated += 1;
+      continue;
+    }
+    slots[emptyIndex] = id;
+    used.add(id);
+    filledUnlocked += 1;
+  }
+
+  const incomplete = slots.some((slot) => slot == null);
+  if (incomplete) {
+    return {
+      ok: false,
+      error: `Merged board incomplete (${slots.filter(Boolean).length}/${depth} slots). Need more selectable players after preserving locks.`,
+      rankedEntryIds: slots,
+      filledUnlocked,
+      preservedLocks,
+      skippedDuplicateLocks,
+      skippedKickedOff,
+      truncated,
+    };
+  }
+
+  return {
+    ok: true,
+    rankedEntryIds: slots as string[],
+    filledUnlocked,
+    preservedLocks,
+    skippedDuplicateLocks,
+    skippedKickedOff,
+    truncated,
+  };
+}
+
+/**
+ * Collect ordered matched entry IDs from a universal paste.
+ * Skips unresolved / duplicate / kicked-off lines rather than failing the whole paste.
+ */
+export function orderedMatchedIdsFromUniversalPaste(input: {
+  text: string;
+  eligible: EligibleParserEntry[];
+  kickedOffIds?: Iterable<string>;
+}): string[] {
+  const kickedOff = new Set(input.kickedOffIds ?? []);
+  const lines = parseRankingPaste(input.text);
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const matches = findNameMatches(line.rawName, input.eligible);
+    if (matches.length !== 1) continue;
+    const id = matches[0].id;
+    if (seen.has(id) || kickedOff.has(id)) continue;
+    seen.add(id);
+    ordered.push(id);
+  }
+  return ordered;
+}

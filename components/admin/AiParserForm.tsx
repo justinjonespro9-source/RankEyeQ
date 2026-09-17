@@ -3,12 +3,10 @@
 import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import {
-  matchParsedRankings,
-  parseRankingPaste,
-  previewIsReadyToSubmit,
-  previewToRankedIds,
+  mergeUniversalRankingIntoLockedBoard,
+  orderedMatchedIdsFromUniversalPaste,
   type EligibleParserEntry,
-  type ParsedPickPreview,
+  type ImmutableLockedPick,
 } from "@/lib/admin/ai-parser";
 import { adminSaveParsedBotBoardAction } from "@/lib/admin-command-actions";
 
@@ -19,8 +17,8 @@ export function AiParserForm({
   rankingDepth,
   scoringDepth,
   eligible,
-  universe = [],
-  otherPositions = [],
+  lockedPicks = [],
+  kickedOffIds = [],
 }: {
   contestId: string;
   profileId: string;
@@ -30,54 +28,72 @@ export function AiParserForm({
   /** Scoring depth (10 / 15). */
   scoringDepth: number;
   eligible: EligibleParserEntry[];
-  universe?: EligibleParserEntry[];
-  otherPositions?: EligibleParserEntry[];
+  /** Profile-immutable locks preserved at their ranks during import merge. */
+  lockedPicks?: Array<ImmutableLockedPick & { name?: string; team?: string }>;
+  /** Entry IDs that have kicked off and cannot be newly added. */
+  kickedOffIds?: string[];
 }) {
   const [raw, setRaw] = useState("");
-  const [preview, setPreview] = useState<ParsedPickPreview[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mergePreview, setMergePreview] = useState<{
+    ok: boolean;
+    rankedEntryIds: (string | null)[];
+    error?: string;
+    preservedLocks: number;
+    filledUnlocked: number;
+    skippedDuplicateLocks: number;
+    skippedKickedOff: number;
+    truncated: number;
+  } | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const eligibleById = useMemo(() => {
+    const map = new Map<string, { name: string; team?: string }>();
+    for (const entry of eligible) map.set(entry.id, entry);
+    for (const pick of lockedPicks) {
+      if (!map.has(pick.rankableEntryId) && pick.name) {
+        map.set(pick.rankableEntryId, { name: pick.name, team: pick.team });
+      }
+    }
+    return map;
+  }, [eligible, lockedPicks]);
+
   function parse() {
-    const lines = parseRankingPaste(raw);
-    const next = matchParsedRankings({
-      lines,
+    const ordered = orderedMatchedIdsFromUniversalPaste({
+      text: raw,
       eligible,
-      rankingDepth,
-      scoringDepth,
-      universe,
-      otherPositions,
+      kickedOffIds,
     });
-    setPreview(next);
+    const merged = mergeUniversalRankingIntoLockedBoard({
+      submissionDepth: rankingDepth,
+      lockedPicks,
+      orderedResponseIds: ordered,
+      kickedOffIds,
+    });
+    setMergePreview({
+      ok: merged.ok,
+      rankedEntryIds: merged.rankedEntryIds,
+      error: merged.ok ? undefined : merged.error,
+      preservedLocks: merged.preservedLocks,
+      filledUnlocked: merged.filledUnlocked,
+      skippedDuplicateLocks: merged.skippedDuplicateLocks,
+      skippedKickedOff: merged.skippedKickedOff,
+      truncated: merged.truncated,
+    });
     setMessage(null);
   }
 
-  const ready = useMemo(
-    () => (preview ? previewIsReadyToSubmit(preview, rankingDepth) : false),
-    [preview, rankingDepth],
-  );
-
-  const issueSummary = useMemo(() => {
-    if (!preview) return [];
-    return preview
-      .filter((row) => row.issue)
-      .map((row) => {
-        const label = row.rawName
-          ? `#${row.rank} “${row.rawName}”`
-          : `#${row.rank}`;
-        const reserve = row.isReserve ? ` (R${row.reserveSlot})` : "";
-        return `${label}${reserve}: ${row.issue}`;
-      });
-  }, [preview]);
+  const ready = Boolean(mergePreview?.ok);
 
   function save(submit: boolean) {
-    if (!preview || !ready) {
+    if (!mergePreview?.ok) {
       setMessage(
-        "Fix every validation error in the pasted ranking, then parse again. RankEyeQ does not silently repair AI output.",
+        mergePreview?.error ??
+          "Parse a complete merged board before saving. RankEyeQ does not silently invent missing unlocked slots.",
       );
       return;
     }
-    const rankedEntryIds = previewToRankedIds(preview, rankingDepth);
+    const rankedEntryIds = mergePreview.rankedEntryIds;
     startTransition(async () => {
       const result = await adminSaveParsedBotBoardAction({
         contestId,
@@ -99,11 +115,18 @@ export function AiParserForm({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Paste the model&apos;s numbered ranking only (exactly {rankingDepth}{" "}
-        players). Slots 1–{scoringDepth} are scoring picks;{" "}
-        {scoringDepth + 1}–{rankingDepth} are ordered reserves (R1 / R2). Every
-        name must resolve to an eligible contest entry.
+        Paste the universal model response (ordered selectable players). Profile
+        kickoff-locked picks stay in their original slots; only unlocked scoring
+        and reserve slots are filled from the paste. Need exactly{" "}
+        {rankingDepth} slots after merge (Top {scoringDepth} + reserves).
       </p>
+      {lockedPicks.length > 0 ? (
+        <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
+          Preserving {lockedPicks.length} locked pick
+          {lockedPicks.length === 1 ? "" : "s"} on this AI profile board during
+          import.
+        </p>
+      ) : null}
       <label className="block text-sm">
         <span className="text-muted">Paste AI response</span>
         <textarea
@@ -118,24 +141,31 @@ export function AiParserForm({
         Parse rankings
       </Button>
 
-      {preview ? (
+      {mergePreview ? (
         <div className="space-y-3">
-          {issueSummary.length > 0 ? (
+          {!mergePreview.ok ? (
             <div
               className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
               role="alert"
             >
-              <p className="font-medium">Validation errors — fix the paste</p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-5">
-                {issueSummary.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+              <p className="font-medium">Merge rejected</p>
+              <p className="mt-1">{mergePreview.error}</p>
             </div>
           ) : (
             <p className="rounded-md border border-success/30 bg-success-soft px-3 py-2 text-sm text-success">
-              Valid · {rankingDepth} / {rankingDepth} eligible players matched
-              (Top {scoringDepth} + 2 reserves)
+              Valid merge · preserved {mergePreview.preservedLocks} lock
+              {mergePreview.preservedLocks === 1 ? "" : "s"} · filled{" "}
+              {mergePreview.filledUnlocked} unlocked slot
+              {mergePreview.filledUnlocked === 1 ? "" : "s"}
+              {mergePreview.skippedDuplicateLocks
+                ? ` · skipped ${mergePreview.skippedDuplicateLocks} duplicate(s)`
+                : ""}
+              {mergePreview.skippedKickedOff
+                ? ` · skipped ${mergePreview.skippedKickedOff} kicked-off`
+                : ""}
+              {mergePreview.truncated
+                ? ` · truncated ${mergePreview.truncated} excess`
+                : ""}
             </p>
           )}
 
@@ -144,35 +174,33 @@ export function AiParserForm({
               <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-3 py-2">Rank</th>
-                  <th className="px-3 py-2">Parsed name</th>
-                  <th className="px-3 py-2">Matched entry</th>
-                  <th className="px-3 py-2">Issue</th>
+                  <th className="px-3 py-2">Merged entry</th>
+                  <th className="px-3 py-2">Source</th>
                 </tr>
               </thead>
               <tbody>
-                {preview.map((row) => (
-                  <tr
-                    key={`${row.rank}-${row.rawName}`}
-                    className="border-b border-border last:border-0"
-                  >
-                    <td className="px-3 py-2 tabular-nums">
-                      {row.isReserve ? `R${row.reserveSlot}` : row.rank}
-                    </td>
-                    <td className="px-3 py-2 text-ink">{row.rawName || "—"}</td>
-                    <td className="px-3 py-2 text-ink">
-                      {row.matchedName ?? "—"}
-                      {row.issue === "ambiguous" && row.candidates.length > 0 ? (
-                        <span className="mt-1 block text-xs text-muted">
-                          Ambiguous — paste a full name. Candidates:{" "}
-                          {row.candidates.map((c) => c.name).join(", ")}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 text-warning">
-                      {row.issue ?? "—"}
-                    </td>
-                  </tr>
-                ))}
+                {mergePreview.rankedEntryIds.map((id, index) => {
+                  const rank = index + 1;
+                  const locked = lockedPicks.some((pick) => pick.rank === rank);
+                  const entry = id ? eligibleById.get(id) : null;
+                  const isReserve = rank > scoringDepth;
+                  return (
+                    <tr
+                      key={`slot-${rank}`}
+                      className="border-b border-border last:border-0"
+                    >
+                      <td className="px-3 py-2 tabular-nums">
+                        {isReserve ? `R${rank - scoringDepth}` : rank}
+                      </td>
+                      <td className="px-3 py-2 text-ink">
+                        {entry?.name ?? (id ? id : "—")}
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        {locked ? "Locked (preserved)" : id ? "From paste" : "Empty"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <div className="flex flex-wrap gap-2 p-3">

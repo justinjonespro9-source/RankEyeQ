@@ -3,7 +3,6 @@ import {
   buildAiPromptBundle,
   buildAiRankingPrompt,
   buildAllPositionPrompts,
-  type AiLockedSelection,
   type AiPromptBundle,
   type AiPromptContest,
   type AiPromptMode,
@@ -11,7 +10,6 @@ import {
 } from "@/lib/admin/ai-prompt";
 import { CONTEST_POSITIONS, submissionDepthFromScoring } from "@/lib/contest-defaults";
 import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
-import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import {
   WeekMatchupNotStampedError,
@@ -37,14 +35,19 @@ function kickoffForEntry(
   });
 }
 
+/**
+ * Load contest pool for the universal AI prompt.
+ * Does not include profile-specific locked selections — those apply at import only.
+ */
 export async function loadAiPromptContest(
   contestId: string,
   options?: {
-    universalProfileId?: string | null;
     now?: Date;
   },
 ): Promise<AiPromptContest | null> {
-  const now = options?.now ?? new Date();
+  // `now` is accepted for call-site symmetry with import/lock loaders; pool
+  // partitioning applies `now` later in buildAiPromptBundle.
+  void options?.now;
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {
@@ -100,44 +103,6 @@ export async function loadAiPromptContest(
     };
   });
 
-  let lockedSelections: AiLockedSelection[] = [];
-  if (options?.universalProfileId) {
-    const submission = await prisma.rankingSubmission.findUnique({
-      where: {
-        contestId_universalProfileId: {
-          contestId,
-          universalProfileId: options.universalProfileId,
-        },
-      },
-      include: {
-        picks: {
-          include: { rankableEntry: true },
-          orderBy: { predictedRank: "asc" },
-        },
-      },
-    });
-    if (submission) {
-      const kickoffById = new Map(
-        players.map((player) => [
-          player.rankableEntryId ?? "",
-          player.gameStartsAt,
-        ]),
-      );
-      lockedSelections = submission.picks
-        .filter((pick) => {
-          if (pick.slotLocked) return true;
-          const kickoff = kickoffById.get(pick.rankableEntryId) ?? null;
-          return kickoffHasPassed(kickoff, now);
-        })
-        .map((pick) => ({
-          rank: pick.lockedRank ?? pick.predictedRank,
-          name: pick.rankableEntry.name,
-          team: pick.rankableEntry.team,
-          rankableEntryId: pick.rankableEntryId,
-        }));
-    }
-  }
-
   return {
     title: contest.title,
     seasonYear: contest.week.season.year,
@@ -150,15 +115,59 @@ export async function loadAiPromptContest(
     rankingsOpenAt: contest.week.rankingsOpenAt,
     fullLockAt: contest.week.fullLockAt,
     players,
-    lockedSelections,
+    lockedSelections: [],
   };
+}
+
+/** Load profile-immutable locked picks for import merge (not for prompt text). */
+export async function loadProfileImmutableLocks(
+  contestId: string,
+  universalProfileId: string,
+  now: Date = new Date(),
+): Promise<Array<{ rank: number; rankableEntryId: string; name: string; team: string }>> {
+  const contest = await loadAiPromptContest(contestId, { now });
+  if (!contest) return [];
+
+  const submission = await prisma.rankingSubmission.findUnique({
+    where: {
+      contestId_universalProfileId: {
+        contestId,
+        universalProfileId,
+      },
+    },
+    include: {
+      picks: {
+        include: { rankableEntry: true },
+        orderBy: { predictedRank: "asc" },
+      },
+    },
+  });
+  if (!submission) return [];
+
+  const kickoffById = new Map(
+    contest.players.map((player) => [
+      player.rankableEntryId ?? "",
+      player.gameStartsAt,
+    ]),
+  );
+
+  return submission.picks
+    .filter((pick) => {
+      if (pick.slotLocked) return true;
+      const kickoff = kickoffById.get(pick.rankableEntryId) ?? null;
+      return kickoff != null && now >= kickoff;
+    })
+    .map((pick) => ({
+      rank: pick.lockedRank ?? pick.predictedRank,
+      rankableEntryId: pick.rankableEntryId,
+      name: pick.rankableEntry.name,
+      team: pick.rankableEntry.team,
+    }));
 }
 
 export async function loadWeekAiPrompts(
   weekId: string,
-  botDisplayName?: string,
   generatedAt: Date = new Date(),
-  options?: { universalProfileId?: string | null },
 ) {
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId },
@@ -170,7 +179,6 @@ export async function loadWeekAiPrompts(
     const id = byPosition.get(position);
     if (!id) continue;
     const contest = await loadAiPromptContest(id, {
-      universalProfileId: options?.universalProfileId,
       now: generatedAt,
     });
     if (contest) promptContests.push(contest);
@@ -178,7 +186,6 @@ export async function loadWeekAiPrompts(
 
   const bundles: AiPromptBundle[] = promptContests.map((contest) =>
     buildAiPromptBundle(contest, {
-      aiDisplayName: botDisplayName,
       generatedAt,
       now: generatedAt,
     }),
@@ -186,7 +193,7 @@ export async function loadWeekAiPrompts(
 
   return {
     contests: promptContests,
-    combined: buildAllPositionPrompts(promptContests, botDisplayName),
+    combined: buildAllPositionPrompts(promptContests),
     generatedAt,
     prompts: bundles.map((bundle) => ({
       position: bundle.meta.position,
@@ -204,23 +211,17 @@ export async function loadWeekAiPrompts(
 export async function loadAiPromptBundleForContest(
   contestId: string,
   options?: {
-    aiDisplayName?: string | null;
     generatedAt?: Date;
-    universalProfileId?: string | null;
-    mode?: AiPromptMode;
   },
 ) {
   const generatedAt = options?.generatedAt ?? new Date();
   const contest = await loadAiPromptContest(contestId, {
-    universalProfileId: options?.universalProfileId,
     now: generatedAt,
   });
   if (!contest) return null;
   return buildAiPromptBundle(contest, {
-    aiDisplayName: options?.aiDisplayName,
     generatedAt,
     now: generatedAt,
-    mode: options?.mode,
   });
 }
 

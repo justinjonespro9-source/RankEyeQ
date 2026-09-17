@@ -1,99 +1,89 @@
 import { describe, expect, it } from "vitest";
-import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
+import { zonedLocalToUtc } from "@/lib/timing/chicago";
 import {
   buildAiRankingPrompt,
   partitionAiPromptPlayers,
+  type AiPromptContest,
 } from "@/lib/admin/ai-prompt";
-import { zonedLocalToUtc } from "@/lib/timing/chicago";
 
-/**
- * Brock Bowers Week 1 fixture — OUT before kickoff, shared human/AI eligibility.
- */
-describe("Brock Bowers Week 1 OUT eligibility", () => {
-  const now = zonedLocalToUtc(2026, 9, 12, 9, 0);
-  const kickoff = zonedLocalToUtc(2026, 9, 13, 15, 25);
+describe("Bowers weekly availability in AI prompts (V5)", () => {
   const globalLock = zonedLocalToUtc(2026, 9, 13, 10, 0);
-
   const bowers = {
     name: "Brock Bowers",
     team: "LV",
-    opponent: "vs DEN",
-    gameStartsAt: kickoff,
+    opponent: "vs NE",
+    gameStartsAt: zonedLocalToUtc(2026, 9, 13, 15, 25),
     availability: "OUT" as const,
+    designation: "OUT" as const,
+    injuryDescription: "knee",
     rankableEntryId: "bowers",
   };
 
-  it("human + AI share the same OUT non-selectable rule", () => {
-    expect(isSelectableAvailability("OUT")).toBe(false);
-    expect(isSelectableAvailability("QUESTIONABLE")).toBe(true);
-  });
-
-  it("AI prompt lists Bowers under UNAVAILABLE and not eligible", () => {
-    const contest = {
+  it("lists official OUT under UNAVAILABLE — DO NOT SELECT", () => {
+    const now = zonedLocalToUtc(2026, 9, 12, 12, 0);
+    const contest: AiPromptContest = {
       title: "TE Top 10",
       seasonYear: 2026,
       sport: "NFL",
       weekLabel: "Week 1",
       weekNumber: 1,
-      position: "TE" as const,
-      rankingDepth: 10,
-      submissionDepth: 12,
-      rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
-      fullLockAt: globalLock,
-      players: [
-        {
-          name: "Trey McBride",
-          team: "ARI",
-          opponent: "vs LAR",
-          gameStartsAt: zonedLocalToUtc(2026, 9, 13, 12, 0),
-          availability: "ACTIVE" as const,
-        },
-        bowers,
-      ],
-    };
-    const { eligible, unavailable } = partitionAiPromptPlayers(
-      contest.players,
-      now,
-    );
-    expect(eligible.some((p) => p.name === "Brock Bowers")).toBe(false);
-    expect(unavailable.some((p) => p.name === "Brock Bowers")).toBe(true);
-
-    const prompt = buildAiRankingPrompt(contest, { now, generatedAt: now });
-    expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
-    expect(prompt).toContain("Brock Bowers");
-    expect(prompt).toMatch(/Brock Bowers[\s\S]*OUT/);
-  });
-
-  it("OUT + kickoff passed remains immutable for locked slots", () => {
-    const afterKickoff = zonedLocalToUtc(2026, 9, 13, 16, 0);
-    const contest = {
-      title: "TE Top 10",
-      seasonYear: 2026,
-      sport: "NFL",
-      weekLabel: "Week 1",
-      weekNumber: 1,
-      position: "TE" as const,
+      position: "TE",
       rankingDepth: 10,
       submissionDepth: 12,
       rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
       fullLockAt: globalLock,
       players: [bowers],
-      lockedSelections: [
-        {
-          rank: 3,
-          name: "Brock Bowers",
-          team: "LV",
-          rankableEntryId: "bowers",
-        },
-      ],
     };
-    const prompt = buildAiRankingPrompt(contest, {
-      now: afterKickoff,
-      generatedAt: afterKickoff,
-      mode: "rerank-with-locks",
-    });
-    expect(prompt).toContain("LOCKED SELECTIONS");
-    expect(prompt).toContain("#3 Brock Bowers");
-    expect(prompt).toContain("Keep every locked player in the exact listed slot");
+
+    const { eligible, unavailable, kickedOff } = partitionAiPromptPlayers(
+      contest.players,
+      now,
+    );
+    expect(eligible).toHaveLength(0);
+    expect(unavailable.map((p) => p.name)).toEqual(["Brock Bowers"]);
+    expect(kickedOff).toHaveLength(0);
+
+    const prompt = buildAiRankingPrompt(contest, { now, generatedAt: now });
+    expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
+    expect(prompt).toContain("Brock Bowers");
+    expect(prompt).toMatch(/Brock Bowers[\s\S]*OUT/);
+    expect(prompt).not.toContain("LOCKED SELECTIONS");
+  });
+
+  it("ACTIVE player after kickoff is KICKED OFF, not OUT", () => {
+    const afterKickoff = zonedLocalToUtc(2026, 9, 13, 16, 0);
+    const activeThenKicked = {
+      ...bowers,
+      availability: "ACTIVE" as const,
+      designation: "AVAILABLE" as const,
+      injuryDescription: null,
+    };
+    const { eligible, unavailable, kickedOff } = partitionAiPromptPlayers(
+      [activeThenKicked],
+      afterKickoff,
+    );
+    expect(eligible).toHaveLength(0);
+    expect(unavailable).toHaveLength(0);
+    expect(kickedOff.map((p) => p.name)).toEqual(["Brock Bowers"]);
+
+    const prompt = buildAiRankingPrompt(
+      {
+        title: "TE Top 10",
+        seasonYear: 2026,
+        sport: "NFL",
+        weekLabel: "Week 1",
+        weekNumber: 1,
+        position: "TE",
+        rankingDepth: 10,
+        submissionDepth: 12,
+        rankingsOpenAt: zonedLocalToUtc(2026, 9, 8, 0, 0),
+        fullLockAt: globalLock,
+        players: [activeThenKicked],
+      },
+      { now: afterKickoff, generatedAt: afterKickoff },
+    );
+    expect(prompt).toContain("KICKED OFF — CANNOT BE ADDED");
+    expect(prompt).toContain("Brock Bowers");
+    expect(prompt).not.toContain("LOCKED SELECTIONS");
   });
 });

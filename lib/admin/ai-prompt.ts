@@ -14,7 +14,7 @@ import {
 import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
 
 /** Stable identifier for the weekly AI competition prompt. Bump when instructions change. */
-export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V4" as const;
+export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V5" as const;
 
 export type AiPromptPlayer = {
   name: string;
@@ -31,6 +31,7 @@ export type AiPromptPlayer = {
   rankableEntryId?: string;
 };
 
+/** @deprecated Profile-specific locks are not included in universal V5 prompts. */
 export type AiLockedSelection = {
   rank: number;
   name: string;
@@ -51,13 +52,15 @@ export type AiPromptContest = {
   submissionDepth: number;
   rankingsOpenAt: Date | null;
   fullLockAt: Date | null;
-  /** All field players (eligible + unavailable). Caller may also split. */
+  /** All field players (eligible + unavailable + kicked off). */
   players: AiPromptPlayer[];
   unavailablePlayers?: AiPromptPlayer[];
+  /** Ignored by universal V5 prompt builders (profile locks stay on import). */
   lockedSelections?: AiLockedSelection[];
 };
 
-export type AiPromptMode = "fresh" | "rerank-with-locks";
+/** Universal prompts are always fresh; locks are applied only at profile-scoped import. */
+export type AiPromptMode = "fresh";
 
 export type AiPromptBundle = {
   version: typeof RANKEYEQ_AI_WEEKLY_PROMPT_VERSION;
@@ -68,7 +71,6 @@ export type AiPromptBundle = {
 
 export type AiPromptMeta = {
   version: typeof RANKEYEQ_AI_WEEKLY_PROMPT_VERSION;
-  aiDisplayName: string | null;
   seasonYear: number;
   weekLabel: string;
   weekNumber: number;
@@ -77,7 +79,7 @@ export type AiPromptMeta = {
   scoringDepth: number;
   eligiblePoolCount: number;
   unavailableCount: number;
-  lockedCount: number;
+  kickedOffCount: number;
   mode: AiPromptMode;
   generatedAt: Date;
   generatedAtLabel: string;
@@ -125,25 +127,37 @@ function playerIsSelectable(player: AiPromptPlayer): boolean {
   return isSelectableAvailability(player.availability ?? "ACTIVE");
 }
 
+function playerHasKickedOff(player: AiPromptPlayer, now: Date): boolean {
+  return player.gameStartsAt != null && now >= player.gameStartsAt;
+}
+
+/**
+ * Split pool for the universal prompt.
+ * Kicked-off players are NOT classified as officially unavailable/OUT.
+ */
 export function partitionAiPromptPlayers(
   players: AiPromptPlayer[],
   now: Date = new Date(),
 ): {
   eligible: AiPromptPlayer[];
   unavailable: AiPromptPlayer[];
+  kickedOff: AiPromptPlayer[];
 } {
   const eligible: AiPromptPlayer[] = [];
   const unavailable: AiPromptPlayer[] = [];
+  const kickedOff: AiPromptPlayer[] = [];
   for (const player of players) {
-    const started =
-      player.gameStartsAt != null && now >= player.gameStartsAt;
-    if (started || !playerIsSelectable(player)) {
+    if (!playerIsSelectable(player)) {
       unavailable.push(player);
-    } else {
-      eligible.push(player);
+      continue;
     }
+    if (playerHasKickedOff(player, now)) {
+      kickedOff.push(player);
+      continue;
+    }
+    eligible.push(player);
   }
-  return { eligible, unavailable };
+  return { eligible, unavailable, kickedOff };
 }
 
 function designationLabel(player: AiPromptPlayer): string {
@@ -201,21 +215,32 @@ export function formatEligiblePlayerPool(
 export function formatUnavailablePlayerPool(
   players: AiPromptPlayer[],
   position: ContestPosition,
-  now: Date = new Date(),
 ) {
   if (players.length === 0) return "";
-  const lines = players.map((player) => {
-    const started =
-      player.gameStartsAt != null && now >= player.gameStartsAt;
-    const status = started ? "Game started" : designationLabel(player);
-    return formatPlayerLine(player, position, {
-      forceStatus: status,
-      includeKickoff: !started,
-    });
-  });
+  const lines = players.map((player) =>
+    formatPlayerLine(player, position, {
+      forceStatus: designationLabel(player),
+    }),
+  );
   return ["UNAVAILABLE — DO NOT SELECT", ...lines].join("\n");
 }
 
+/** Players whose games have started — cannot be newly added; not official OUT. */
+export function formatKickedOffPlayerPool(
+  players: AiPromptPlayer[],
+  position: ContestPosition,
+) {
+  if (players.length === 0) return "";
+  const lines = players.map((player) =>
+    formatPlayerLine(player, position, {
+      forceStatus: "Kicked off",
+      includeKickoff: true,
+    }),
+  );
+  return ["KICKED OFF — CANNOT BE ADDED", ...lines].join("\n");
+}
+
+/** @deprecated Universal V5 prompts do not include profile-specific locked selections. */
 export function formatLockedSelections(locked: AiLockedSelection[]) {
   if (locked.length === 0) return "";
   const lines = locked
@@ -234,23 +259,15 @@ export function formatLockedSelections(locked: AiLockedSelection[]) {
 export function buildAiPromptMeta(
   contest: AiPromptContest,
   options?: {
-    aiDisplayName?: string | null;
     generatedAt?: Date;
-    mode?: AiPromptMode;
     eligibleCount?: number;
     unavailableCount?: number;
-    lockedCount?: number;
+    kickedOffCount?: number;
   },
 ): AiPromptMeta {
   const generatedAt = options?.generatedAt ?? new Date();
-  const mode =
-    options?.mode ??
-    ((contest.lockedSelections?.length ?? 0) > 0
-      ? "rerank-with-locks"
-      : "fresh");
   return {
     version: RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
-    aiDisplayName: options?.aiDisplayName ?? null,
     seasonYear: contest.seasonYear,
     weekLabel: contest.weekLabel,
     weekNumber: contest.weekNumber,
@@ -259,8 +276,8 @@ export function buildAiPromptMeta(
     scoringDepth: contest.rankingDepth,
     eligiblePoolCount: options?.eligibleCount ?? contest.players.length,
     unavailableCount: options?.unavailableCount ?? 0,
-    lockedCount: options?.lockedCount ?? contest.lockedSelections?.length ?? 0,
-    mode,
+    kickedOffCount: options?.kickedOffCount ?? 0,
+    mode: "fresh",
     generatedAt,
     generatedAtLabel: formatInChicago(generatedAt, {
       weekday: "short",
@@ -274,41 +291,29 @@ export function buildAiPromptMeta(
   };
 }
 
-function refreshInstruction(
-  contest: AiPromptContest,
-  mode: AiPromptMode,
-): string {
-  if (mode === "rerank-with-locks") {
-    return `Refresh / re-rank instruction:
-Some selections are already locked because their games have started. Keep every locked player in the exact listed slot. Re-rank all remaining unlocked slots independently using the current eligible player pool.
-
-Do not move, remove, or replace any locked selection.
-Do not select unavailable players.
-Do not use any prior unlocked ranking order as an anchor — re-rank unlocked slots from scratch.`;
-  }
+function refreshInstruction(contest: AiPromptContest): string {
   return `Refresh / re-rank instruction:
 Refresh your Week ${contest.weekNumber} rankings using the current player pool and latest availability information. Rank independently from scratch.
 
 Do not reuse or anchor on any previous ranking you may have produced for this week.
-Do not select unavailable players.`;
+Do not select unavailable players.
+Do not select kicked-off players.`;
 }
 
 export function buildAiRankingPrompt(
   contest: AiPromptContest,
   options?: {
+    /** Ignored — universal prompts never include AI profile/model identity. */
     aiDisplayName?: string | null;
     generatedAt?: Date;
-    mode?: AiPromptMode;
+    /** Ignored — universal prompts are always fresh; locks apply at import. */
+    mode?: string;
     now?: Date;
   },
 ): string {
   const depth = contest.submissionDepth;
   const scoringDepth = contest.rankingDepth;
   const now = options?.now ?? options?.generatedAt ?? new Date();
-  const locked = contest.lockedSelections ?? [];
-  const mode =
-    options?.mode ??
-    (locked.length > 0 ? "rerank-with-locks" : "fresh");
 
   const partitioned = partitionAiPromptPlayers(contest.players, now);
   const unavailable = [
@@ -322,35 +327,20 @@ export function buildAiRankingPrompt(
     seenUnavailable.add(key);
     return true;
   });
+  const kickedOff = partitioned.kickedOff;
 
-  const lockedIds = new Set(
-    locked
-      .map((row) => row.rankableEntryId)
-      .filter((id): id is string => Boolean(id)),
-  );
-  const lockedNames = new Set(
-    locked.map((row) => `${row.name}|${row.team}`.toLowerCase()),
-  );
-  const eligible = partitioned.eligible.filter((player) => {
-    if (player.rankableEntryId && lockedIds.has(player.rankableEntryId)) {
-      return false;
-    }
-    return !lockedNames.has(`${player.name}|${player.team}`.toLowerCase());
-  });
-
+  const eligible = partitioned.eligible;
   const pool = formatEligiblePlayerPool(eligible, contest.position);
   const unavailableBlock = formatUnavailablePlayerPool(
     unavailableDeduped,
     contest.position,
-    now,
   );
-  const lockedBlock = formatLockedSelections(locked);
+  const kickedOffBlock = formatKickedOffPlayerPool(kickedOff, contest.position);
   const meta = buildAiPromptMeta(contest, {
-    ...options,
-    mode,
+    generatedAt: options?.generatedAt ?? now,
     eligibleCount: eligible.length,
     unavailableCount: unavailableDeduped.length,
-    lockedCount: locked.length,
+    kickedOffCount: kickedOff.length,
   });
 
   const lockAt = contest.fullLockAt
@@ -382,6 +372,7 @@ Contest:
 - QUESTIONABLE and DOUBTFUL players remain selectable — weigh availability risk, but do not treat them as automatic outs
 - OUT and INACTIVE players are not selectable
 - Roster-unavailable players (IR / PUP / SUSPENDED / FREE_AGENT) are not selectable
+- Players listed under KICKED OFF — CANNOT BE ADDED have already started and must not be newly selected
 - Rank reserves honestly as your next-best choices — do not treat them as throwaway picks
 - ${AI_WEEKLY_SCORING_RULES[0]}
 - ${AI_WEEKLY_SCORING_RULES[1]}
@@ -389,7 +380,7 @@ Contest:
 - ${AI_WEEKLY_SCORING_RULES[3]}
 - ${AI_WEEKLY_SCORING_RULES[4]}
 
-${refreshInstruction(contest, mode)}
+${refreshInstruction(contest)}
 
 Use projections and market expectations as inputs, but do not simply average or reproduce consensus.
 
@@ -420,14 +411,11 @@ PREDICTION ACCURACY, NOT CONSENSUS AGREEMENT.
 
 Select players only from the ELIGIBLE PLAYER POOL below.
 Never select anyone listed under UNAVAILABLE — DO NOT SELECT.
+Never select anyone listed under KICKED OFF — CANNOT BE ADDED.
 QUESTIONABLE and DOUBTFUL players appear in the eligible pool and may be selected; consider their availability risk.
 OUT and INACTIVE players are not selectable.
 Roster-unavailable players are not selectable.
-${
-  locked.length > 0
-    ? "Keep every LOCKED SELECTION in its exact listed slot (including locked reserves) and fill only unlocked slots from the eligible pool."
-    : ""
-}
+Kicked-off players are not newly selectable (their games have started).
 
 Return only the final ordered ranking as a numbered list (1 through ${depth}).
 
@@ -435,19 +423,17 @@ Lock context (for awareness — do not invent players):
 - Each player or defense locks at their own NFL kickoff.
 - Remaining unlocked slots lock at ${lockAt}.
 
-${lockedBlock ? `${lockedBlock}\n\n` : ""}${pool}${
+${pool}${
     unavailableBlock ? `\n\n${unavailableBlock}` : ""
-  }
+  }${kickedOffBlock ? `\n\n${kickedOffBlock}` : ""}
 
 ---
 Prompt version: ${meta.version}
-Generated: ${meta.generatedAtLabel}${
-    meta.aiDisplayName ? `\nAI competitor: ${meta.aiDisplayName}` : ""
-  }
+Generated: ${meta.generatedAtLabel}
 Mode: ${meta.mode}
 Eligible pool count: ${meta.eligiblePoolCount}
 Unavailable count: ${meta.unavailableCount}
-Locked slots: ${meta.lockedCount}
+Kicked off count: ${meta.kickedOffCount}
 Field size: ${meta.fieldSize}
 Scoring depth: ${meta.scoringDepth}`;
 }
@@ -457,23 +443,18 @@ export function buildAiPromptBundle(
   options?: {
     aiDisplayName?: string | null;
     generatedAt?: Date;
-    mode?: AiPromptMode;
+    mode?: string;
     now?: Date;
   },
 ): AiPromptBundle {
   const now = options?.now ?? options?.generatedAt ?? new Date();
-  const locked = contest.lockedSelections ?? [];
-  const mode =
-    options?.mode ??
-    (locked.length > 0 ? "rerank-with-locks" : "fresh");
   const partitioned = partitionAiPromptPlayers(contest.players, now);
   const meta = buildAiPromptMeta(contest, {
-    ...options,
-    mode,
+    generatedAt: options?.generatedAt ?? now,
     eligibleCount: partitioned.eligible.length,
     unavailableCount:
       partitioned.unavailable.length + (contest.unavailablePlayers?.length ?? 0),
-    lockedCount: locked.length,
+    kickedOffCount: partitioned.kickedOff.length,
   });
   return {
     version: RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
@@ -483,25 +464,19 @@ export function buildAiPromptBundle(
   };
 }
 
-export function buildAllPositionPrompts(
-  contests: AiPromptContest[],
-  botDisplayName?: string,
-) {
+export function buildAllPositionPrompts(contests: AiPromptContest[]) {
   const header = [
     `RankEyeQ AI ranking prompts`,
-    botDisplayName ? `AI competitor: ${botDisplayName}` : null,
     `Prompt version: ${RANKEYEQ_AI_WEEKLY_PROMPT_VERSION}`,
     "",
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
+  ].join("\n");
 
   return (
     header +
     contests
       .map(
         (contest) =>
-          `===== ${contest.position} · Top ${contest.rankingDepth} + 2 reserves =====\n${buildAiRankingPrompt(contest, { aiDisplayName: botDisplayName })}`,
+          `===== ${contest.position} · Top ${contest.rankingDepth} + 2 reserves =====\n${buildAiRankingPrompt(contest)}`,
       )
       .join("\n\n")
   );

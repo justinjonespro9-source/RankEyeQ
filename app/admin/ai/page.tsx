@@ -64,12 +64,10 @@ export default async function AdminAiPage({
   ) as ContestPosition;
 
   const generatedAt = new Date();
-  const prompts =
-    weekId && selectedBot
-      ? await loadWeekAiPrompts(weekId, selectedBot.displayName, generatedAt, {
-          universalProfileId: selectedBot.profileId,
-        })
-      : null;
+  // Universal prompt is contest/position-canonical — independent of selected AI profile.
+  const prompts = weekId
+    ? await loadWeekAiPrompts(weekId, generatedAt)
+    : null;
   const contestByPosition = new Map(
     (week?.contests ?? []).map((contest) => [contest.position, contest.id]),
   );
@@ -199,21 +197,31 @@ export default async function AdminAiPage({
             </table>
           </div>
 
-          {selectedBot && prompts ? (
+          {prompts ? (
             <section className="mt-8 space-y-4 rounded-lg border border-border bg-surface-elevated p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="font-display text-lg font-semibold text-ink">
-                    Canonical prompt · {selectedBot.displayName}
+                    Universal prompt · {selectedPosition}
                   </h2>
                   <p className="mt-1 text-sm text-muted">
-                    Same pool snapshot and instructions for every AI on this week.
+                    One canonical {RANKEYEQ_AI_WEEKLY_PROMPT_VERSION} prompt for
+                    this contest/position. Paste the same text into every model;
+                    import the response into the selected AI profile afterward.
                   </p>
                 </div>
-                <CopyButton
-                  text={prompts.combined}
-                  label="Copy all position prompts"
-                />
+                <div className="flex flex-wrap gap-2">
+                  {focusedPrompt ? (
+                    <CopyButton
+                      text={focusedPrompt.prompt}
+                      label="Copy Universal Prompt"
+                    />
+                  ) : null}
+                  <CopyButton
+                    text={prompts.combined}
+                    label="Copy all position prompts"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -222,7 +230,7 @@ export default async function AdminAiPage({
                     key={position}
                     href={hrefAi({
                       weekId: week.id,
-                      profileId: selectedBot.profileId,
+                      profileId: selectedBot?.profileId,
                       position,
                     })}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium ${
@@ -239,7 +247,6 @@ export default async function AdminAiPage({
               {focusedPrompt ? (
                 <>
                   <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <MetaItem label="AI identity" value={selectedBot.displayName} />
                     <MetaItem
                       label="Season / week"
                       value={`${week.season.year} · ${week.label}`}
@@ -253,6 +260,14 @@ export default async function AdminAiPage({
                       value={`${focusedPrompt.meta.eligiblePoolCount} players`}
                     />
                     <MetaItem
+                      label="Unavailable"
+                      value={`${focusedPrompt.meta.unavailableCount}`}
+                    />
+                    <MetaItem
+                      label="Kicked off"
+                      value={`${focusedPrompt.meta.kickedOffCount}`}
+                    />
+                    <MetaItem
                       label="Prompt version"
                       value={focusedPrompt.meta.version}
                     />
@@ -260,15 +275,25 @@ export default async function AdminAiPage({
                       label="Generated"
                       value={focusedPrompt.meta.generatedAtLabel}
                     />
+                    {selectedBot ? (
+                      <MetaItem
+                        label="Import into"
+                        value={selectedBot.displayName}
+                      />
+                    ) : null}
                   </dl>
 
                   <div className="flex flex-wrap gap-2">
-                    <CopyButton text={focusedPrompt.prompt} label="Copy Prompt" />
+                    <CopyButton
+                      text={focusedPrompt.prompt}
+                      label="Copy Universal Prompt"
+                    />
                     <CopyButton
                       text={focusedPrompt.poolText}
                       label="Copy player pool"
                     />
-                    {contestByPosition.get(selectedPosition) ? (
+                    {selectedBot &&
+                    contestByPosition.get(selectedPosition) ? (
                       <Link
                         href={`/admin/ai/${selectedBot.profileId}/${contestByPosition.get(selectedPosition)}`}
                         className="inline-flex items-center rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:border-ink/30"
