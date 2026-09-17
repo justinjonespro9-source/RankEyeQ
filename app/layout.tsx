@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteJsonLd } from "@/components/seo/SiteJsonLd";
 import {
+  BRAND_LOGO_PATH,
   DEFAULT_SITE_DESCRIPTION,
   DEFAULT_SITE_TITLE,
   PUBLIC_BRAND_NAME,
@@ -26,6 +27,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL(getCanonicalSiteOrigin()),
+  applicationName: PUBLIC_BRAND_NAME,
   title: {
     default: DEFAULT_SITE_TITLE,
     template: `%s · ${PUBLIC_BRAND_NAME}`,
@@ -37,12 +39,14 @@ export const metadata: Metadata = {
     title: DEFAULT_SITE_TITLE,
     description: DEFAULT_SITE_DESCRIPTION,
     url: absoluteUrl("/"),
+    images: [{ url: absoluteUrl(BRAND_LOGO_PATH) }],
   },
   twitter: {
     card: "summary_large_image",
     site: "@RankEyeQ",
     title: DEFAULT_SITE_TITLE,
     description: DEFAULT_SITE_DESCRIPTION,
+    images: [absoluteUrl(BRAND_LOGO_PATH)],
   },
 };
 

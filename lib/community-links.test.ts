@@ -43,12 +43,12 @@ describe("community links", () => {
     const files = [
       "components/layout/SiteFooter.tsx",
       "components/layout/MobileNav.tsx",
-      "components/seo/SiteJsonLd.tsx",
+      "lib/seo/entity-jsonld.ts",
       "components/layout/CommunityLinks.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(join(process.cwd(), file), "utf8");
-      expect(source).toMatch(/community-links|CommunityLinks/);
+      expect(source).toMatch(/community-links|CommunityLinks|communityLinkHrefs/);
     }
   });
 });

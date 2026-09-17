@@ -8,6 +8,7 @@ export type FooterLink = {
 };
 
 export const FOOTER_PRIMARY_LINKS: FooterLink[] = [
+  { label: "About", href: "/about" },
   { label: "How It Works", href: "/how-it-works" },
   { label: "Terms", href: policyRoute("terms") },
   { label: "Privacy", href: policyRoute("privacy") },
@@ -23,8 +24,8 @@ export const FOOTER_SECONDARY_LINKS: FooterLink[] = [
   { label: "Rankers", href: "/rankers" },
   {
     label: "SNG LABS",
-    href: getCompanyWebsiteUrl() ?? "#",
-    external: Boolean(getCompanyWebsiteUrl()),
+    href: getCompanyWebsiteUrl(),
+    external: true,
   },
 ];
 

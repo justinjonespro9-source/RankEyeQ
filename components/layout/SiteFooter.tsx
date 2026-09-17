@@ -38,7 +38,7 @@ function FooterLinkRow({
             key={link.href}
             href={link.href}
             className={
-              link.href === "/how-it-works"
+              link.href === "/how-it-works" || link.href === "/about"
                 ? "font-medium text-ink hover:text-accent-ink"
                 : "text-muted hover:text-ink"
             }
@@ -57,10 +57,6 @@ export async function SiteFooter() {
   const signedIn = Boolean(user);
   const companyUrl = getCompanyWebsiteUrl();
 
-  const secondaryLinks = FOOTER_SECONDARY_LINKS.filter(
-    (link) => link.label !== "SNG LABS" || companyUrl,
-  );
-
   return (
     <footer className="mt-auto border-t border-border bg-surface">
       <Container className="flex flex-col gap-5 py-8">
@@ -68,18 +64,14 @@ export async function SiteFooter() {
           <div>
             <BrandWordmark size="sm" variant="light" />
             <p className="mt-1 text-sm text-muted">
-              {companyUrl ? (
-                <a
-                  href={companyUrl}
-                  className="hover:text-ink"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {COMPANY_PRODUCT_TAGLINE}
-                </a>
-              ) : (
-                COMPANY_PRODUCT_TAGLINE
-              )}
+              <a
+                href={companyUrl}
+                className="hover:text-ink"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {COMPANY_PRODUCT_TAGLINE}
+              </a>
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:items-end">
@@ -93,7 +85,7 @@ export async function SiteFooter() {
         </div>
 
         <FooterLinkRow links={FOOTER_PRIMARY_LINKS} />
-        <FooterLinkRow links={secondaryLinks} />
+        <FooterLinkRow links={FOOTER_SECONDARY_LINKS} />
 
         {isAdmin ? (
           <p className="text-sm">

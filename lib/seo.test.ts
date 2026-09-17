@@ -90,6 +90,7 @@ describe("sitemap inclusion rules", () => {
     expect(SITEMAP_STATIC_PATHS).toEqual(
       expect.arrayContaining([
         "/",
+        "/about",
         "/how-it-works",
         "/results",
         "/leaderboards",

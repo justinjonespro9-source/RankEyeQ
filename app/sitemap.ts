@@ -25,7 +25,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ).map((path) => ({
     url: absoluteUrl(path),
     changeFrequency: path === "/" ? ("daily" as const) : ("weekly" as const),
-    priority: path === "/" ? 1 : path === "/how-it-works" ? 0.85 : 0.7,
+    priority: path === "/" ? 1 : path === "/about" || path === "/how-it-works" ? 0.85 : 0.7,
   }));
 
   try {

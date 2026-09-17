@@ -31,7 +31,7 @@ import { TOP_10_MAX_RAW, TOP_15_MAX_RAW } from "@/lib/scoring";
 export const metadata: Metadata = publicPageMetadata({
   title: "How It Works",
   description:
-    "How RankEyeQ works: weekly rankings for the Public, Experts, Creators, and AI — graded against actual fantasy-point finishes.",
+    "How RankEyeQ works: weekly fantasy-football player rankings for the Public, Experts, Creators, and AI — graded against actual fantasy-point finishes.",
   path: "/how-it-works",
 });
 

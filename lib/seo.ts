@@ -108,6 +108,7 @@ export function publicPageMetadata(input: {
 /** Paths allowed for sitemap inclusion (no query variants). */
 export const SITEMAP_STATIC_PATHS = [
   "/",
+  "/about",
   "/how-it-works",
   "/how-to-play",
   "/results",

@@ -44,7 +44,7 @@ export const COMMUNITY_LINKS: readonly CommunityLink[] = [
   },
 ] as const;
 
-/** URLs for Organization `sameAs` / link audits. */
+/** URLs for Brand `sameAs` / RankEyeQ social audits — not SNG LABS Organization. */
 export function communityLinkHrefs(): string[] {
   return COMMUNITY_LINKS.map((link) => link.href);
 }

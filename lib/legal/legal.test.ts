@@ -21,8 +21,8 @@ import { parsePolicyMarkdown } from "@/components/legal/LegalPolicyLayout";
 import { PRIMARY_NAV } from "@/lib/navigation";
 
 describe("company attribution", () => {
-  it("uses SNG LABS product tagline", () => {
-    expect(COMPANY_PRODUCT_TAGLINE).toContain("SNG LABS");
+  it("uses SNG LABS LLC product tagline", () => {
+    expect(COMPANY_PRODUCT_TAGLINE).toContain("SNG LABS LLC");
   });
 
   it("includes copyright for SNG LABS LLC", () => {
@@ -41,6 +41,7 @@ describe("footer links", () => {
   it("includes required primary legal links", () => {
     const labels = FOOTER_PRIMARY_LINKS.map((link) => link.label);
     expect(labels).toEqual([
+      "About",
       "How It Works",
       "Terms",
       "Privacy",

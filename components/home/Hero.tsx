@@ -20,9 +20,9 @@ export function Hero() {
           <p className="mt-3 text-base font-semibold text-accent-bright sm:mt-4 sm:text-lg">
             Weekly player rankings. Real weekly receipts.
           </p>
-          <h1 className="mt-5 max-w-3xl font-display text-3xl font-semibold leading-[1.15] tracking-tight text-off-white sm:mt-6 sm:text-4xl md:text-5xl">
+          <h2 className="mt-5 max-w-3xl font-display text-3xl font-semibold leading-[1.15] tracking-tight text-off-white sm:mt-6 sm:text-4xl md:text-5xl">
             How good is your eye for fantasy talent?
-          </h1>
+          </h2>
           <p className="mt-3 max-w-xl text-lg font-medium text-off-white/90 sm:text-xl">
             Rank the players. Prove your EYEQ.
           </p>
