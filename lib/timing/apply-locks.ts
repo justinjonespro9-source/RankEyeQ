@@ -74,6 +74,31 @@ export async function applyKickoffLocksToSubmission(
     const lockNow =
       timing.fullBoardLocked || kickoffHasPassed(kickoff, now);
 
+    // Clear premature locks (e.g. stale RankableEntry / wrong-week kickoffs) on
+    // every authenticated read. Preserve ordering; only unlock when the
+    // week-scoped kickoff has not actually occurred and full board is open.
+    if (!lockNow) {
+      if (
+        pick.slotLocked ||
+        pick.lockedAt != null ||
+        pick.lockedRank != null ||
+        pick.wasUnavailableAtKickoff != null ||
+        pick.reserveEligiblePredecessorIds != null
+      ) {
+        await prisma.rankingPick.update({
+          where: { id: pick.id },
+          data: {
+            slotLocked: false,
+            lockedAt: null,
+            lockedRank: null,
+            reserveEligiblePredecessorIds: Prisma.DbNull,
+            wasUnavailableAtKickoff: null,
+          },
+        });
+      }
+      continue;
+    }
+
     const isReserve = pick.predictedRank > scoringDepth;
     const needsPredecessorSnapshot =
       isReserve && pick.reserveEligiblePredecessorIds == null;
@@ -81,7 +106,6 @@ export async function applyKickoffLocksToSubmission(
     if (pick.slotLocked && !needsPredecessorSnapshot && !needsUnavailableFreeze) {
       continue;
     }
-    if (!lockNow) continue;
 
     const predecessorIds = needsPredecessorSnapshot
       ? snapshotReservePredecessors({

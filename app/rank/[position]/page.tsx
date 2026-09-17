@@ -23,7 +23,7 @@ import {
 } from "@/lib/timing/apply-locks";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
-import { kickoffLockedEntryIdsFromMap } from "@/lib/timing/kickoff-locks";
+import { kickoffLockedEntryIdsFromMap, immutableLockedEntryIdsFromPicks } from "@/lib/timing/kickoff-locks";
 import {
   parsePlayerResearchWindow,
   researchWindowLabel,
@@ -221,24 +221,26 @@ export default async function PositionRankPage(
             ? "SUBMITTED"
             : submission.status;
         // Only kickoff-locked (or full-board) picks are immutable — not OUT status.
-        initialLockedEntryIds = submission.picks
-          .filter((pick) => {
-            if (!pick.slotLocked) return false;
-            const kickoffIso = kickoffByEntryId[pick.rankableEntryId];
-            if (kickoffIso && new Date(kickoffIso) <= requestNow) return true;
-            return timing.fullBoardLocked;
-          })
-          .map((pick) => pick.rankableEntryId);
+        // Stale slotLocked from prior-week RankableEntry kickoffs must not freeze
+        // players whose week-scoped ContestEntry game has not started.
+        initialLockedEntryIds = immutableLockedEntryIdsFromPicks({
+          picks: submission.picks,
+          kickoffByEntryId,
+          now: requestNow,
+          fullBoardLocked: timing.fullBoardLocked,
+        });
         gradedPredicted = submission.picks.map((pick) => {
           const player = players.find((p) => p.id === pick.rankableEntryId);
+          // Never fall back to RankableEntry.opponent / master kickoff — those
+          // can be poisoned prior-week fields. Pool matchup is week-scoped.
           return (
             player ?? {
               id: pick.rankableEntryId,
               name: pick.rankableEntry.name,
               team: pick.rankableEntry.team,
-              opponent: pick.rankableEntry.opponent,
+              opponent: "MISSING",
               position,
-              gameDay: "",
+              gameDay: "MISSING",
               gameTime: "",
               availability: "active" as const,
             }
