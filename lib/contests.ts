@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/db";
 import {
   buildPositionChallenge,
-  rankableEntryToRankingPlayer,
+  formatGameDay,
+  formatGameTime,
+  mapAvailability,
 } from "@/lib/rankable-mappers";
-import { toDbPosition } from "@/lib/contest-defaults";
+import { toDbPosition, toUiPosition } from "@/lib/contest-defaults";
 import {
   getChallenge,
   getWeeklyChallenges,
@@ -13,6 +15,12 @@ import { getSamplePlayers } from "@/lib/mock-players";
 import { getPlayerResearchMapForContest } from "@/lib/player-research-queries";
 import { parsePlayerResearchWindow } from "@/lib/player-research";
 import { dedupeRankingPlayersByIdentity } from "@/lib/nfl/pool-canonical-uniqueness";
+import { parsePlayerAliases } from "@/lib/nfl/player-aliases";
+import {
+  opponentLabelForWeekGame,
+  resolveWeekScopedGame,
+  resolveWeekScopedKickoff,
+} from "@/lib/timing/resolve-contest-kickoff";
 import type { Position, PositionChallenge, RankingPlayer } from "@/types/contest";
 import type { ContestStatus } from "@/lib/generated/prisma/client";
 
@@ -23,12 +31,17 @@ export type PublicContestCard = PositionChallenge & {
   dbStatus?: ContestStatus;
 };
 
+/**
+ * Current NFL week for public ranking surfaces.
+ * Prefer the highest weekNumber among non-test OPEN weeks (then LOCKED, then COMPLETE).
+ */
 async function getActiveWeek() {
   const activeSeason = await prisma.season.findFirst({
     where: { active: true, sport: "NFL" },
     include: {
       weeks: {
-        orderBy: { weekNumber: "asc" },
+        where: { isTest: false },
+        orderBy: { weekNumber: "desc" },
       },
     },
   });
@@ -207,8 +220,32 @@ export async function getPublicPositionContest(
     });
 
     const players = contest.entries.map((entry) => {
-      const base = rankableEntryToRankingPlayer(entry.rankableEntry);
       const research = researchByPlayer.get(entry.rankableEntryId);
+      const weekGame = resolveWeekScopedGame({
+        weekId: contest.weekId,
+        contestGame: entry.game,
+      });
+      const kickoff = weekGame?.startsAt ?? null;
+      const aliases = parsePlayerAliases(entry.rankableEntry.adminNotes);
+      const searchKeys = [
+        ...new Set([entry.rankableEntry.name, ...aliases]),
+      ];
+      // Matchup/kickoff ONLY from ContestEntry → NflGame for this week.
+      // Never RankableEntry.game / gameStartsAt / opponent (prior-week poison).
+      const base: RankingPlayer = {
+        id: entry.rankableEntry.id,
+        name: entry.rankableEntry.name,
+        team: entry.rankableEntry.team,
+        opponent: weekGame
+          ? opponentLabelForWeekGame(entry.rankableEntry.team, weekGame)
+          : "MISSING",
+        position: toUiPosition(entry.rankableEntry.position),
+        headshotUrl: entry.rankableEntry.headshotUrl ?? undefined,
+        gameDay: kickoff ? formatGameDay(kickoff) : "MISSING",
+        gameTime: kickoff ? formatGameTime(kickoff) : "",
+        availability: mapAvailability(entry.rankableEntry.availability),
+        searchKeys,
+      };
       const withResearch = research
         ? {
             ...base,
@@ -232,24 +269,7 @@ export async function getPublicPositionContest(
             },
           }
         : base;
-      if (!entry.game) return withResearch;
-      const home = entry.game.homeTeam;
-      const away = entry.game.awayTeam;
-      const team = entry.rankableEntry.team;
-      return {
-        ...withResearch,
-        opponent: team === home ? `vs ${away}` : `@ ${home}`,
-        gameDay: new Intl.DateTimeFormat("en-US", {
-          weekday: "short",
-          timeZone: "America/Chicago",
-        }).format(entry.game.startsAt),
-        gameTime: new Intl.DateTimeFormat("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          timeZoneName: "short",
-          timeZone: "America/Chicago",
-        }).format(entry.game.startsAt),
-      };
+      return withResearch;
     });
 
     const metaById = new Map(
@@ -273,11 +293,13 @@ export async function getPublicPositionContest(
       if (entry.actualRank != null) {
         actualFinishes[entry.rankableEntryId] = entry.actualRank;
       }
-      const kickoff =
-        entry.game?.weekId === contest.weekId
-          ? entry.game.startsAt
-          : null;
-      if (kickoff) kickoffByEntryId[entry.rankableEntryId] = kickoff.toISOString();
+      const kickoff = resolveWeekScopedKickoff({
+        weekId: contest.weekId,
+        contestGame: entry.game,
+      });
+      if (kickoff) {
+        kickoffByEntryId[entry.rankableEntryId] = kickoff.toISOString();
+      }
     }
 
     return {

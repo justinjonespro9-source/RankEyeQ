@@ -6,20 +6,8 @@ import { isStalePregameSnapshot } from "@/lib/consensus-snapshot-rebuild";
 import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
 import { logServerEvent } from "@/lib/log";
+import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import { Prisma } from "@/lib/generated/prisma/client";
-
-function kickoffForPick(input: {
-  gameStartsAt: Date | null;
-  contestGameStartsAt: Date | null;
-  rankableGameStartsAt: Date | null;
-}) {
-  return (
-    input.contestGameStartsAt ??
-    input.gameStartsAt ??
-    input.rankableGameStartsAt ??
-    null
-  );
-}
 
 /**
  * Persist slot locks when kickoff/full-lock has occurred.
@@ -35,11 +23,24 @@ export async function applyKickoffLocksToSubmission(
       contest: {
         include: {
           week: true,
-          entries: { select: { rankableEntryId: true, game: true } },
+          entries: {
+            select: {
+              rankableEntryId: true,
+              game: {
+                select: {
+                  id: true,
+                  weekId: true,
+                  homeTeam: true,
+                  awayTeam: true,
+                  startsAt: true,
+                },
+              },
+            },
+          },
         },
       },
       picks: {
-        include: { rankableEntry: { include: { game: true } } },
+        include: { rankableEntry: true },
       },
     },
   });
@@ -58,17 +59,17 @@ export async function applyKickoffLocksToSubmission(
   const gameByEntry = new Map(
     submission.contest.entries.map((entry) => [
       entry.rankableEntryId,
-      entry.game?.startsAt ?? null,
+      entry.game,
     ]),
   );
 
   const scoringDepth = submission.contest.rankingDepth;
 
   for (const pick of submission.picks) {
-    const kickoff = kickoffForPick({
-      contestGameStartsAt: gameByEntry.get(pick.rankableEntryId) ?? null,
-      gameStartsAt: pick.rankableEntry.game?.startsAt ?? null,
-      rankableGameStartsAt: pick.rankableEntry.gameStartsAt,
+    // Week-scoped ContestEntry.game only — never RankableEntry master kickoffs.
+    const kickoff = resolveWeekScopedKickoff({
+      weekId: week.id,
+      contestGame: gameByEntry.get(pick.rankableEntryId) ?? null,
     });
     const lockNow =
       timing.fullBoardLocked || kickoffHasPassed(kickoff, now);
@@ -259,19 +260,32 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
     },
   });
 
-  // Clear slot locks that were applied without a real kickoff/full-lock.
+  // Clear slot locks that were applied without a real week-scoped kickoff/full-lock.
   const prematurePicks = await prisma.rankingPick.findMany({
     where: {
       slotLocked: true,
       submission: { contest: { weekId } },
     },
     include: {
-      rankableEntry: { include: { game: true } },
       submission: {
         include: {
           contest: {
-            include: {
-              entries: { select: { rankableEntryId: true, game: true } },
+            select: {
+              weekId: true,
+              entries: {
+                select: {
+                  rankableEntryId: true,
+                  game: {
+                    select: {
+                      id: true,
+                      weekId: true,
+                      homeTeam: true,
+                      awayTeam: true,
+                      startsAt: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -281,14 +295,15 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
 
   let clearedPickLocks = 0;
   for (const pick of prematurePicks) {
-    const contestGame = pick.submission.contest.entries.find(
-      (entry) => entry.rankableEntryId === pick.rankableEntryId,
-    )?.game?.startsAt;
-    const kickoff =
-      contestGame ??
-      pick.rankableEntry.game?.startsAt ??
-      pick.rankableEntry.gameStartsAt ??
-      null;
+    const contestGame =
+      pick.submission.contest.entries.find(
+        (entry) => entry.rankableEntryId === pick.rankableEntryId,
+      )?.game ?? null;
+    const kickoff = resolveWeekScopedKickoff({
+      weekId: pick.submission.contest.weekId,
+      contestGame,
+    });
+    // Keep lock only when the week-scoped kickoff has actually passed.
     if (kickoff && now >= kickoff) continue;
     await prisma.rankingPick.update({
       where: { id: pick.id },
