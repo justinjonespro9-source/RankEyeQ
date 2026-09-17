@@ -48,15 +48,17 @@ export type UpsertWeekAvailabilityResult =
 
 function kickoffForRankable(entry: {
   gameStartsAt: Date | null;
-  game: { startsAt: Date } | null;
-  contestEntries: Array<{ game: { startsAt: Date } | null }>;
-}): Date | null {
-  return (
-    entry.contestEntries[0]?.game?.startsAt ??
-    entry.game?.startsAt ??
-    entry.gameStartsAt ??
-    null
-  );
+  game: { startsAt: Date; weekId: string | null } | null;
+  contestEntries: Array<{
+    game: { startsAt: Date; weekId: string | null } | null;
+  }>;
+}, weekId: string): Date | null {
+  // Week-scoped ContestEntry.game only — never RankableEntry master fallbacks.
+  const contestGame = entry.contestEntries[0]?.game ?? null;
+  if (contestGame && contestGame.weekId === weekId) {
+    return contestGame.startsAt;
+  }
+  return null;
 }
 
 /**
@@ -91,16 +93,16 @@ export async function upsertPlayerWeekAvailability(
       where: { id: input.rankableEntryId },
       select: {
         gameStartsAt: true,
-        game: { select: { startsAt: true } },
+        game: { select: { startsAt: true, weekId: true } },
         contestEntries: {
           where: { contest: { weekId: input.weekId } },
           take: 1,
-          select: { game: { select: { startsAt: true } } },
+          select: { game: { select: { startsAt: true, weekId: true } } },
         },
       },
     });
     if (entry) {
-      const kickoff = kickoffForRankable(entry);
+      const kickoff = kickoffForRankable(entry, input.weekId);
       if (kickoffHasPassed(kickoff, now)) {
         return { status: "skipped_kickoff" };
       }

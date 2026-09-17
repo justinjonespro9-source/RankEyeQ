@@ -22,9 +22,49 @@ import {
   clearPlayerWeekAvailabilityOverride,
   upsertPlayerWeekAvailability,
 } from "@/lib/eligibility/player-week-availability-store";
+import {
+  opponentLabelForWeekGame,
+  resolveWeekScopedGame,
+  type WeekScopedGame,
+} from "@/lib/timing/resolve-contest-kickoff";
 
 export { WEEKLY_AVAILABILITY_VALUES, WEEKLY_DESIGNATION_VALUES };
 export { DESIGNATION_FULL_LABEL };
+
+export type WeekStatusMatchupDisplay = {
+  weekGame: WeekScopedGame | null;
+  kickoffAt: Date | null;
+  opponent: string;
+  /** True when an active (non-excluded) pool entry lacks a week-scoped game. */
+  matchupMissing: boolean;
+};
+
+/**
+ * Week Status kickoff/opponent must come from ContestEntry → NflGame for the
+ * selected week only. Never RankableEntry.game / gameStartsAt / opponent.
+ */
+export function resolveWeekStatusMatchup(input: {
+  weekId: string;
+  team: string;
+  contestGame?: WeekScopedGame | null;
+  excluded?: boolean;
+}): WeekStatusMatchupDisplay {
+  const weekGame = resolveWeekScopedGame({
+    weekId: input.weekId,
+    contestGame: input.contestGame ?? null,
+  });
+  const matchupMissing = !input.excluded && !weekGame;
+  return {
+    weekGame,
+    kickoffAt: weekGame?.startsAt ?? null,
+    opponent: weekGame
+      ? opponentLabelForWeekGame(input.team, weekGame)
+      : matchupMissing
+        ? "MISSING"
+        : "TBD",
+    matchupMissing,
+  };
+}
 
 export type WeekStatusRow = {
   contestEntryId: string;
@@ -45,7 +85,12 @@ export type WeekStatusRow = {
   observedAt: Date | null;
   manualOverride: boolean;
   excluded: boolean;
+  /** Week-scoped kickoff only (ContestEntry.game for this week). */
   kickoffAt: Date | null;
+  /** Week-scoped opponent label (vs X / @ Y) for this week. */
+  opponent: string;
+  /** Operator-visible when ContestEntry has no valid week game. */
+  matchupMissing: boolean;
   selectionCount: number;
   nflStatus: string | null;
 };
@@ -94,10 +139,17 @@ export async function loadWeekStatusBoard(input: {
       },
     },
     include: {
-      game: true,
+      game: {
+        select: {
+          id: true,
+          weekId: true,
+          homeTeam: true,
+          awayTeam: true,
+          startsAt: true,
+        },
+      },
       rankableEntry: {
         include: {
-          game: true,
           seasonPlayers: {
             where: { seasonId: week.seasonId },
             take: 1,
@@ -145,6 +197,12 @@ export async function loadWeekStatusBoard(input: {
       manualOverride: weekAvail?.manualOverride,
       fallbackEntryAvailability: entry.rankableEntry.availability,
     });
+    const matchup = resolveWeekStatusMatchup({
+      weekId: input.weekId,
+      team: entry.rankableEntry.team,
+      contestGame: entry.game,
+      excluded: entry.excluded,
+    });
 
     return {
       contestEntryId: entry.id,
@@ -163,11 +221,9 @@ export async function loadWeekStatusBoard(input: {
       observedAt: resolved.observedAt,
       manualOverride: resolved.manualOverride,
       excluded: entry.excluded,
-      kickoffAt:
-        entry.game?.startsAt ??
-        entry.rankableEntry.game?.startsAt ??
-        entry.rankableEntry.gameStartsAt ??
-        null,
+      kickoffAt: matchup.kickoffAt,
+      opponent: matchup.opponent,
+      matchupMissing: matchup.matchupMissing,
       selectionCount: countById.get(entry.rankableEntryId) ?? 0,
       nflStatus,
     };
@@ -262,14 +318,17 @@ export async function setRankableAvailability(input: {
 /**
  * Sync NFL roster membership/status from SeasonPlayer onto RankableEntry.
  * Does NOT invent weekly injury designations (Q/D/OUT).
- * Does NOT overwrite PlayerWeekAvailability manual injury rows.
+ * Does NOT overwrite PlayerWeekAvailability rows (injury designations).
+ * Does NOT modify ContestEntry / RankableEntry matchup or kickoff fields.
  */
 export async function syncWeekAvailabilityFromSeasonPlayers(weekId: string) {
   const week = await prisma.week.findUnique({
     where: { id: weekId },
     select: { seasonId: true },
   });
-  if (!week) return { updated: 0 };
+  if (!week) {
+    return { updated: 0, designationsUnchanged: true, matchupsUnchanged: true };
+  }
 
   const contests = await prisma.rankIQContest.findMany({
     where: { weekId },
@@ -280,7 +339,9 @@ export async function syncWeekAvailabilityFromSeasonPlayers(weekId: string) {
     select: { rankableEntryId: true },
   });
   const ids = [...new Set(entries.map((e) => e.rankableEntryId))];
-  if (ids.length === 0) return { updated: 0 };
+  if (ids.length === 0) {
+    return { updated: 0, designationsUnchanged: true, matchupsUnchanged: true };
+  }
 
   const [seasonPlayers, weekOverrides] = await Promise.all([
     prisma.seasonPlayer.findMany({
@@ -312,13 +373,14 @@ export async function syncWeekAvailabilityFromSeasonPlayers(weekId: string) {
     ) {
       continue;
     }
+    // RankableEntry.availability only — never gameId / gameStartsAt / opponent.
     await prisma.rankableEntry.update({
       where: { id: row.rankableEntryId },
       data: { availability: mapped },
     });
     updated += 1;
   }
-  return { updated };
+  return { updated, designationsUnchanged: true, matchupsUnchanged: true };
 }
 
 export async function clearWeekManualOverrides(input: {

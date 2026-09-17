@@ -62,6 +62,8 @@ export default async function AdminWeekStatusPage({
     unmatched?: string;
     source?: string;
     syncError?: string;
+    rosterSynced?: string;
+    rosterUpdated?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -93,6 +95,8 @@ export default async function AdminWeekStatusPage({
       })
     : [];
   const lastSyncAt = weekId ? await getLastInjurySyncAt(weekId) : null;
+  const missingMatchups = rows.filter((row) => row.matchupMissing);
+  const selectedWeek = weeks.find((week) => week.id === weekId) ?? null;
 
   const unmatchedAudit =
     weekId && params.synced
@@ -152,16 +156,25 @@ export default async function AdminWeekStatusPage({
           role="status"
         >
           <p className="font-medium">
-            NFL injury report sync{" "}
+            Sync NFL Injury Report{" "}
             {params.synced === "1" ? "complete" : "failed"} · source{" "}
             {params.source ?? "none"}
           </p>
           <p className="mt-1">
-            Matched {params.matched ?? "0"} · Updated {params.updated ?? "0"} ·
-            Unchanged {params.unchanged ?? "0"} · Skipped manual{" "}
-            {params.skippedManual ?? "0"} · Failed {params.failed ?? "0"} · Q{" "}
-            {params.questionable ?? "0"} · D {params.doubtful ?? "0"} · Out{" "}
-            {params.out ?? "0"} · Unmatched {params.unmatched ?? "0"}
+            Updated {params.updated ?? "0"} · Unchanged {params.unchanged ?? "0"}{" "}
+            · Skipped manual {params.skippedManual ?? "0"} · Skipped kickoff{" "}
+            {params.skippedKickoff ?? "0"} · Unmatched {params.unmatched ?? "0"}{" "}
+            · Failed {params.failed ?? "0"}
+          </p>
+          <p className="mt-1 text-xs">
+            Matched {params.matched ?? "0"} · Q {params.questionable ?? "0"} · D{" "}
+            {params.doubtful ?? "0"} · Out {params.out ?? "0"}
+          </p>
+          <p className="mt-2 text-xs max-w-3xl">
+            Blank NFL.com Game Status values do not overwrite weekly
+            availability — those players count as Unchanged and stay UNKNOWN
+            (or keep their existing designation). Injury sync never writes
+            matchup or kickoff fields.
           </p>
           {params.syncError ? (
             <p className="mt-1">{params.syncError}</p>
@@ -171,6 +184,46 @@ export default async function AdminWeekStatusPage({
               Unmatched for review: {unmatchedNames.join(", ")}
             </p>
           ) : null}
+        </div>
+      ) : null}
+
+      {params.rosterSynced ? (
+        <div
+          className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-3 text-sm text-accent-ink"
+          role="status"
+        >
+          <p className="font-medium">Sync NFL Roster Status complete</p>
+          <p className="mt-1">
+            Roster rows updated {params.rosterUpdated ?? "0"}. Weekly injury
+            designations and ContestEntry matchups/kickoffs were not modified.
+          </p>
+        </div>
+      ) : null}
+
+      {missingMatchups.length > 0 ? (
+        <div
+          className="mb-4 rounded-md border border-danger/40 bg-danger-soft px-3 py-3 text-sm text-danger"
+          role="alert"
+        >
+          <p className="font-medium">
+            {missingMatchups.length} active pool{" "}
+            {missingMatchups.length === 1 ? "entry has" : "entries have"} no
+            valid {selectedWeek?.label ?? "week"}-specific game
+          </p>
+          <p className="mt-1 text-xs max-w-3xl">
+            Kickoff/opponent show an operator error instead of any master or
+            prior-week RankableEntry fallback. Re-stamp Week matchups from the
+            schedule before relying on this board.
+          </p>
+          <p className="mt-2 text-xs">
+            {missingMatchups
+              .slice(0, 12)
+              .map((row) => `${row.name} (${row.team})`)
+              .join(", ")}
+            {missingMatchups.length > 12
+              ? ` · +${missingMatchups.length - 12} more`
+              : ""}
+          </p>
         </div>
       ) : null}
 
@@ -240,6 +293,7 @@ export default async function AdminWeekStatusPage({
             </form>
             <form action={syncWeekStatusFromProviderAction}>
               <input type="hidden" name="weekId" value={weekId} />
+              <input type="hidden" name="position" value={position} />
               <Button type="submit" variant="secondary">
                 Sync NFL Roster Status
               </Button>
@@ -261,15 +315,20 @@ export default async function AdminWeekStatusPage({
             )}
           </div>
           <p className="text-xs text-muted max-w-3xl">
-            <strong className="font-medium text-ink">Injury report</strong>{" "}
-            writes week-specific designations from the NFL.com injuries page
-            Game Status column only. Players not listed, or listed without a Game
-            Status, stay UNKNOWN — sync never invents AVAILABLE. Third-party
-            sources (including CBS) are disabled. Manual overrides are never
-            overwritten.{" "}
-            <strong className="font-medium text-ink">Roster status</strong>{" "}
+            <strong className="font-medium text-ink">
+              Sync NFL Injury Report
+            </strong>{" "}
+            writes week-specific PlayerWeekAvailability designations from the
+            NFL.com injuries page Game Status column only. Blank Game Status
+            values do not overwrite weekly availability — those rows stay
+            Unchanged (UNKNOWN / existing). Manual overrides are never
+            overwritten. Injury sync never changes matchups or kickoffs.{" "}
+            <strong className="font-medium text-ink">
+              Sync NFL Roster Status
+            </strong>{" "}
             updates IR / PUP / SUSPENDED / FREE_AGENT / ACTIVE from season roster
-            membership only — it does not invent weekly injury designations.
+            membership onto RankableEntry only — it does not change weekly injury
+            designations or ContestEntry matchups/kickoffs.
           </p>
         </div>
       ) : null}
@@ -336,20 +395,22 @@ export default async function AdminWeekStatusPage({
         </div>
 
         <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[64rem] text-left text-sm">
+          <table className="w-full min-w-[72rem] text-left text-sm">
             <thead className="border-b border-border bg-surface text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-3 py-2">Select</th>
                 <th className="px-3 py-2">Player</th>
                 <th className="px-3 py-2">Pos</th>
                 <th className="px-3 py-2">Team</th>
-                <th className="px-3 py-2">Roster</th>
-                <th className="px-3 py-2">Weekly</th>
+                <th className="px-3 py-2">Opponent</th>
+                <th className="px-3 py-2">Kickoff</th>
+                <th className="px-3 py-2">Roster status</th>
+                <th className="px-3 py-2">Weekly designation</th>
+                <th className="px-3 py-2">Manual override</th>
                 <th className="px-3 py-2">Note</th>
                 <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2">Updated</th>
+                <th className="px-3 py-2">Last updated</th>
                 <th className="px-3 py-2">Eligible</th>
-                <th className="px-3 py-2">Kickoff</th>
                 <th className="px-3 py-2">On boards</th>
               </tr>
             </thead>
@@ -370,14 +431,36 @@ export default async function AdminWeekStatusPage({
                     </td>
                     <td className="px-3 py-2 font-medium text-ink">
                       {row.name}
-                      {row.manualOverride ? (
-                        <Badge tone="warning" className="ml-2">
-                          Override
-                        </Badge>
-                      ) : null}
                     </td>
                     <td className="px-3 py-2">{row.position}</td>
                     <td className="px-3 py-2">{row.team}</td>
+                    <td className="px-3 py-2">
+                      {row.matchupMissing ? (
+                        <span className="font-medium text-danger">
+                          Matchup missing
+                        </span>
+                      ) : (
+                        row.opponent
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-muted">
+                      {row.matchupMissing ? (
+                        <span className="font-medium text-danger">
+                          No week game
+                        </span>
+                      ) : row.kickoffAt ? (
+                        formatInChicago(row.kickoffAt, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZoneName: "short",
+                        })
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <Badge
                         tone={
@@ -402,6 +485,13 @@ export default async function AdminWeekStatusPage({
                       >
                         {row.designation}
                       </Badge>
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.manualOverride ? (
+                        <Badge tone="warning">Override</Badge>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-muted max-w-[10rem] truncate">
                       {row.injuryDescription ?? "—"}
@@ -443,16 +533,6 @@ export default async function AdminWeekStatusPage({
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-muted">
-                      {row.kickoffAt
-                        ? formatInChicago(row.kickoffAt, {
-                            weekday: "short",
-                            hour: "numeric",
-                            minute: "2-digit",
-                            timeZoneName: "short",
-                          })
-                        : "—"}
-                    </td>
                     <td className="px-3 py-2 tabular-nums">
                       {row.selectionCount}
                     </td>
@@ -462,7 +542,7 @@ export default async function AdminWeekStatusPage({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={14}
                     className="px-3 py-6 text-center text-muted"
                   >
                     No weekly field players for this filter.

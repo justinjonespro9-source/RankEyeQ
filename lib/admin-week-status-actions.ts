@@ -133,6 +133,7 @@ export async function clearWeekManualOverrideAction(formData: FormData) {
 export async function syncWeekStatusFromProviderAction(formData: FormData) {
   const admin = await assertAdmin();
   const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
   if (!weekId) throw new Error("weekId required");
   const result = await syncWeekAvailabilityFromSeasonPlayers(weekId);
   await logAdminAction({
@@ -140,9 +141,20 @@ export async function syncWeekStatusFromProviderAction(formData: FormData) {
     action: "week_status.synced_from_season",
     entityType: "Week",
     entityId: weekId,
-    metadata: { updated: result.updated },
+    metadata: {
+      updated: result.updated,
+      designationsUnchanged: result.designationsUnchanged,
+      matchupsUnchanged: result.matchupsUnchanged,
+    },
   });
   revalidateWeekStatus(weekId);
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    rosterSynced: "1",
+    rosterUpdated: String(result.updated),
+  });
+  redirect(`/admin/week-status?${params.toString()}`);
 }
 
 /** Sync official weekly injury report from NFL.com only (CBS disabled). */
