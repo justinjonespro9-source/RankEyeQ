@@ -279,7 +279,11 @@ describe("benchmark snapshots, scoring, and leaderboards", () => {
       },
       include: { picks: { orderBy: { predictedRank: "asc" } } },
     });
+    // Official Sunday capture commits a LOCKED competitor board.
+    // Pre-seeded ContestEntry actuals must NOT auto-grade live captures —
+    // gradeContest() below is the week scoring path.
     expect(submission.status).toBe("LOCKED");
+    expect(submission.normalizedScore).toBeNull();
     expect(submission.picks.find((pick) => pick.rankableEntryId === entryIds[1])?.predictedRank).toBe(
       2,
     );

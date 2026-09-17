@@ -63,7 +63,7 @@ describe("NFL.com injury report parser", () => {
     ).toThrow(/not recognized|zero player/i);
   });
 
-  it("blank game status preserves IR/PUP and otherwise ACTIVE", () => {
+  it("blank game status preserves IR/PUP and does not invent ACTIVE", () => {
     expect(
       nextAvailabilityFromInjuryRow({ gameStatus: null, current: "IR" }),
     ).toBe("IR");
@@ -75,7 +75,13 @@ describe("NFL.com injury report parser", () => {
         gameStatus: null,
         current: "QUESTIONABLE",
       }),
-    ).toBe("ACTIVE");
+    ).toBeNull();
+    expect(
+      nextAvailabilityFromInjuryRow({
+        gameStatus: null,
+        current: "ACTIVE",
+      }),
+    ).toBeNull();
     expect(
       nextAvailabilityFromInjuryRow({ gameStatus: "OUT", current: "ACTIVE" }),
     ).toBe("OUT");
@@ -159,7 +165,7 @@ describe("Week 1 injury status → human + AI behavior", () => {
     );
     expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
     expect(prompt).toContain("Brock Bowers");
-    expect(prompt).toContain("Doubtful");
-    expect(prompt).toContain("Questionable");
+    expect(prompt).toContain("DOUBTFUL");
+    expect(prompt).toContain("QUESTIONABLE");
   });
 });

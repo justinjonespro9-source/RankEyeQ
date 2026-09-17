@@ -3,10 +3,6 @@ import {
   parseNflComInjuriesHtml,
   type ParsedInjuryRow,
 } from "@/lib/providers/nfl/nflcom/parse-injuries";
-import {
-  CBS_INJURIES_URL,
-  parseCbsInjuriesHtml,
-} from "@/lib/providers/nfl/cbs/parse-injuries";
 
 export type FetchLike = (
   input: string,
@@ -38,6 +34,7 @@ async function fetchText(url: string, fetchFn: FetchLike) {
   }
 }
 
+/** Official NFL.com injuries page — sole automated weekly injury source. */
 export async function fetchNflComInjuryRows(input?: {
   fetchFn?: FetchLike;
   html?: string;
@@ -48,20 +45,4 @@ export async function fetchNflComInjuryRows(input?: {
     (await fetchText(NFL_COM_INJURIES_URL, input?.fetchFn ?? fetch));
   const rows = parseNflComInjuriesHtml(html);
   return { rows, sourceUrl: NFL_COM_INJURIES_URL, fetchedAt };
-}
-
-export async function fetchCbsInjuryRows(input?: {
-  fetchFn?: FetchLike;
-  html?: string;
-}): Promise<{ rows: ParsedInjuryRow[]; sourceUrl: string; fetchedAt: Date }> {
-  const fetchedAt = new Date();
-  try {
-    const html =
-      input?.html ??
-      (await fetchText(CBS_INJURIES_URL, input?.fetchFn ?? fetch));
-    const rows = parseCbsInjuriesHtml(html);
-    return { rows, sourceUrl: CBS_INJURIES_URL, fetchedAt };
-  } catch {
-    return { rows: [], sourceUrl: CBS_INJURIES_URL, fetchedAt };
-  }
 }

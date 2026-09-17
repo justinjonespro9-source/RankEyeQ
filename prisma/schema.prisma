@@ -86,6 +86,23 @@ enum EntryAvailability {
   INACTIVE
 }
 
+/// Week-specific game availability (injury report / inactive list).
+/// Distinct from SeasonPlayer roster membership (ACTIVE/IR/PUP/etc.).
+enum WeeklyAvailabilityDesignation {
+  AVAILABLE
+  QUESTIONABLE
+  DOUBTFUL
+  OUT
+  INACTIVE
+  UNKNOWN
+}
+
+enum WeeklyAvailabilitySourceType {
+  MANUAL
+  NFL_SYNC
+  IMPORT
+}
+
 enum SubmissionStatus {
   DRAFT
   SUBMITTED
@@ -388,6 +405,7 @@ model User {
   manualImports    ManualImportLog[]
   policyAcceptances PolicyAcceptance[]
   creatorVerifications CreatorCompetitorProfile[] @relation("CreatorVerifiedBy")
+  playerWeekAvailabilityUpdates PlayerWeekAvailability[] @relation("PlayerWeekAvailabilityUpdatedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -494,6 +512,7 @@ model Week {
   benchmarkSnapshots BenchmarkSnapshot[]
   manualImports    ManualImportLog[]
   publicFromProfiles UniversalProfile[] @relation("ProfilePublicFromWeek")
+  playerWeekAvailabilities PlayerWeekAvailability[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -657,11 +676,38 @@ model RankableEntry {
   pregameSnapshotEntries ContestPregameSnapshotEntry[]
   playerWeekStats  PlayerWeekStat[]
   defenseWeekStats DefenseWeekStat[]
+  weekAvailabilities PlayerWeekAvailability[]
 
   @@unique([provider, externalId])
   @@index([position, team])
   @@index([provider, position])
   @@index([active, position])
+}
+
+/// Per-week game availability for a RankableEntry (injury / inactive list).
+/// Roster membership lives on SeasonPlayer; do not treat ACTIVE roster as AVAILABLE.
+model PlayerWeekAvailability {
+  id                String                        @id @default(cuid())
+  weekId            String
+  rankableEntryId   String
+  designation       WeeklyAvailabilityDesignation @default(UNKNOWN)
+  injuryDescription String?
+  sourceUrl         String?
+  sourcePublishedAt DateTime?
+  observedAt        DateTime                      @default(now())
+  sourceType        WeeklyAvailabilitySourceType  @default(MANUAL)
+  manualOverride    Boolean                       @default(false)
+  updatedByUserId   String?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+
+  week          Week          @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry @relation(fields: [rankableEntryId], references: [id], onDelete: Cascade)
+  updatedByUser User?         @relation("PlayerWeekAvailabilityUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([weekId, rankableEntryId])
+  @@index([weekId, designation])
+  @@index([rankableEntryId])
 }
 
 /// Normalized offensive player weekly fantasy stat line (audit + recompute).

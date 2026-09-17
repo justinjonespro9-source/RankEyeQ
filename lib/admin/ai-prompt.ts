@@ -8,19 +8,26 @@ import type {
   EntryAvailability,
 } from "@/lib/generated/prisma/client";
 import {
-  availabilityPromptMarker,
-  isSelectableAvailability,
-} from "@/lib/eligibility/weekly-status";
+  formatAvailabilityPromptParts,
+  type WeeklyDesignation,
+} from "@/lib/eligibility/player-week-availability";
+import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
 
 /** Stable identifier for the weekly AI competition prompt. Bump when instructions change. */
-export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V3" as const;
+export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V4" as const;
 
 export type AiPromptPlayer = {
   name: string;
   team: string;
   opponent: string;
   gameStartsAt: Date | null;
+  /** Compat EntryAvailability (ACTIVE/Q/D/OUT/…). */
   availability?: EntryAvailability | string;
+  /** Week-specific designation when known. */
+  designation?: WeeklyDesignation | string;
+  injuryDescription?: string | null;
+  /** Roster reason when excluded for IR/PUP/etc. */
+  unavailableReason?: string | null;
   rankableEntryId?: string;
 };
 
@@ -103,6 +110,21 @@ function formatKickoff(date: Date | null) {
   });
 }
 
+function playerIsSelectable(player: AiPromptPlayer): boolean {
+  if (player.unavailableReason) return false;
+  const designation = String(player.designation ?? "").toUpperCase();
+  if (designation === "OUT" || designation === "INACTIVE") return false;
+  if (
+    designation === "AVAILABLE" ||
+    designation === "QUESTIONABLE" ||
+    designation === "DOUBTFUL" ||
+    designation === "UNKNOWN"
+  ) {
+    return true;
+  }
+  return isSelectableAvailability(player.availability ?? "ACTIVE");
+}
+
 export function partitionAiPromptPlayers(
   players: AiPromptPlayer[],
   now: Date = new Date(),
@@ -115,7 +137,7 @@ export function partitionAiPromptPlayers(
   for (const player of players) {
     const started =
       player.gameStartsAt != null && now >= player.gameStartsAt;
-    if (started || !isSelectableAvailability(player.availability ?? "ACTIVE")) {
+    if (started || !playerIsSelectable(player)) {
       unavailable.push(player);
     } else {
       eligible.push(player);
@@ -124,30 +146,54 @@ export function partitionAiPromptPlayers(
   return { eligible, unavailable };
 }
 
+function designationLabel(player: AiPromptPlayer): string {
+  if (player.unavailableReason) return String(player.unavailableReason);
+  const designation = String(
+    player.designation ??
+      (player.availability === "ACTIVE"
+        ? "AVAILABLE"
+        : (player.availability ?? "AVAILABLE")),
+  ).toUpperCase();
+  if (designation === "ACTIVE") return "AVAILABLE";
+  return designation;
+}
+
 function formatPlayerLine(
   player: AiPromptPlayer,
-  position: ContestPosition,
-  opts?: { forceStatus?: string | null },
+  _position: ContestPosition,
+  opts?: { forceStatus?: string | null; includeKickoff?: boolean },
 ) {
-  const parts = [`${player.name} — ${player.team} — ${position}`];
-  if (player.opponent) parts.push(player.opponent);
-  const kickoff = formatKickoff(player.gameStartsAt);
-  if (kickoff) parts.push(kickoff);
-  const marker =
-    opts?.forceStatus ??
-    availabilityPromptMarker(player.availability ?? "ACTIVE");
-  if (marker) parts.push(marker);
-  return `- ${parts.join(" — ")}`;
+  const status = opts?.forceStatus ?? designationLabel(player);
+  const line = formatAvailabilityPromptParts({
+    name: player.name,
+    team: player.team,
+    designation: status,
+    injuryDescription: player.injuryDescription,
+  });
+  const extras: string[] = [];
+  if (player.opponent) extras.push(player.opponent);
+  if (opts?.includeKickoff !== false) {
+    const kickoff = formatKickoff(player.gameStartsAt);
+    if (kickoff) extras.push(kickoff);
+  }
+  if (extras.length === 0) return `- ${line}`;
+  return `- ${line} — ${extras.join(" — ")}`;
 }
 
 /**
  * Eligible pool block for prompts.
- * Only selectable (ACTIVE / Q / D) and not-yet-started players.
+ * Selectable: AVAILABLE / QUESTIONABLE / DOUBTFUL / UNKNOWN (not kicked off).
  */
 export function formatEligiblePlayerPool(
   players: AiPromptPlayer[],
   position: ContestPosition,
 ) {
+  if (players.length === 0) {
+    return [
+      "ELIGIBLE PLAYER POOL",
+      "(empty — eligible pool count is 0; do not invent players)",
+    ].join("\n");
+  }
   const lines = players.map((player) => formatPlayerLine(player, position));
   return ["ELIGIBLE PLAYER POOL", ...lines].join("\n");
 }
@@ -161,10 +207,11 @@ export function formatUnavailablePlayerPool(
   const lines = players.map((player) => {
     const started =
       player.gameStartsAt != null && now >= player.gameStartsAt;
-    const status = started
-      ? "Game started"
-      : availabilityPromptMarker(player.availability ?? "OUT") ?? "Unavailable";
-    return formatPlayerLine(player, position, { forceStatus: status });
+    const status = started ? "Game started" : designationLabel(player);
+    return formatPlayerLine(player, position, {
+      forceStatus: status,
+      includeKickoff: !started,
+    });
   });
   return ["UNAVAILABLE — DO NOT SELECT", ...lines].join("\n");
 }
@@ -268,7 +315,6 @@ export function buildAiRankingPrompt(
     ...partitioned.unavailable,
     ...(contest.unavailablePlayers ?? []),
   ];
-  // Dedupe unavailable by name+team
   const seenUnavailable = new Set<string>();
   const unavailableDeduped = unavailable.filter((player) => {
     const key = `${player.name}|${player.team}`;
@@ -277,7 +323,6 @@ export function buildAiRankingPrompt(
     return true;
   });
 
-  // Locked players should not appear as newly selectable
   const lockedIds = new Set(
     locked
       .map((row) => row.rankableEntryId)
@@ -334,6 +379,9 @@ Contest:
 - Slots 1–${scoringDepth} are your scoring board (${topLabel})
 - Slots ${reserveRanks} are ordered reserves (R1 then R2)
 - Reserves may automatically promote into the scoring board if an active pick becomes officially unavailable (OUT / INACTIVE / IR / PUP / SUSPENDED / FREE_AGENT) before that player's kickoff
+- QUESTIONABLE and DOUBTFUL players remain selectable — weigh availability risk, but do not treat them as automatic outs
+- OUT and INACTIVE players are not selectable
+- Roster-unavailable players (IR / PUP / SUSPENDED / FREE_AGENT) are not selectable
 - Rank reserves honestly as your next-best choices — do not treat them as throwaway picks
 - ${AI_WEEKLY_SCORING_RULES[0]}
 - ${AI_WEEKLY_SCORING_RULES[1]}
@@ -370,8 +418,11 @@ Before finalizing, internally check where your ranking meaningfully differs from
 The objective is:
 PREDICTION ACCURACY, NOT CONSENSUS AGREEMENT.
 
-Only select players from the ELIGIBLE PLAYER POOL below.
+Select players only from the ELIGIBLE PLAYER POOL below.
 Never select anyone listed under UNAVAILABLE — DO NOT SELECT.
+QUESTIONABLE and DOUBTFUL players appear in the eligible pool and may be selected; consider their availability risk.
+OUT and INACTIVE players are not selectable.
+Roster-unavailable players are not selectable.
 ${
   locked.length > 0
     ? "Keep every LOCKED SELECTION in its exact listed slot (including locked reserves) and fill only unlocked slots from the eligible pool."

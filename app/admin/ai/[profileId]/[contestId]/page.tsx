@@ -13,6 +13,7 @@ import { RANKEYEQ_AI_WEEKLY_PROMPT_VERSION } from "@/lib/admin/ai-prompt";
 import { loadAiPromptBundleForContest } from "@/lib/admin/ai-prompt-data";
 import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
 import { submissionDepthFromScoring } from "@/lib/contest-defaults";
+import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
 import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { RANKIQ_TIMEZONE } from "@/lib/timing/chicago";
@@ -56,15 +57,22 @@ export default async function AdminAiContestPage(
   if (!bundle) notFound();
 
   const submission = contest.submissions[0] ?? null;
+  const resolvedById = await loadResolvedStatusesForWeek({
+    weekId: contest.weekId,
+    seasonId: contest.week.seasonId,
+    rankableEntryIds: contest.entries.map((e) => e.rankableEntryId),
+  });
   const eligible = contest.entries
     .filter((entry) => !entry.excluded)
     .filter((entry) => {
-      const availability = entry.rankableEntry.availability;
       // Locked picks already on the board must remain matchable even if OUT.
       const onBoard = submission?.picks.some(
         (pick) => pick.rankableEntryId === entry.rankableEntryId,
       );
       if (onBoard) return true;
+      const resolved = resolvedById.get(entry.rankableEntryId);
+      if (resolved) return resolved.selectable;
+      const availability = entry.rankableEntry.availability;
       return (
         availability === "ACTIVE" ||
         availability === "QUESTIONABLE" ||

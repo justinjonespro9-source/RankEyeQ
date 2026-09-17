@@ -26,7 +26,7 @@ export type ParsedInjuryRow = {
   gameStatusRaw: string;
   gameStatus: ParsedInjuryGameStatus;
   externalId: string | null;
-  source: "nfl.com" | "cbs";
+  source: "nfl.com";
 };
 
 function decodeHtmlText(value: string) {
@@ -204,13 +204,15 @@ export const PRESERVED_ROSTER_AVAILABILITY = new Set<EntryAvailability>([
 
 /**
  * Decide next availability given parsed game status + current value.
- * Blank game status does not wipe IR/PUP/SUSPENDED; otherwise → ACTIVE.
+ * Blank game status does NOT infer ACTIVE/AVAILABLE — missing designation stays
+ * unresolved (null) so callers leave the row alone or write UNKNOWN.
+ * Blank game status does not wipe IR/PUP/SUSPENDED/FREE_AGENT/INACTIVE.
  */
 export function nextAvailabilityFromInjuryRow(input: {
   gameStatus: ParsedInjuryGameStatus;
   current: EntryAvailability;
-}): EntryAvailability {
+}): EntryAvailability | null {
   if (input.gameStatus) return input.gameStatus;
   if (PRESERVED_ROSTER_AVAILABILITY.has(input.current)) return input.current;
-  return "ACTIVE";
+  return null;
 }

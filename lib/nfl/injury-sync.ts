@@ -16,11 +16,15 @@ import {
   type ParsedInjuryRow,
 } from "@/lib/providers/nfl/nflcom/parse-injuries";
 import {
-  fetchCbsInjuryRows,
   fetchNflComInjuryRows,
   type FetchLike,
 } from "@/lib/providers/nfl/nflcom/fetch-injuries";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
+import {
+  entryAvailabilityFromInjuryGameStatus,
+  ROSTER_UNAVAILABLE_ENTRY,
+} from "@/lib/eligibility/player-week-availability";
+import { upsertPlayerWeekAvailability } from "@/lib/eligibility/player-week-availability-store";
 
 export type InjuryMatchCandidate = {
   id: string;
@@ -37,8 +41,10 @@ export type InjurySyncMatch =
       entryId: string;
       entryName: string;
       previous: EntryAvailability;
-      next: EntryAvailability;
+      next: EntryAvailability | null;
       changed: boolean;
+      /** True when NFL.com listed the player but Game Status was blank. */
+      missingGameStatus?: boolean;
     }
   | {
       status: "unmatched";
@@ -53,12 +59,15 @@ export type InjurySyncMatch =
 
 export type InjurySyncSummary = {
   ok: boolean;
-  source: "nfl.com" | "cbs" | "none";
+  source: "nfl.com" | "none";
   sourceUrl: string;
   syncedAt: Date;
   matched: number;
   updated: number;
   unchanged: number;
+  skippedManual: number;
+  skippedKickoff: number;
+  failed: number;
   questionable: number;
   doubtful: number;
   out: number;
@@ -192,6 +201,10 @@ function buildMatched(
     gameStatus: row.gameStatus,
     current: entry.availability,
   });
+  const missingGameStatus = row.gameStatus == null && next == null;
+  // Blank Game Status: do not invent AVAILABLE and do not overwrite existing
+  // designations — leave unchanged for operator/manual review.
+  const changed = next != null && next !== entry.availability;
   return {
     status: "matched",
     row,
@@ -199,55 +212,26 @@ function buildMatched(
     entryName: entry.name,
     previous: entry.availability,
     next,
-    changed: next !== entry.availability,
+    changed,
+    missingGameStatus,
   };
 }
 
 /**
- * Merge CBS fallback rows only for players missing from NFL.com matches.
- * Conflicting designations are left unmatched for admin review (not auto-applied).
+ * Sync weekly injury designations from NFL.com official injuries page only.
+ * Third-party sources (including CBS) are not used.
+ * Failed fetch/parse leaves existing designations and overrides unchanged.
  */
-export function mergeCbsFallback(input: {
-  nflRows: ParsedInjuryRow[];
-  cbsRows: ParsedInjuryRow[];
-}): { rows: ParsedInjuryRow[]; conflicts: ParsedInjuryRow[] } {
-  const byKey = new Map<string, ParsedInjuryRow>();
-  for (const row of input.nflRows) {
-    byKey.set(`${normalizePlayerName(row.name)}|${row.team}`, row);
-  }
-  const conflicts: ParsedInjuryRow[] = [];
-  const extras: ParsedInjuryRow[] = [];
-  for (const row of input.cbsRows) {
-    if (row.team === "UNK") continue;
-    const key = `${normalizePlayerName(row.name)}|${row.team}`;
-    const existing = byKey.get(key);
-    if (!existing) {
-      extras.push(row);
-      continue;
-    }
-    if (
-      existing.gameStatus &&
-      row.gameStatus &&
-      existing.gameStatus !== row.gameStatus
-    ) {
-      conflicts.push(row);
-    }
-  }
-  return { rows: [...input.nflRows, ...extras], conflicts };
-}
-
 export async function syncWeekInjuriesFromNflCom(input: {
   weekId: string;
   apply?: boolean;
   fetchFn?: FetchLike;
   nflHtml?: string;
-  cbsHtml?: string;
-  useCbsFallback?: boolean;
 }): Promise<InjurySyncSummary> {
   const apply = input.apply !== false;
   const errors: string[] = [];
   let source: InjurySyncSummary["source"] = "none";
-  let sourceUrl = "";
+  let sourceUrl = "https://www.nfl.com/injuries/";
   let syncedAt = new Date();
   let nflRows: ParsedInjuryRow[] = [];
 
@@ -266,91 +250,20 @@ export async function syncWeekInjuriesFromNflCom(input: {
         ? error.message
         : "Failed to fetch/parse NFL.com injuries",
     );
-    // Try CBS as sole fallback when NFL.com fails entirely.
-    if (input.useCbsFallback !== false) {
-      try {
-        const cbs = await fetchCbsInjuryRows({
-          fetchFn: input.fetchFn,
-          html: input.cbsHtml,
-        });
-        if (cbs.rows.length === 0) {
-          return emptySummary({
-            ok: false,
-            source: "none",
-            sourceUrl: "https://www.nfl.com/injuries/",
-            syncedAt,
-            errors: [
-              ...errors,
-              "CBS fallback returned no rows — existing statuses left unchanged",
-            ],
-          });
-        }
-        nflRows = cbs.rows;
-        source = "cbs";
-        sourceUrl = cbs.sourceUrl;
-        syncedAt = cbs.fetchedAt;
-        errors.push("Using CBS Sports injuries as fallback (NFL.com parse failed)");
-      } catch (cbsError) {
-        return emptySummary({
-          ok: false,
-          source: "none",
-          sourceUrl: "https://www.nfl.com/injuries/",
-          syncedAt,
-          errors: [
-            ...errors,
-            cbsError instanceof Error
-              ? `CBS fallback failed: ${cbsError.message}`
-              : "CBS fallback failed",
-            "Existing statuses left unchanged",
-          ],
-        });
-      }
-    } else {
-      return emptySummary({
-        ok: false,
-        source: "none",
-        sourceUrl: "https://www.nfl.com/injuries/",
-        syncedAt,
-        errors: [...errors, "Existing statuses left unchanged"],
-      });
-    }
+    return emptySummary({
+      ok: false,
+      source: "none",
+      sourceUrl,
+      syncedAt,
+      errors: [...errors, "Existing designations left unchanged"],
+      failed: 1,
+    });
   }
 
-  let workingRows = nflRows.filter((row) => isInjuryFantasyPosition(row.position));
+  const workingRows = nflRows.filter((row) =>
+    isInjuryFantasyPosition(row.position),
+  );
   const skippedNonFantasy = nflRows.length - workingRows.length;
-
-  if (input.useCbsFallback !== false) {
-    try {
-      const cbs = await fetchCbsInjuryRows({
-        fetchFn: input.fetchFn,
-        html: input.cbsHtml,
-      });
-      if (cbs.rows.length > 0) {
-        const merged = mergeCbsFallback({
-          nflRows: workingRows,
-          cbsRows: cbs.rows.filter((row) => isInjuryFantasyPosition(row.position)),
-        });
-        workingRows = merged.rows;
-        if (merged.conflicts.length > 0) {
-          errors.push(
-            `${merged.conflicts.length} CBS/NFL.com status conflicts left for admin review`,
-          );
-        }
-        if (source === "nfl.com" && merged.rows.length > nflRows.length) {
-          // still nfl.com primary
-        } else if (nflRows.length === 0 && cbs.rows.length > 0) {
-          source = "cbs";
-          sourceUrl = cbs.sourceUrl;
-        }
-      }
-    } catch (error) {
-      errors.push(
-        error instanceof Error
-          ? `CBS fallback failed: ${error.message}`
-          : "CBS fallback failed",
-      );
-    }
-  }
 
   const contests = await prisma.rankIQContest.findMany({
     where: {
@@ -390,6 +303,9 @@ export async function syncWeekInjuriesFromNflCom(input: {
 
   let updated = 0;
   let unchanged = 0;
+  let skippedManual = 0;
+  let skippedKickoff = 0;
+  let failed = 0;
   let matched = 0;
   let unmatched = 0;
   let ambiguous = 0;
@@ -411,27 +327,87 @@ export async function syncWeekInjuriesFromNflCom(input: {
     if (match.next === "QUESTIONABLE") questionable += 1;
     if (match.next === "DOUBTFUL") doubtful += 1;
     if (match.next === "OUT") out += 1;
+
+    // Blank Game Status: leave existing designation alone (UNKNOWN if none).
+    if (match.missingGameStatus || match.next == null) {
+      unchanged += 1;
+      continue;
+    }
+
     if (!match.changed) {
       unchanged += 1;
       continue;
     }
-    if (apply) {
-      await prisma.rankableEntry.update({
-        where: { id: match.entryId },
-        data: { availability: match.next },
-      });
+
+    if (!apply) {
+      updated += 1;
+      continue;
     }
-    updated += 1;
+
+    try {
+      if (ROSTER_UNAVAILABLE_ENTRY.has(match.next)) {
+        await prisma.rankableEntry.update({
+          where: { id: match.entryId },
+          data: { availability: match.next },
+        });
+        updated += 1;
+        continue;
+      }
+
+      const designation = entryAvailabilityFromInjuryGameStatus(match.next);
+      if (designation === "UNKNOWN") {
+        // Official Game Status missing after mapping — do not invent AVAILABLE.
+        unchanged += 1;
+        continue;
+      }
+
+      const result = await upsertPlayerWeekAvailability({
+        weekId: input.weekId,
+        rankableEntryId: match.entryId,
+        designation,
+        injuryDescription: match.row.injury?.trim() || null,
+        sourceUrl,
+        sourcePublishedAt: syncedAt,
+        observedAt: syncedAt,
+        sourceType: "NFL_SYNC",
+        respectManualOverride: true,
+        skipAfterKickoff: true,
+        now: syncedAt,
+      });
+      if (result.status === "skipped_override") {
+        skippedManual += 1;
+        continue;
+      }
+      if (result.status === "skipped_kickoff") {
+        skippedKickoff += 1;
+        continue;
+      }
+      if (result.status === "unchanged") {
+        unchanged += 1;
+        continue;
+      }
+      updated += 1;
+    } catch (error) {
+      failed += 1;
+      errors.push(
+        error instanceof Error
+          ? `Failed updating ${match.entryName}: ${error.message}`
+          : `Failed updating ${match.entryName}`,
+      );
+    }
   }
 
   return {
-    ok: errors.length === 0 || matched > 0,
+    ok: errors.length === 0 || (matched > 0 && failed === 0),
     source,
     sourceUrl,
     syncedAt,
     matched,
     updated,
     unchanged,
+    skippedManual,
+    skippedKickoff,
+    failed,
     questionable,
     doubtful,
     out,
@@ -449,12 +425,16 @@ function emptySummary(partial: {
   sourceUrl: string;
   syncedAt: Date;
   errors: string[];
+  failed?: number;
 }): InjurySyncSummary {
   return {
     ...partial,
     matched: 0,
     updated: 0,
     unchanged: 0,
+    skippedManual: 0,
+    skippedKickoff: 0,
+    failed: partial.failed ?? 0,
     questionable: 0,
     doubtful: 0,
     out: 0,

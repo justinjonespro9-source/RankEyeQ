@@ -14,7 +14,7 @@ import {
   type AiPromptContest,
 } from "@/lib/admin/ai-prompt";
 
-describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V3)", () => {
+describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V4)", () => {
   const generatedAt = zonedLocalToUtc(2026, 9, 10, 9, 30);
 
   const wrContest: AiPromptContest = {
@@ -64,12 +64,12 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V3)", () => {
   };
 
   it("uses stable prompt version identifier", () => {
-    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V3");
+    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V4");
     const prompt = buildAiRankingPrompt(wrContest, {
       aiDisplayName: "GPT",
       generatedAt,
     });
-    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V3");
+    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V4");
     expect(prompt).toContain("AI competitor: GPT");
   });
 
@@ -105,7 +105,7 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V3)", () => {
     expect(prompt).toContain("ELIGIBLE PLAYER POOL");
     expect(prompt).toContain("Justin Jefferson");
     expect(prompt).toContain("CeeDee Lamb");
-    expect(prompt).toContain("Questionable");
+    expect(prompt).toContain("QUESTIONABLE");
   });
 
   it("partitionAiPromptPlayers splits by availability and kickoff", () => {
@@ -176,6 +176,6 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V3)", () => {
     const bundle = buildAiPromptBundle(wrContest, { generatedAt });
     expect(bundle.meta.fieldSize).toBe(17);
     expect(bundle.meta.scoringDepth).toBe(15);
-    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V3");
+    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V4");
   });
 });

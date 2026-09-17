@@ -150,7 +150,6 @@ describe("syncWeekInjuriesFromNflCom", () => {
       weekId,
       apply: true,
       nflHtml: WEEK1_NFL_INJURIES_FIXTURE_HTML,
-      useCbsFallback: false,
     });
     expect(first.ok).toBe(true);
     expect(first.source).toBe("nfl.com");
@@ -172,11 +171,25 @@ describe("syncWeekInjuriesFromNflCom", () => {
     expect(mcmillan.availability).toBe("DOUBTFUL");
     expect(odunze.availability).toBe("QUESTIONABLE");
 
+    const weekRows = await prisma.playerWeekAvailability.findMany({
+      where: { weekId, rankableEntryId: { in: [bowersId, mcmillanId, odunzeId] } },
+    });
+    expect(weekRows).toHaveLength(3);
+    expect(weekRows.find((r) => r.rankableEntryId === bowersId)?.designation).toBe(
+      "OUT",
+    );
+    expect(
+      weekRows.find((r) => r.rankableEntryId === mcmillanId)?.designation,
+    ).toBe("DOUBTFUL");
+    expect(weekRows.find((r) => r.rankableEntryId === odunzeId)?.designation).toBe(
+      "QUESTIONABLE",
+    );
+    expect(weekRows.every((r) => r.sourceType === "NFL_SYNC")).toBe(true);
+
     const second = await syncWeekInjuriesFromNflCom({
       weekId,
       apply: true,
       nflHtml: WEEK1_NFL_INJURIES_FIXTURE_HTML,
-      useCbsFallback: false,
     });
     expect(second.updated).toBe(0);
     expect(second.unchanged).toBeGreaterThanOrEqual(3);
@@ -199,7 +212,6 @@ describe("syncWeekInjuriesFromNflCom", () => {
       weekId,
       apply: true,
       nflHtml: "<html><body>broken</body></html>",
-      useCbsFallback: false,
     });
     expect(failed.ok).toBe(false);
     expect(failed.updated).toBe(0);
@@ -217,7 +229,6 @@ describe("syncWeekInjuriesFromNflCom", () => {
         "Brock Bowers",
         "Totally Fake Player",
       ).replace("brock-bowers", "totally-fake-player"),
-      useCbsFallback: false,
     });
     expect(withUnmatched.unmatched).toBeGreaterThanOrEqual(1);
   });

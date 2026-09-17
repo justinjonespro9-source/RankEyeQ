@@ -32,6 +32,23 @@ export class BenchmarkCaptureError extends Error {
   }
 }
 
+/**
+ * When an official benchmark/creator board is written to RankingSubmission,
+ * decide whether to immediately score it from ContestEntry actuals.
+ *
+ * - Normal live capture → false (board stays LOCKED until gradeContest).
+ * - Historical backfill → true (Week COMPLETE; grade when actuals exist).
+ * - Re-capture of already-GRADED board → true (refresh scores).
+ */
+export function shouldAutoGradeOfficialBenchmarkSubmission(input: {
+  historicalBackfill?: boolean;
+  existingStatus?: string | null;
+}): boolean {
+  if (input.historicalBackfill) return true;
+  if (input.existingStatus === "GRADED") return true;
+  return false;
+}
+
 export type SnapshotPickInput = {
   sourceRank: number;
   rawName: string;
@@ -263,8 +280,22 @@ async function upsertOfficialBenchmarkSubmission(
     })),
   });
 
-  // Grade (or regrade) whenever actuals already exist — including Week COMPLETE backfill.
-  await regradeSubmissionIfActualsExist(submission.id, db);
+  /**
+   * Lifecycle:
+   * - Normal Thursday/Sunday official capture → LOCKED competitor board.
+   *   Do NOT auto-grade merely because ContestEntry actuals happen to exist
+   *   (fixtures / early result pastes). Week grading remains gradeContest().
+   * - Historical backfill after Week COMPLETE → grade immediately when actuals exist.
+   * - Re-capture of an already-GRADED board → refresh scores when actuals exist.
+   */
+  if (
+    shouldAutoGradeOfficialBenchmarkSubmission({
+      historicalBackfill: input.historicalBackfill,
+      existingStatus: existing?.status,
+    })
+  ) {
+    await regradeSubmissionIfActualsExist(submission.id, db);
+  }
 
   return submission.id;
 }

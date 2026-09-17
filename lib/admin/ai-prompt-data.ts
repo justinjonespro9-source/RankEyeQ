@@ -10,6 +10,7 @@ import {
   type AiPromptPlayer,
 } from "@/lib/admin/ai-prompt";
 import { CONTEST_POSITIONS, submissionDepthFromScoring } from "@/lib/contest-defaults";
+import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
 function kickoffForEntry(entry: {
@@ -51,14 +52,30 @@ export async function loadAiPromptContest(
   });
   if (!contest) return null;
 
-  const players: AiPromptPlayer[] = contest.entries.map((entry) => ({
-    name: entry.rankableEntry.name,
-    team: entry.rankableEntry.team,
-    opponent: entry.rankableEntry.opponent,
-    gameStartsAt: kickoffForEntry(entry),
-    availability: entry.rankableEntry.availability,
-    rankableEntryId: entry.rankableEntryId,
-  }));
+  const resolvedById = await loadResolvedStatusesForWeek({
+    weekId: contest.weekId,
+    seasonId: contest.week.seasonId,
+    rankableEntryIds: contest.entries.map((e) => e.rankableEntryId),
+  });
+
+  const players: AiPromptPlayer[] = contest.entries.map((entry) => {
+    const resolved = resolvedById.get(entry.rankableEntryId);
+    return {
+      name: entry.rankableEntry.name,
+      team: entry.rankableEntry.team,
+      opponent: entry.rankableEntry.opponent,
+      gameStartsAt: kickoffForEntry(entry),
+      availability:
+        resolved?.effectiveEntryAvailability ??
+        entry.rankableEntry.availability,
+      designation: resolved?.designation,
+      injuryDescription: resolved?.injuryDescription,
+      unavailableReason: resolved?.selectable
+        ? null
+        : resolved?.unavailableReason,
+      rankableEntryId: entry.rankableEntryId,
+    };
+  });
 
   let lockedSelections: AiLockedSelection[] = [];
   if (options?.universalProfileId) {

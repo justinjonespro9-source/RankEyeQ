@@ -7,6 +7,7 @@ import type { SubmissionStatus } from "@/lib/generated/prisma/client";
 import { applyKickoffLocksToSubmission } from "@/lib/timing/apply-locks";
 import { validatePartialLockEdit } from "@/lib/timing/partial-lock";
 import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
+import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
 import { rankingEditWindowError } from "@/lib/timing/submission-window";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import {
@@ -163,6 +164,10 @@ async function assertEntriesBelongToContest(
 }
 
 async function loadKickoffMap(contestId: string) {
+  const contest = await prisma.rankIQContest.findUnique({
+    where: { id: contestId },
+    select: { weekId: true, week: { select: { seasonId: true } } },
+  });
   const entries = await prisma.contestEntry.findMany({
     where: { contestId, excluded: false },
     include: {
@@ -173,6 +178,17 @@ async function loadKickoffMap(contestId: string) {
   const map = new Map<string, Date | null>();
   const names = new Map<string, string>();
   const availabilityByEntryId = new Map<string, string>();
+  const reasonByEntryId = new Map<string, string>();
+
+  const resolved =
+    contest != null
+      ? await loadResolvedStatusesForWeek({
+          weekId: contest.weekId,
+          seasonId: contest.week.seasonId,
+          rankableEntryIds: entries.map((e) => e.rankableEntryId),
+        })
+      : new Map();
+
   for (const entry of entries) {
     map.set(
       entry.rankableEntryId,
@@ -182,12 +198,21 @@ async function loadKickoffMap(contestId: string) {
         null,
     );
     names.set(entry.rankableEntryId, entry.rankableEntry.name);
+    const status = resolved.get(entry.rankableEntryId);
     availabilityByEntryId.set(
       entry.rankableEntryId,
-      entry.rankableEntry.availability,
+      status?.effectiveEntryAvailability ?? entry.rankableEntry.availability,
     );
+    if (status && !status.selectable && status.unavailableReason) {
+      reasonByEntryId.set(entry.rankableEntryId, status.unavailableReason);
+    }
   }
-  return { kickoffByEntryId: map, playerNamesById: names, availabilityByEntryId };
+  return {
+    kickoffByEntryId: map,
+    playerNamesById: names,
+    availabilityByEntryId,
+    reasonByEntryId,
+  };
 }
 
 /**
@@ -278,8 +303,12 @@ export async function saveSubmissionPicks(input: {
     await assertEntriesBelongToContest(input.contestId, filled);
   }
 
-  const { kickoffByEntryId, playerNamesById, availabilityByEntryId } =
-    await loadKickoffMap(input.contestId);
+  const {
+    kickoffByEntryId,
+    playerNamesById,
+    availabilityByEntryId,
+    reasonByEntryId,
+  } = await loadKickoffMap(input.contestId);
   const lockCheck = validatePartialLockEdit({
     previous: previous.map((pick) => ({
       rankableEntryId: pick.rankableEntryId,
@@ -302,15 +331,20 @@ export async function saveSubmissionPicks(input: {
     previous.map((pick) => [pick.rankableEntryId, pick]),
   );
 
+  const rejected: string[] = [];
   for (const id of filled) {
     if (previousById.has(id)) continue;
     const availability = availabilityByEntryId.get(id) ?? "ACTIVE";
     if (!isSelectableAvailability(availability)) {
       const name = playerNamesById.get(id) ?? "player";
-      throw new SubmissionError(
-        `Cannot add ${name} — status is ${availability} (not eligible for new selection)`,
-      );
+      const reason = reasonByEntryId.get(id) ?? availability;
+      rejected.push(`${name} (${reason})`);
     }
+  }
+  if (rejected.length > 0) {
+    throw new SubmissionError(
+      `Cannot add unavailable player(s): ${rejected.join("; ")}`,
+    );
   }
 
   const nextStatus: SubmissionStatus =

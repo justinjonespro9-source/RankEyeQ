@@ -61,7 +61,7 @@ describe("Brock Bowers Week 1 OUT eligibility", () => {
     const prompt = buildAiRankingPrompt(contest, { now, generatedAt: now });
     expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
     expect(prompt).toContain("Brock Bowers");
-    expect(prompt).toMatch(/Brock Bowers[\s\S]*Out/);
+    expect(prompt).toMatch(/Brock Bowers[\s\S]*OUT/);
   });
 
   it("OUT + kickoff passed remains immutable for locked slots", () => {
