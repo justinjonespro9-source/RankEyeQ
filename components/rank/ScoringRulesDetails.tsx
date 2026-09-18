@@ -4,21 +4,24 @@ import {
   getCompactEyeqExplanation,
   getCompactFantasyScoringBullets,
 } from "@/lib/scoring-messaging";
+import { RESERVE_PROMOTION_SHORT } from "@/lib/ranking-depth-copy";
 
 /**
  * Compact Scoring & Rules disclosure on ranking pages.
- * Values come from production fantasy + EYEQ engines via scoring-messaging.
+ * Pass EYEQ scoringDepth (Top 10 / Top 15) — never submission depth (12/17).
  */
 export function ScoringRulesDetails({
-  slotCount,
+  scoringDepth,
+  reserveCount = 0,
   positionLabel,
 }: {
-  slotCount: number;
+  scoringDepth: number;
+  reserveCount?: number;
   positionLabel: string;
 }) {
   const fantasy = getCompactFantasyScoringBullets();
-  const eyeqLines = getCompactEyeqExplanation(slotCount);
-  const field = eyeqFieldLabel(slotCount);
+  const eyeqLines = getCompactEyeqExplanation(scoringDepth);
+  const field = eyeqFieldLabel(scoringDepth);
 
   return (
     <details className="mb-6 rounded-lg border border-border bg-surface-elevated px-4 py-3 sm:px-5">
@@ -73,6 +76,12 @@ export function ScoringRulesDetails({
               <li key={line}>{line}</li>
             ))}
           </ul>
+          {reserveCount > 0 ? (
+            <p className="mt-3 text-xs leading-relaxed text-muted">
+              Required submission: {field} scoring board + {reserveCount} ordered
+              reserve{reserveCount === 1 ? "" : "s"}. {RESERVE_PROMOTION_SHORT}
+            </p>
+          ) : null}
         </div>
       </div>
 

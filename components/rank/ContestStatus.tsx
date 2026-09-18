@@ -1,5 +1,9 @@
 import { Badge } from "@/components/ui/Badge";
 import type { PositionChallenge } from "@/types/contest";
+import {
+  boardDepthBadgeLabel,
+  submissionProgressFillLabel,
+} from "@/lib/ranking-depth-copy";
 import { WEEKLY_CONTEST_HELPER } from "@/lib/weekly-messaging";
 
 function formatSubmissionStatus(status: string) {
@@ -13,28 +17,14 @@ function formatSubmissionStatus(status: string) {
 export function submissionProgressMessage(input: {
   filledCount: number;
   slotCount: number;
+  scoringDepth: number;
+  reserveCount: number;
   submissionStatus: string;
   editable: boolean;
   partialKickoffLocks?: boolean;
   fullBoardLocked?: boolean;
 }): string {
-  const normalized = input.submissionStatus.toUpperCase();
-  if (input.fullBoardLocked) {
-    return "Rankings Locked";
-  }
-  if (!input.editable && normalized !== "GRADED") {
-    return "Rankings Locked";
-  }
-  if (input.partialKickoffLocks && input.editable) {
-    return "Some selections are locked because their games have started";
-  }
-  if (input.filledCount < input.slotCount) {
-    return `${input.filledCount} of ${input.slotCount} selected`;
-  }
-  if (normalized === "SUBMITTED") {
-    return `Top ${input.slotCount} complete — submitted, unlocked slots editable until Sunday 10:00 AM CT`;
-  }
-  return `Top ${input.slotCount} complete — submit rankings`;
+  return submissionProgressFillLabel(input);
 }
 
 export function ContestStatusPanel({
@@ -57,6 +47,8 @@ export function ContestStatusPanel({
   const progress = submissionProgressMessage({
     filledCount,
     slotCount: challenge.slotCount,
+    scoringDepth: challenge.scoringDepth,
+    reserveCount: challenge.reserveCount,
     submissionStatus,
     editable,
     partialKickoffLocks,
@@ -94,6 +86,15 @@ export function ContestStatusPanel({
       <dl className="mt-3 space-y-1.5 text-muted">
         <div className="border-b border-border pb-2 text-xs leading-relaxed text-muted">
           {WEEKLY_CONTEST_HELPER}
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>Board</dt>
+          <dd className="font-medium text-ink">
+            {boardDepthBadgeLabel(
+              challenge.scoringDepth,
+              challenge.reserveCount,
+            )}
+          </dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt>Week</dt>

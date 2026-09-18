@@ -43,7 +43,7 @@ export function PlayerWeeklyHistoryTable({
         <tbody>
           {weeks.map((row) => {
             const rates = row.market?.selectionRates;
-            const consensusHref = `/consensus?position=${row.position.toLowerCase()}&week=${row.weekNumber}`;
+            const consensusHref = `/consensus?position=${row.position.toLowerCase()}&weekId=${row.weekId}`;
             return (
               <tr
                 key={`${row.contestId}-${row.weekNumber}`}

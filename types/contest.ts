@@ -24,6 +24,8 @@ export type ContestPositionConfig = {
   slotCount: number;
   /** Active EYEQ scoring depth (excludes reserves). */
   scoringDepth: number;
+  /** Ordered reserve slots after the scoring board (0 for legacy contests). */
+  reserveCount: number;
   description: string;
 };
 

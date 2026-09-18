@@ -140,12 +140,13 @@ export default async function ResultsPage({
               <section>
                 <div className="mb-3">
                   <h2 className="font-display text-xl font-semibold text-ink">
-                    Actual finishes vs consensus
+                    Actual finishes vs pregame consensus
                   </h2>
                   <p className="mt-1 text-sm text-muted">
-                    Sorted by Actual ascending by default. Vs Con. shows
-                    movement vs pregame consensus (up = better finish, down =
-                    worse).
+                    Actual positional finish compared with the locked pregame
+                    consensus market. Vs Con. = actual − consensus (up = better
+                    finish than the crowd, down = worse). Selected % / Avg sel
+                    rank are pregame prediction metrics — not live stats.
                   </p>
                 </div>
 
@@ -199,12 +200,13 @@ export default async function ResultsPage({
                 <section className="space-y-4">
                   <div>
                     <h2 className="font-display text-xl font-semibold text-ink">
-                      Your ranking vs actual
+                      Your submitted prediction vs actual
                     </h2>
                     <p className="mt-1 text-sm text-muted">
                       Your board
                       {activeProfile ? ` (@${activeProfile.username})` : ""} ·
-                      submission {view.userSubmissionStatus}
+                      submission {view.userSubmissionStatus}. Compared with
+                      actual positional finishes (not the crowd market above).
                     </p>
                   </div>
                   <ScoreSummary summary={view.userScore} />

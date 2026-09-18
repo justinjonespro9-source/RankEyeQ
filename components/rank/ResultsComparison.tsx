@@ -7,12 +7,13 @@ import type { RankingPlayer } from "@/types/contest";
 export function ResultsComparison({
   predicted,
   pool,
-  slotCount,
+  scoringDepth,
   actualFinishes,
 }: {
   predicted: RankingPlayer[];
   pool: RankingPlayer[];
-  slotCount: number;
+  /** EYEQ field size (Top 10 / Top 15) — never submission depth 12/17. */
+  scoringDepth: number;
   /** When provided, use stored actual ranks instead of mock finishes. */
   actualFinishes?: Map<string, number> | Record<string, number>;
 }) {
@@ -38,18 +39,29 @@ export function ResultsComparison({
         ? new Map(Object.entries(actualFinishes))
         : getMockActualFinishes(pool);
 
+  // Grade the scoring board only — reserves are not part of the EYEQ field.
+  const scoringPicks = predicted.slice(0, scoringDepth);
   const summary = scoreContest(
-    predicted.map((player, index) => ({
+    scoringPicks.map((player, index) => ({
       playerId: player.id,
       playerName: player.name,
       predictedRank: index + 1,
       actualRank: finishes.get(player.id) ?? pool.length + 1,
     })),
-    slotCount,
+    scoringDepth,
   );
 
   return (
     <section className="space-y-4">
+      <div>
+        <h2 className="font-display text-lg font-semibold text-ink">
+          Your prediction vs actual
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Your submitted scoring board compared to actual positional finishes.
+          Pregame consensus is on Results and Consensus — not reinvented here.
+        </p>
+      </div>
       <ScoreSummary summary={summary} />
 
       <div className="rounded-lg border border-border bg-surface-elevated">
@@ -58,7 +70,7 @@ export function ResultsComparison({
             Player scoring breakdown
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Tap a row for the full point breakdown.
+            Tap a row for the full point breakdown. Field size: Top {scoringDepth}.
           </p>
         </div>
 

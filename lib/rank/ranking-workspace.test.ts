@@ -82,29 +82,35 @@ describe("ranking depth and status messaging", () => {
     expect(
       submissionProgressMessage({
         filledCount: 7,
-        slotCount: 10,
+        slotCount: 12,
+        scoringDepth: 10,
+        reserveCount: 2,
         submissionStatus: "DRAFT",
         editable: true,
       }),
-    ).toBe("7 of 10 selected");
+    ).toBe("7 of 12 selected · Top 10 + 2 reserves");
   });
 
   it("reports complete draft ready to submit", () => {
     expect(
       submissionProgressMessage({
-        filledCount: 15,
-        slotCount: 15,
+        filledCount: 17,
+        slotCount: 17,
+        scoringDepth: 15,
+        reserveCount: 2,
         submissionStatus: "DRAFT",
         editable: true,
       }),
-    ).toBe("Top 15 complete — submit rankings");
+    ).toBe("Top 15 + 2 reserves complete — submit rankings");
   });
 
   it("reports submitted but editable state", () => {
     expect(
       submissionProgressMessage({
-        filledCount: 10,
-        slotCount: 10,
+        filledCount: 12,
+        slotCount: 12,
+        scoringDepth: 10,
+        reserveCount: 2,
         submissionStatus: "SUBMITTED",
         editable: true,
       }),
@@ -114,8 +120,10 @@ describe("ranking depth and status messaging", () => {
   it("does not call partial kickoff locks a full contest lock", () => {
     expect(
       submissionProgressMessage({
-        filledCount: 10,
-        slotCount: 10,
+        filledCount: 12,
+        slotCount: 12,
+        scoringDepth: 10,
+        reserveCount: 2,
         submissionStatus: "SUBMITTED",
         editable: true,
         partialKickoffLocks: true,
@@ -123,8 +131,10 @@ describe("ranking depth and status messaging", () => {
     ).toMatch(/Some selections are locked/i);
     expect(
       submissionProgressMessage({
-        filledCount: 10,
-        slotCount: 10,
+        filledCount: 12,
+        slotCount: 12,
+        scoringDepth: 10,
+        reserveCount: 2,
         submissionStatus: "SUBMITTED",
         editable: false,
         fullBoardLocked: true,

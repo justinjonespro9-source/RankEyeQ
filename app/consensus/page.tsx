@@ -33,7 +33,7 @@ import { getWeekTimingState } from "@/lib/timing/week-windows";
 export const metadata: Metadata = publicPageMetadata({
   title: 'Consensus',
   description:
-    'Community ranking consensus for RankEyeQ weekly contests — Public, Experts, Creators, AI, and Publisher Consensus.',
+    'Pregame Community EYEQ — Humans, Creators, Experts, Publisher Consensus, AI, and group-weighted All. Predictions, not actual results.',
   path: '/consensus',
 });
 
@@ -185,6 +185,20 @@ export default async function ConsensusPage({
     contest?.submissions.filter((row) => submissionIsEligible(row.status))
       .length ?? 0;
 
+  const viewerProfileId = auth?.universalProfile?.id ?? null;
+  let viewerHasBoard = false;
+  if (contest && viewerProfileId) {
+    const own = await prisma.rankingSubmission.findFirst({
+      where: {
+        contestId: contest.id,
+        universalProfileId: viewerProfileId,
+        status: { in: ["SUBMITTED", "LOCKED", "GRADED"] },
+      },
+      select: { id: true },
+    });
+    viewerHasBoard = Boolean(own);
+  }
+
   const consensus =
     contest && consensusVisible
       ? await getContestConsensus(contest.id, filter, {
@@ -226,7 +240,7 @@ export default async function ConsensusPage({
       <SectionHeading
         eyebrow="Pregame market"
         title="Consensus"
-        description="Who Humans, Experts, Creators, and AI ranked before lock — Selected %, average selected rank, and ballots. Publisher Consensus stays a separate benchmark lane and is not in All. For what actually finished vs this market, open Results."
+        description="Pregame predictions — not actual finishes. Filter Humans, Creators, Experts, Publisher Consensus, AI, or group-weighted All. Selected % and Average Selected Rank stay unchanged. For actual finishes vs this market, open Results."
       />
 
       {weeks.length === 0 ? (
@@ -342,27 +356,27 @@ export default async function ConsensusPage({
           ) : !consensusVisible ? (
             <EmptyState
               title="Consensus still private"
-              description={`Community EYEQ unlocks at Sunday 10:00 AM America/Chicago. ${submissionCount} official ${position} board${submissionCount === 1 ? "" : "s"} submitted so far.${
+              description={`The crowd view is still hidden. Community EYEQ unlocks at the configured Sunday lock${
                 selectedWeek?.fullLockAt
-                  ? ` Lock: ${formatInChicago(selectedWeek.fullLockAt, {
+                  ? ` (${formatInChicago(selectedWeek.fullLockAt, {
                       weekday: "short",
                       month: "short",
                       day: "numeric",
                       hour: "numeric",
                       minute: "2-digit",
                       timeZoneName: "short",
-                    })}.`
+                    })})`
                   : ""
-              }`}
+              }. ${submissionCount} official ${position} board${submissionCount === 1 ? "" : "s"} submitted so far. Make your prediction before seeing where Humans, Experts, and AI land. Individual boards keep their existing reveal rules.`}
               actionHref={`/rank/${position.toLowerCase()}`}
-              actionLabel="Build rankings"
+              actionLabel="Build Your Rankings"
             />
           ) : !consensus || consensus.sampleSize === 0 ? (
             <EmptyState
               title={segmentEmptyCopy(filter).title}
               description={segmentEmptyCopy(filter).description}
               actionHref={`/rank/${position.toLowerCase()}`}
-              actionLabel="Build rankings"
+              actionLabel="Build Next Ranking"
             />
           ) : (
             <div className="space-y-6">
@@ -399,8 +413,45 @@ export default async function ConsensusPage({
                   </Badge>
                 ) : null}
                 <Badge tone="neutral">{consensus.contestStatus}</Badge>
-                {timing ? <Badge tone="neutral">{timing.phase}</Badge> : null}
+                {timing ? (
+                  <Badge tone="neutral">{timing.phase}</Badge>
+                ) : null}
+                <Badge tone="neutral">Pregame predictions</Badge>
               </div>
+
+              {!viewerHasBoard ? (
+                <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm text-muted">
+                  <p className="font-medium text-ink">Build your own board</p>
+                  <p className="mt-1">
+                    Consensus is public after lock for everyone — including
+                    signed-out visitors. You still get more out of RankEyeQ when
+                    you submit your own ranking first.
+                  </p>
+                  <div className="mt-3">
+                    <Link
+                      href={`/rank/${position.toLowerCase()}`}
+                      className="inline-flex min-h-10 items-center rounded-md bg-accent px-3 py-2 text-sm font-medium text-ink"
+                    >
+                      Build Next Ranking
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/rank/${position.toLowerCase()}`}
+                    className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-ink"
+                  >
+                    Your ranking board
+                  </Link>
+                  <Link
+                    href={`/results?weekId=${weekId ?? ""}&position=${position}`}
+                    className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-ink"
+                  >
+                    Results vs actual
+                  </Link>
+                </div>
+              )}
 
               {(consensus.callouts.biggestHit ||
                 consensus.callouts.biggestMiss ||

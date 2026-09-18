@@ -29,6 +29,10 @@ import {
   researchWindowLabel,
 } from "@/lib/player-research";
 import {
+  boardDepthBadgeLabel,
+  humanizeWeekTimingPhase,
+} from "@/lib/ranking-depth-copy";
+import {
   NO_INDEX,
   canonicalMetadata,
   rankPositionCanonicalPath,
@@ -49,7 +53,7 @@ export async function generateMetadata(
     const { challenge } = await getPublicPositionContest(position);
     return {
       title: `${challenge.shortLabel} Rankings`,
-      description: `Weekly ${challenge.shortLabel} rankings for this NFL slate — Top ${challenge.slotCount}. Rank before kickoff; graded against that week's actual fantasy-point finishes.`,
+      description: `Weekly ${challenge.shortLabel} rankings for this NFL slate — ${boardDepthBadgeLabel(challenge.scoringDepth, challenge.reserveCount)}. Rank before kickoff; graded against that week's actual fantasy-point finishes.`,
       ...NO_INDEX,
       ...canonicalMetadata(canonicalPath),
     };
@@ -302,14 +306,19 @@ export default async function PositionRankPage(
       <header className="mb-6 sm:mb-8">
         <div className="flex flex-wrap items-center gap-3">
           <Badge tone="neutral">{challenge.weekLabel}</Badge>
-          <Badge tone="success">Top {challenge.slotCount}</Badge>
+          <Badge tone="success">
+            {boardDepthBadgeLabel(
+              challenge.scoringDepth,
+              challenge.reserveCount,
+            )}
+          </Badge>
           <Badge tone="neutral">{players.length} players</Badge>
           <Badge tone={source === "database" ? "success" : "warning"}>
             {source === "database" ? "Persisted pool" : "Mock pool"}
           </Badge>
           <Badge tone="neutral">{displayContestStatus}</Badge>
           <Badge tone={timing.fullBoardLocked ? "warning" : "success"}>
-            {timing.phase}
+            {humanizeWeekTimingPhase(timing.phase)}
           </Badge>
         </div>
         <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
@@ -318,12 +327,19 @@ export default async function PositionRankPage(
         <p className="mt-2 max-w-2xl text-base text-muted">
           {challenge.description} Weekly contest for {challenge.weekLabel} —
           rankings reset next week. Not a draft board or season-long projection.
-          Players lock at kickoff; remaining slots stay editable until Sunday
-          10:00 AM America/Chicago. Only explicitly submitted boards compete.
+          Required submission:{" "}
+          {boardDepthBadgeLabel(
+            challenge.scoringDepth,
+            challenge.reserveCount,
+          )}{" "}
+          ({challenge.slotCount} submitted names). Players lock individually at
+          kickoff; remaining unlocked slots close at the Sunday lock. Consensus
+          becomes public at that same configured lock/reveal time. Only
+          explicitly submitted boards compete.
         </p>
         {fullLockAt ? (
           <p className="mt-2 text-sm text-muted">
-            Sunday lock:{" "}
+            Sunday lock / Consensus unlock:{" "}
             {formatInChicago(fullLockAt, {
               weekday: "short",
               month: "short",
@@ -364,7 +380,8 @@ export default async function PositionRankPage(
       </header>
 
       <ScoringRulesDetails
-        slotCount={challenge.slotCount}
+        scoringDepth={challenge.scoringDepth}
+        reserveCount={challenge.reserveCount}
         positionLabel={challenge.shortLabel}
       />
 
@@ -381,6 +398,33 @@ export default async function PositionRankPage(
         canEditUnlocked={timing.canEditUnlocked && boardEditableByWeek}
         fullBoardLocked={timing.fullBoardLocked}
         researchWindowLabel={windowLabel}
+        consensusPublic={timing.consensusVisible}
+        consensusHref={
+          weekId
+            ? `/consensus?weekId=${weekId}&position=${challenge.shortLabel}`
+            : `/consensus?position=${challenge.shortLabel}`
+        }
+        consensusUnlockLabel={
+          fullLockAt
+            ? formatInChicago(fullLockAt, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZoneName: "short",
+              })
+            : revealStartsAt
+              ? formatInChicago(revealStartsAt, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZoneName: "short",
+                })
+              : null
+        }
         lockLabel={
           fullLockAt
             ? formatInChicago(fullLockAt, {

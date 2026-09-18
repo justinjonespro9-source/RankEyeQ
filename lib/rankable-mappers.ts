@@ -73,6 +73,8 @@ export function rankableEntryToRankingPlayer(
 export function buildPositionChallenge(input: {
   position: ContestPosition;
   rankingDepth: number;
+  /** Contest-scoped reserves; default 2 for current production when omitted. */
+  reserveCount?: number;
   title: string;
   status: DbContestStatus;
   weekLabel: string;
@@ -89,7 +91,8 @@ export function buildPositionChallenge(input: {
     def: "Defense",
   };
   const scoringDepth = input.rankingDepth;
-  const slotCount = submissionDepthFromScoring(scoringDepth);
+  const reserveCount = Math.max(0, input.reserveCount ?? 2);
+  const slotCount = submissionDepthFromScoring(scoringDepth, reserveCount);
 
   return {
     position,
@@ -97,6 +100,7 @@ export function buildPositionChallenge(input: {
     shortLabel,
     slotCount,
     scoringDepth,
+    reserveCount,
     description: input.title,
     status: mapContestStatusToUi(input.status),
     lockLabel: input.locksAt

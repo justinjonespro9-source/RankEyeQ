@@ -97,6 +97,8 @@ describe("TE board editability with Bowers OUT before global lock", () => {
       submissionProgressMessage({
         filledCount: 10,
         slotCount: 10,
+        scoringDepth: 10,
+        reserveCount: 0,
         submissionStatus: "SUBMITTED",
         editable: true,
         partialKickoffLocks: true,
@@ -108,6 +110,8 @@ describe("TE board editability with Bowers OUT before global lock", () => {
       submissionProgressMessage({
         filledCount: 10,
         slotCount: 10,
+        scoringDepth: 10,
+        reserveCount: 0,
         submissionStatus: "SUBMITTED",
         editable: false,
         fullBoardLocked: true,

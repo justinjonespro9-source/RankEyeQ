@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import { RankingSlot } from "@/components/rank/RankingSlot";
+import { RESERVE_PROMOTION_COPY } from "@/lib/ranking-depth-copy";
 import { SCORING_PODIUM_HELPER } from "@/lib/scoring-messaging";
 import type { RankingPlayer } from "@/types/contest";
 
 const PODIUM_SLOTS = 3;
 
-const RESERVE_COPY =
-  "Reserves automatically move into your scoring board if a ranked player is officially ruled out before kickoff.";
-
 export function RankingBoard({
   slots,
   slotCount,
   scoringDepth,
+  reserveCount,
   title,
   editable,
   lockedIndexes,
@@ -23,6 +22,7 @@ export function RankingBoard({
   slots: (RankingPlayer | null)[];
   slotCount: number;
   scoringDepth: number;
+  reserveCount: number;
   title: string;
   editable: boolean;
   lockedIndexes: Set<number>;
@@ -31,6 +31,7 @@ export function RankingBoard({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const reserveStart = scoringDepth;
+  const showReserves = reserveCount > 0 && slotCount > scoringDepth;
 
   function nextUnlocked(index: number, direction: -1 | 1) {
     let target = index + direction;
@@ -103,19 +104,20 @@ export function RankingBoard({
           {title}
         </h2>
         <p className="mt-1 text-sm text-muted">
-          Drag or use move buttons to reorder. Locked players stay fixed after
-          kickoff.
+          Scoring board: ranks 1–{scoringDepth}
+          {showReserves ? `. Reserves: R1–R${reserveCount}.` : "."} Drag or use
+          move buttons to reorder. Players lock individually at kickoff.
         </p>
       </div>
 
       <div className="space-y-2 p-3 sm:p-4" data-dnd-region="ranking-slots">
         <div className="rounded-md border border-accent/25 bg-accent-soft/30 px-3 py-2.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
-            Ranked · 1–{scoringDepth}
+            Scoring board · 1–{scoringDepth}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            Scoring board. {SCORING_PODIUM_HELPER} Order within your Top 3 does
-            not affect the Podium Call bonus.
+            {SCORING_PODIUM_HELPER} Order within your Top 3 does not affect the
+            Podium Call bonus.
           </p>
         </div>
 
@@ -136,14 +138,14 @@ export function RankingBoard({
           })}
         </ol>
 
-        {slotCount > scoringDepth ? (
+        {showReserves ? (
           <div className="mt-4 space-y-2 border-t border-dashed border-border pt-4">
             <div className="rounded-md border border-border bg-surface px-3 py-2.5">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                Reserves · R1–R{slotCount - scoringDepth}
+                Reserves · R1–R{reserveCount}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                {RESERVE_COPY}
+                {RESERVE_PROMOTION_COPY}
               </p>
             </div>
             <ol className="space-y-2">

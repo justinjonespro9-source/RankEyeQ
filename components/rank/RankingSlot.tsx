@@ -164,7 +164,13 @@ export function RankingSlot({
         </>
       ) : (
         <span className="text-sm text-muted">
-          {locked ? "Locked empty slot" : "Empty slot"}
+          {locked
+            ? reserve
+              ? "Locked empty reserve"
+              : "Locked empty slot"
+            : reserve
+              ? `Empty reserve R${rank}`
+              : "Empty scoring slot"}
         </span>
       )}
     </li>

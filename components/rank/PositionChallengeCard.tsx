@@ -53,7 +53,11 @@ export function PositionChallengeCard({
       <dl className="mt-4 space-y-2 text-sm">
         <div className="flex justify-between gap-3">
           <dt className="text-muted">Players to rank</dt>
-          <dd className="font-medium text-ink">Top {challenge.slotCount}</dd>
+          <dd className="font-medium text-ink">
+            {challenge.reserveCount > 0
+              ? `Top ${challenge.scoringDepth} + ${challenge.reserveCount} reserves`
+              : `Top ${challenge.scoringDepth}`}
+          </dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-muted">Week</dt>

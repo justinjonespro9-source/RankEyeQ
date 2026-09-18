@@ -94,6 +94,7 @@ export async function getPublicWeeklyChallenges(): Promise<PublicContestCard[]> 
       ...buildPositionChallenge({
         position: contest.position,
         rankingDepth: contest.rankingDepth,
+        reserveCount: contest.reserveCount ?? 0,
         title: contest.title,
         status: contest.status,
         weekLabel: context.week.label,
@@ -211,6 +212,7 @@ export async function getPublicPositionContest(
     const challenge = buildPositionChallenge({
       position: contest.position,
       rankingDepth: contest.rankingDepth,
+      reserveCount: contest.reserveCount ?? 0,
       title: contest.title,
       status: contest.status,
       weekLabel: context.week.label,

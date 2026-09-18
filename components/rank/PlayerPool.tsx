@@ -9,6 +9,7 @@ import {
   poolHasResearch,
   type PlayerPoolSortKey,
 } from "@/lib/rank/player-pool-search";
+import { boardFullMessage } from "@/lib/ranking-depth-copy";
 import { isSelectableUiAvailability } from "@/lib/eligibility/weekly-status";
 import type { Position, RankingPlayer } from "@/types/contest";
 
@@ -23,7 +24,8 @@ export function PlayerPool({
   onAdd,
   teams = [],
   researchWindowLabel,
-  slotCount,
+  scoringDepth,
+  reserveCount = 0,
   initialSort = "name",
   toolbarClassName = "",
   listClassName = "",
@@ -39,7 +41,10 @@ export function PlayerPool({
   onAdd: (player: RankingPlayer) => void;
   teams?: string[];
   researchWindowLabel?: string;
+  /** Submission depth including reserves — required by callers; fill copy uses scoringDepth. */
   slotCount: number;
+  scoringDepth: number;
+  reserveCount?: number;
   initialSort?: PlayerPoolSortKey;
   toolbarClassName?: string;
   listClassName?: string;
@@ -291,7 +296,7 @@ export function PlayerPool({
       >
         {allFilled ? (
           <div className="border-b border-border px-4 py-3 text-sm text-warning">
-            Your Top {slotCount} is full. Remove a player to add someone else.
+            {boardFullMessage(scoringDepth, reserveCount)}
           </div>
         ) : null}
         {listSection}
@@ -328,7 +333,7 @@ export function PlayerPool({
         ) : null}
         {allFilled ? (
           <p className="mt-3 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
-            Your Top {slotCount} is full. Remove a player to add someone else.
+            {boardFullMessage(scoringDepth, reserveCount)}
           </p>
         ) : null}
       </div>

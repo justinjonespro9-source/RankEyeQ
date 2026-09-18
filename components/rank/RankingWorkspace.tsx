@@ -9,6 +9,11 @@ import { ResultsComparison } from "@/components/rank/ResultsComparison";
 import { Button } from "@/components/ui/Button";
 import type { PlayerPoolSortKey } from "@/lib/rank/player-pool-search";
 import {
+  boardDepthBadgeLabel,
+  boardFullMessage,
+  yourBoardTitle,
+} from "@/lib/ranking-depth-copy";
+import {
   saveDraftAction,
   submitRankingsAction,
 } from "@/lib/submission-actions";
@@ -41,6 +46,9 @@ export function RankingWorkspace({
   lockLabel,
   researchWindowLabel,
   gradedBreakdown,
+  consensusPublic = false,
+  consensusHref,
+  consensusUnlockLabel = null,
 }: {
   challenge: PositionChallenge;
   players: RankingPlayer[];
@@ -59,6 +67,11 @@ export function RankingWorkspace({
     predicted: RankingPlayer[];
     actualByPlayerId: Record<string, number>;
   };
+  /** True when Community EYEQ is publicly visible (fullLockAt / historical). */
+  consensusPublic?: boolean;
+  consensusHref?: string;
+  /** Formatted unlock time from Week.fullLockAt / revealStartsAt. */
+  consensusUnlockLabel?: string | null;
 }) {
   const [rankedEntryIds, setRankedEntryIds] = useState<(string | null)[]>(
     () =>
@@ -101,13 +114,10 @@ export function RankingWorkspace({
     [kickoffLockedEntryIds],
   );
 
-  // On-board players whose NFL game has started stay slot-locked even if the
-  // persisted slotLocked flag has not been refreshed yet.
   const effectiveLockedEntryIds = useMemo(() => {
     const set = new Set(lockedEntryIds);
     for (const id of rankedEntryIds) {
       if (!id) continue;
-      // Server-computed kickoffLockedEntryIds already reflects started games.
       if (kickoffLockedPoolIds.has(id)) set.add(id);
     }
     return set;
@@ -123,14 +133,19 @@ export function RankingWorkspace({
 
   const filledCount = rankedEntryIds.filter(Boolean).length;
   const allFilled = filledCount === challenge.slotCount;
-  const scoringDepth = challenge.scoringDepth ?? challenge.slotCount - 2;
-  const boardTitle = `Your ${challenge.shortLabel.toUpperCase()} Top ${scoringDepth} + reserves`;
+  const scoringDepth = challenge.scoringDepth;
+  const reserveCount = challenge.reserveCount;
+  const boardTitle = yourBoardTitle(
+    challenge.shortLabel,
+    scoringDepth,
+    reserveCount,
+  );
+  const depthLabel = boardDepthBadgeLabel(scoringDepth, reserveCount);
 
   const contestOpen =
     contestStatus === "DRAFT" ||
     contestStatus === "OPEN" ||
     contestStatus === "open" ||
-    // Premature LOCKED before Week.fullLockAt — week timing is source of truth.
     ((contestStatus === "LOCKED" || contestStatus === "locked") &&
       canEditUnlocked &&
       !fullBoardLocked);
@@ -139,7 +154,6 @@ export function RankingWorkspace({
     submissionStatus === "SUBMITTED" ||
     submissionStatus === "draft" ||
     submissionStatus === "submitted" ||
-    // Premature submission LOCKED before global lock remains editable.
     ((submissionStatus === "LOCKED" || submissionStatus === "locked") &&
       canEditUnlocked &&
       !fullBoardLocked);
@@ -149,6 +163,10 @@ export function RankingWorkspace({
   const canSubmit = editable && allFilled && !pending;
   const showGraded =
     contestStatus === "FINAL" || submissionStatus === "GRADED";
+  const submitted =
+    submissionStatus.toUpperCase() === "SUBMITTED" ||
+    submissionStatus.toUpperCase() === "LOCKED" ||
+    submissionStatus.toUpperCase() === "GRADED";
 
   function updateLocal(next: (string | null)[]) {
     setRankedEntryIds(next);
@@ -179,9 +197,7 @@ export function RankingWorkspace({
     if (!editable) return;
     if (rankedIds.has(player.id)) return;
     if (allFilled) {
-      setStatusMessage(
-        `Your Top ${challenge.slotCount} is full. Remove a player to add someone else.`,
-      );
+      setStatusMessage(boardFullMessage(scoringDepth, reserveCount));
       return;
     }
     if (kickoffLockedPoolIds.has(player.id)) {
@@ -198,21 +214,19 @@ export function RankingWorkspace({
     const emptyIndex = next.findIndex(
       (id, index) => id === null && !lockedIndexes.has(index),
     );
-    if (emptyIndex === -1) {
-      setStatusMessage(
-        `Your Top ${challenge.slotCount} is full. Remove a player to add someone else.`,
-      );
+    if (emptyIndex < 0) {
+      setStatusMessage(boardFullMessage(scoringDepth, reserveCount));
       return;
     }
     next[emptyIndex] = player.id;
-    persistDraft(next);
+    persistDraft(next, `Added ${player.name}`);
   }
 
   function removeAt(index: number) {
     if (!editable || lockedIndexes.has(index)) return;
     const next = [...rankedEntryIds];
     next[index] = null;
-    persistDraft(next);
+    persistDraft(next, "Player removed");
   }
 
   function reorder(fromIndex: number, toIndex: number) {
@@ -223,7 +237,7 @@ export function RankingWorkspace({
       toIndex,
       lockedIndexes,
     );
-    persistDraft(next);
+    persistDraft(next, "Order updated");
   }
 
   function handleSaveDraft() {
@@ -232,7 +246,7 @@ export function RankingWorkspace({
   }
 
   function handleConfirmSubmit() {
-    if (!canSubmit || !contestId) return;
+    if (!contestId || !canSubmit) return;
     startTransition(async () => {
       const result = await submitRankingsAction({
         contestId,
@@ -261,26 +275,88 @@ export function RankingWorkspace({
     );
   }
 
+  const consensusPanel =
+    consensusHref != null ? (
+      <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm text-muted">
+        {consensusPublic ? (
+          <>
+            <p className="font-medium text-ink">Consensus is public</p>
+            <p className="mt-1">
+              Compare your {depthLabel} board with pregame predictions from
+              Humans, Creators, Experts/Publishers, AI, and group-weighted All.
+              Individual competitor boards still follow their own reveal rules.
+            </p>
+            <div className="mt-3">
+              <Button href={consensusHref} variant="secondary" size="sm">
+                Compare With Consensus
+              </Button>
+            </div>
+          </>
+        ) : submitted ? (
+          <>
+            <p className="font-medium text-ink">
+              Board submitted
+              {fullBoardLocked ? " · rankings locked" : ""}
+            </p>
+            <p className="mt-1">
+              Crowd Consensus stays hidden until{" "}
+              {consensusUnlockLabel ?? "Sunday lock"}. Kickoff-locked players
+              cannot be edited; unlocked slots stay editable until that lock.
+              Make your call before you see where Humans, Experts, and AI land.
+            </p>
+            <div className="mt-3">
+              <Button href={consensusHref} variant="secondary" size="sm">
+                Consensus timing
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="font-medium text-ink">Consensus still hidden</p>
+            <p className="mt-1">
+              Community EYEQ unlocks at{" "}
+              {consensusUnlockLabel ?? "the configured Sunday lock"}. Submit your
+              own board first — make your prediction before seeing where Humans,
+              Experts, and AI land. Individual boards keep their existing reveal
+              rules.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button href="#my-rankings-heading" size="sm">
+                Build Your Rankings
+              </Button>
+              <Button href={consensusHref} variant="secondary" size="sm">
+                Consensus timing
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    ) : null;
+
   const rankingPanel = (
     <div className="space-y-4">
+      {consensusPanel}
+
       {!editable && participation === "ready" ? (
         <div className="rounded-md border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning">
           {fullBoardLocked
-            ? `Rankings Locked${lockLabel ? ` · ${lockLabel}` : ""}. Only submitted weekly boards compete; unsubmitted in-progress saves do not.`
+            ? `Rankings Locked${lockLabel ? ` · ${lockLabel}` : ""}. Only submitted weekly boards compete; unsubmitted in-progress saves do not. Kickoff-locked players stay fixed.`
             : "Rankings Locked — contest or submission state prevents edits. Only submitted weekly boards compete."}
         </div>
       ) : editable ? (
         <div className="rounded-md border border-border bg-surface px-4 py-3 text-sm text-muted">
           <p className="font-medium text-ink">Board Open</p>
           <p className="mt-1">
-            Editable until Sunday 10:00 AM CT
-            {lockLabel ? ` (${lockLabel})` : ""}. Players lock individually at
-            their NFL kickoff; locked slots stay fixed.
+            Players lock individually at their NFL kickoff. Remaining unlocked
+            slots close at the Sunday lock
+            {lockLabel ? ` (${lockLabel})` : " (10:00 AM CT)"}. Required
+            submission: {depthLabel}.
           </p>
           {lockedIndexes.size > 0 ? (
             <p className="mt-2 text-warning">
               Some selections are locked because their games have started (
-              {lockedIndexes.size} locked). Unlocked slots remain editable.
+              {lockedIndexes.size} locked). Unlocked slots remain editable —
+              locked players cannot be moved.
             </p>
           ) : null}
         </div>
@@ -290,6 +366,7 @@ export function RankingWorkspace({
         slots={slots}
         slotCount={challenge.slotCount}
         scoringDepth={scoringDepth}
+        reserveCount={reserveCount}
         title={boardTitle}
         editable={editable && !pending}
         lockedIndexes={lockedIndexes}
@@ -353,13 +430,14 @@ export function RankingWorkspace({
   );
 
   const mobileActionBar = (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface-elevated/95 px-4 pt-3 shadow-[0_-8px_24px_rgba(10,28,45,0.08)] backdrop-blur lg:hidden"
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface-elevated/95 px-4 pt-3 shadow-[0_-8px_24px_rgba(10,28,45,0.08)] backdrop-blur lg:hidden"
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-2">
         <p className="text-center text-xs text-muted">
-          {filledCount} / {challenge.slotCount} filled
-          {submissionStatus === "SUBMITTED" ? " · Submitted" : ""}
+          {filledCount} / {challenge.slotCount} names · {depthLabel}
+          {submitted ? " · Submitted" : ""}
         </p>
         <div className="flex gap-2">
           {participation === "signed-out" ? (
@@ -399,6 +477,22 @@ export function RankingWorkspace({
     </div>
   );
 
+  const poolProps = {
+    players,
+    rankedIds,
+    disabled: !editable || pending,
+    allFilled,
+    kickoffLockedIds: kickoffLockedPoolIds,
+    onAdd: addPlayer,
+    teams: [...new Set(players.map((player) => player.team))].sort(),
+    researchWindowLabel,
+    slotCount: challenge.slotCount,
+    scoringDepth,
+    reserveCount,
+    filterState: poolFilters,
+    onFilterStateChange: setPoolFilters,
+  };
+
   return (
     <div className="space-y-6">
       {participation === "signed-out" ? (
@@ -429,7 +523,7 @@ export function RankingWorkspace({
         <ResultsComparison
           predicted={gradedBreakdown.predicted}
           pool={players}
-          slotCount={challenge.slotCount}
+          scoringDepth={scoringDepth}
           actualFinishes={gradedBreakdown.actualByPlayerId}
         />
       ) : null}
@@ -440,39 +534,16 @@ export function RankingWorkspace({
         aria-live="polite"
       >
         <p className="text-xs font-medium text-ink sm:text-sm">
-          {filledCount} / {challenge.slotCount} selected · {boardTitle}
+          {filledCount} / {challenge.slotCount} names · {boardTitle}
         </p>
       </div>
 
       <div className="space-y-4 pb-28 lg:hidden">
-        <PlayerPool
-          players={players}
-          rankedIds={rankedIds}
-          disabled={!editable || pending}
-          allFilled={allFilled}
-          kickoffLockedIds={kickoffLockedPoolIds}
-          onAdd={addPlayer}
-          teams={[...new Set(players.map((player) => player.team))].sort()}
-          researchWindowLabel={researchWindowLabel}
-          slotCount={challenge.slotCount}
-          mode="toolbar"
-          filterState={poolFilters}
-          onFilterStateChange={setPoolFilters}
-        />
+        <PlayerPool {...poolProps} mode="toolbar" />
         {rankingPanel}
         <PlayerPool
-          players={players}
-          rankedIds={rankedIds}
-          disabled={!editable || pending}
-          allFilled={allFilled}
-          kickoffLockedIds={kickoffLockedPoolIds}
-          onAdd={addPlayer}
-          teams={[...new Set(players.map((player) => player.team))].sort()}
-          researchWindowLabel={researchWindowLabel}
-          slotCount={challenge.slotCount}
+          {...poolProps}
           mode="list"
-          filterState={poolFilters}
-          onFilterStateChange={setPoolFilters}
           listClassName="max-h-[min(28rem,55vh)]"
         />
       </div>
@@ -481,21 +552,8 @@ export function RankingWorkspace({
 
       <div className="hidden gap-6 overflow-x-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-start">
         <div className="min-h-0">
-          <PlayerPool
-            players={players}
-            rankedIds={rankedIds}
-            disabled={!editable || pending}
-            allFilled={allFilled}
-            kickoffLockedIds={kickoffLockedPoolIds}
-            onAdd={addPlayer}
-            teams={[...new Set(players.map((player) => player.team))].sort()}
-            researchWindowLabel={researchWindowLabel}
-            slotCount={challenge.slotCount}
-            filterState={poolFilters}
-            onFilterStateChange={setPoolFilters}
-          />
+          <PlayerPool {...poolProps} />
         </div>
-
         <div>{rankingPanel}</div>
       </div>
 
@@ -515,8 +573,10 @@ export function RankingWorkspace({
             </h3>
             <p className="mt-2 text-sm text-muted">
               Only explicitly submitted rankings compete when the contest locks.
-              Kickoff-locked players stay in place. You can still edit unlocked
-              slots until Sunday 10:00 AM CT.
+              Required board: {depthLabel} ({challenge.slotCount} submitted
+              names). Kickoff-locked players stay in place. You can still edit
+              unlocked slots until the Sunday lock
+              {lockLabel ? ` (${lockLabel})` : ""}.
             </p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button

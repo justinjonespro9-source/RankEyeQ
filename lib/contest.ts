@@ -18,40 +18,50 @@ export const POSITION_CONFIGS: ContestPositionConfig[] = [
     label: "Quarterback",
     shortLabel: "QB",
     scoringDepth: 10,
+    reserveCount: 2,
     slotCount: 12,
-    description: "Rank the Top 10 quarterbacks (plus 2 reserves) on this week's NFL slate before kickoff.",
+    description:
+      "Rank the Top 10 quarterbacks + 2 reserves on this week's NFL slate before kickoff.",
   },
   {
     position: "rb",
     label: "Running Back",
     shortLabel: "RB",
     scoringDepth: 10,
+    reserveCount: 2,
     slotCount: 12,
-    description: "Rank the Top 10 running backs (plus 2 reserves) on this week's NFL slate before kickoff.",
+    description:
+      "Rank the Top 10 running backs + 2 reserves on this week's NFL slate before kickoff.",
   },
   {
     position: "wr",
     label: "Wide Receiver",
     shortLabel: "WR",
     scoringDepth: 15,
+    reserveCount: 2,
     slotCount: 17,
-    description: "Rank the Top 15 wide receivers (plus 2 reserves) on this week's NFL slate before kickoff.",
+    description:
+      "Rank the Top 15 wide receivers + 2 reserves on this week's NFL slate before kickoff.",
   },
   {
     position: "te",
     label: "Tight End",
     shortLabel: "TE",
     scoringDepth: 10,
+    reserveCount: 2,
     slotCount: 12,
-    description: "Rank the Top 10 tight ends (plus 2 reserves) on this week's NFL slate before kickoff.",
+    description:
+      "Rank the Top 10 tight ends + 2 reserves on this week's NFL slate before kickoff.",
   },
   {
     position: "def",
     label: "Defense",
     shortLabel: "DEF",
     scoringDepth: 10,
+    reserveCount: 2,
     slotCount: 12,
-    description: "Rank the Top 10 defenses (plus 2 reserves) on this week's NFL slate before kickoff.",
+    description:
+      "Rank the Top 10 defenses + 2 reserves on this week's NFL slate before kickoff.",
   },
 ];
 
