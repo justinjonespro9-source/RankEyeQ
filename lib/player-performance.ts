@@ -1,6 +1,13 @@
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import {
+  avgRankedPositionFromSums,
+  rankedPctFromSums,
+  topNThresholdForPosition,
+} from "@/lib/player-performance-ranked";
 
 export type PlayerQualificationFilter = "ALL" | "MIN_4" | "MIN_8";
+
+export type PlayerPerformanceScope = "season" | "hot" | "week";
 
 export type PlayerPerformanceSortKey =
   | "averageFinish"
@@ -12,7 +19,18 @@ export type PlayerPerformanceSortKey =
   | "numberOneFinishes"
   | "bestFinish"
   | "worstFinish"
+  | "rankedPct"
+  | "avgRankedPosition"
   | "name";
+
+export type WeekPerformanceSortKey =
+  | "name"
+  | "actualRank"
+  | "fantasyPoints"
+  | "rankedPct"
+  | "avgRankedPosition"
+  | "consensusRank"
+  | "consensusSelectedPct";
 
 export type PlayerWeeklyAppearance = {
   weekId: string;
@@ -45,6 +63,12 @@ export type PlayerPerformanceSourceRow = {
   wasActive: boolean;
   contestFinal: boolean;
   consensusRank: number | null;
+  /** Scoring-board selections for this contest (eligible official ballots). */
+  scoringBoardSelections?: number;
+  /** Eligible official ballot count for this contest. */
+  eligibleBallotCount?: number;
+  /** Sum of scoring-board predicted ranks for this contest. */
+  scoringRankSum?: number;
 };
 
 export type PlayerPerformanceRow = {
@@ -59,24 +83,64 @@ export type PlayerPerformanceRow = {
   medianFinish: number | null;
   top3Finishes: number;
   top5Finishes: number;
+  /**
+   * Position-aware Top-N finishes (WR Top 15, QB/RB/TE/DEF Top 10).
+   * Column label should use topNThreshold / topNLabelForPosition.
+   */
   top10Finishes: number;
+  topNThreshold: number;
   numberOneFinishes: number;
   bestFinish: number | null;
   worstFinish: number | null;
   /** Reserved for future consensus-vs-actual analytics. */
   averageConsensusRank: number | null;
   averageVsConsensus: number | null;
+  /** Scoring-board Ranked % (summed selections / summed eligible ballots). */
+  rankedPct: number | null;
+  /** Avg scoring position among scoring-board selections only. */
+  avgRankedPosition: number | null;
+  scoringBoardSelections: number;
+  eligibleBallotCount: number;
   appearances: PlayerWeeklyAppearance[];
 };
+
+/** Single-week leaderboard row (~Top 40 actual finishers). */
+export type WeekPerformanceRow = {
+  rankableEntryId: string;
+  externalId: string | null;
+  name: string;
+  team: string;
+  position: ContestPosition;
+  actualRank: number;
+  fantasyPoints: number | null;
+  rankedPct: number | null;
+  avgRankedPosition: number | null;
+  consensusRank: number | null;
+  /** Snapshot any-slot Selected % — distinct from Ranked %. */
+  consensusSelectedPct: number | null;
+  scoringBoardSelections: number;
+  eligibleBallotCount: number;
+};
+
+export const WEEK_LEADERBOARD_LIMIT = 40;
+
+export const OFFICIAL_PLAYER_PERFORMANCE_STATUSES = [
+  "FINAL",
+  "ARCHIVED",
+] as const;
+
+export function isOfficialPlayerPerformanceStatus(status: string): boolean {
+  return status === "FINAL" || status === "ARCHIVED";
+}
 
 function median(values: number[]) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 0) {
-    return (sorted[mid - 1] + sorted[mid]) / 2;
+    return (sorted[mid - 1]! + sorted[mid]!) / 2;
   }
-  return sorted[mid];
+  return sorted[mid]!;
 }
 
 function meetsQualification(
@@ -88,6 +152,11 @@ function meetsQualification(
   return true;
 }
 
+/**
+ * Aggregate season / Who's Hot rows.
+ * Only contestFinal=true source rows contribute to official finishes
+ * (callers must already exclude OPEN/LOCKED/GRADING).
+ */
 export function aggregatePlayerPerformance(
   rows: PlayerPerformanceSourceRow[],
   options: {
@@ -115,16 +184,22 @@ export function aggregatePlayerPerformance(
   const aggregated: PlayerPerformanceRow[] = [];
 
   for (const [rankableEntryId, playerRows] of byPlayer) {
-    const sample = playerRows[0];
+    const sample = playerRows[0]!;
     const weeksEligible = playerRows.filter((row) => row.wasActive).length;
     const recorded = playerRows.filter(
-      (row) => row.wasActive && row.actualRank != null && row.actualRank > 0,
+      (row) =>
+        row.wasActive &&
+        row.contestFinal &&
+        row.actualRank != null &&
+        row.actualRank > 0,
     );
     const finishes = recorded.map((row) => row.actualRank as number);
     const weeksRecorded = finishes.length;
 
     if (!meetsQualification(weeksRecorded, qualification)) continue;
+    if (weeksRecorded === 0) continue;
 
+    const topNThreshold = topNThresholdForPosition(sample.position);
     const consensusPairs = recorded.filter((row) => row.consensusRank != null);
     const averageVsConsensus =
       consensusPairs.length === 0
@@ -135,6 +210,19 @@ export function aggregatePlayerPerformance(
             0,
           ) / consensusPairs.length;
 
+    const scoringBoardSelections = playerRows.reduce(
+      (sum, row) => sum + (row.scoringBoardSelections ?? 0),
+      0,
+    );
+    const eligibleBallotCount = playerRows.reduce(
+      (sum, row) => sum + (row.eligibleBallotCount ?? 0),
+      0,
+    );
+    const scoringRankSum = playerRows.reduce(
+      (sum, row) => sum + (row.scoringRankSum ?? 0),
+      0,
+    );
+
     aggregated.push({
       rankableEntryId,
       externalId: sample.externalId ?? null,
@@ -144,16 +232,15 @@ export function aggregatePlayerPerformance(
       weeksEligible,
       weeksRecorded,
       averageFinish:
-        weeksRecorded === 0
-          ? null
-          : finishes.reduce((sum, value) => sum + value, 0) / weeksRecorded,
+        finishes.reduce((sum, value) => sum + value, 0) / weeksRecorded,
       medianFinish: median(finishes),
       top3Finishes: finishes.filter((value) => value <= 3).length,
       top5Finishes: finishes.filter((value) => value <= 5).length,
-      top10Finishes: finishes.filter((value) => value <= 10).length,
+      top10Finishes: finishes.filter((value) => value <= topNThreshold).length,
+      topNThreshold,
       numberOneFinishes: finishes.filter((value) => value === 1).length,
-      bestFinish: weeksRecorded === 0 ? null : Math.min(...finishes),
-      worstFinish: weeksRecorded === 0 ? null : Math.max(...finishes),
+      bestFinish: Math.min(...finishes),
+      worstFinish: Math.max(...finishes),
       averageConsensusRank:
         consensusPairs.length === 0
           ? null
@@ -162,6 +249,13 @@ export function aggregatePlayerPerformance(
               0,
             ) / consensusPairs.length,
       averageVsConsensus,
+      rankedPct: rankedPctFromSums(scoringBoardSelections, eligibleBallotCount),
+      avgRankedPosition: avgRankedPositionFromSums(
+        scoringRankSum,
+        scoringBoardSelections,
+      ),
+      scoringBoardSelections,
+      eligibleBallotCount,
       appearances: recorded.map((row) => ({
         weekId: row.weekId,
         weekLabel: row.weekLabel,
@@ -200,6 +294,10 @@ export function aggregatePlayerPerformance(
           return row.bestFinish ?? Number.POSITIVE_INFINITY;
         case "worstFinish":
           return row.worstFinish ?? Number.NEGATIVE_INFINITY;
+        case "rankedPct":
+          return row.rankedPct ?? (sortDirection === "asc" ? Number.POSITIVE_INFINITY : -1);
+        case "avgRankedPosition":
+          return row.avgRankedPosition ?? Number.POSITIVE_INFINITY;
         case "averageFinish":
         default:
           return row.averageFinish ?? Number.POSITIVE_INFINITY;
@@ -210,14 +308,68 @@ export function aggregatePlayerPerformance(
     const right = value(b, sortKey);
 
     if (typeof left === "string" && typeof right === "string") {
-      return left.localeCompare(right) * direction;
+      const nameCmp = left.localeCompare(right) * direction;
+      if (nameCmp !== 0) return nameCmp;
+    } else if (left !== right) {
+      return ((left as number) - (right as number)) * direction;
     }
 
-    if (left === right) return a.name.localeCompare(b.name);
-    return ((left as number) - (right as number)) * direction;
+    // Deterministic tie-breakers (Who's Hot default emphasis):
+    // average finish → best finish → appearances → name
+    const avg =
+      (a.averageFinish ?? Number.POSITIVE_INFINITY) -
+      (b.averageFinish ?? Number.POSITIVE_INFINITY);
+    if (avg !== 0) return avg;
+    const best =
+      (a.bestFinish ?? Number.POSITIVE_INFINITY) -
+      (b.bestFinish ?? Number.POSITIVE_INFINITY);
+    if (best !== 0) return best;
+    const apps = b.weeksRecorded - a.weeksRecorded;
+    if (apps !== 0) return apps;
+    return a.name.localeCompare(b.name);
   });
 
   return aggregated;
+}
+
+export function sortWeekPerformanceRows(
+  rows: WeekPerformanceRow[],
+  sort: WeekPerformanceSortKey,
+  sortDirection: "asc" | "desc",
+): WeekPerformanceRow[] {
+  const direction = sortDirection === "asc" ? 1 : -1;
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    function value(row: WeekPerformanceRow, key: WeekPerformanceSortKey) {
+      switch (key) {
+        case "name":
+          return row.name;
+        case "fantasyPoints":
+          return row.fantasyPoints ?? (sortDirection === "asc" ? Number.POSITIVE_INFINITY : -1);
+        case "rankedPct":
+          return row.rankedPct ?? (sortDirection === "asc" ? Number.POSITIVE_INFINITY : -1);
+        case "avgRankedPosition":
+          return row.avgRankedPosition ?? Number.POSITIVE_INFINITY;
+        case "consensusRank":
+          return row.consensusRank ?? Number.POSITIVE_INFINITY;
+        case "consensusSelectedPct":
+          return row.consensusSelectedPct ?? (sortDirection === "asc" ? Number.POSITIVE_INFINITY : -1);
+        case "actualRank":
+        default:
+          return row.actualRank;
+      }
+    }
+    const left = value(a, sort);
+    const right = value(b, sort);
+    if (typeof left === "string" && typeof right === "string") {
+      const nameCmp = left.localeCompare(right) * direction;
+      if (nameCmp !== 0) return nameCmp;
+    } else if (left !== right) {
+      return ((left as number) - (right as number)) * direction;
+    }
+    return a.actualRank - b.actualRank || a.name.localeCompare(b.name);
+  });
+  return copy;
 }
 
 export function mapContestEntriesToPerformanceSource(rows: {
@@ -236,6 +388,9 @@ export function mapContestEntriesToPerformanceSource(rows: {
   excluded: boolean;
   contestStatus: string;
   consensusRank?: number | null;
+  scoringBoardSelections?: number;
+  eligibleBallotCount?: number;
+  scoringRankSum?: number;
 }[]): PlayerPerformanceSourceRow[] {
   return rows.map((row) => ({
     rankableEntryId: row.rankableEntryId,
@@ -251,7 +406,52 @@ export function mapContestEntriesToPerformanceSource(rows: {
     actualRank: row.actualRank,
     fantasyPoints: row.fantasyPoints,
     wasActive: !row.excluded,
-    contestFinal: row.contestStatus === "FINAL" || row.contestStatus === "ARCHIVED",
+    contestFinal: isOfficialPlayerPerformanceStatus(row.contestStatus),
     consensusRank: row.consensusRank ?? null,
+    scoringBoardSelections: row.scoringBoardSelections,
+    eligibleBallotCount: row.eligibleBallotCount,
+    scoringRankSum: row.scoringRankSum,
   }));
+}
+
+/**
+ * Completed NFL weeks = weeks that have at least one FINAL/ARCHIVED contest.
+ * Never includes the current unfinished week (no FINAL contest yet).
+ * Returns up to `limit` most recent week numbers ascending.
+ */
+export function lastCompletedFinalizedWeekNumbers(
+  finalizedWeekNumbers: number[],
+  limit = 3,
+): number[] {
+  const unique = [...new Set(finalizedWeekNumbers.filter((n) => n > 0))].sort(
+    (a, b) => a - b,
+  );
+  if (unique.length <= limit) return unique;
+  return unique.slice(unique.length - limit);
+}
+
+export function parsePlayerPerformanceScope(
+  raw: string | null | undefined,
+): PlayerPerformanceScope {
+  if (raw === "hot") return "hot";
+  if (raw === "week") return "week";
+  return "season";
+}
+
+/**
+ * Season alone honors All / 4+ / 8+ appearance filters.
+ * Who's Hot and Week always treat qualification as ALL (ignore stale URL params).
+ */
+export function qualificationForPlayerPerformanceScope(
+  scope: PlayerPerformanceScope,
+  qualification: PlayerQualificationFilter | null | undefined,
+): PlayerQualificationFilter {
+  if (scope !== "season") return "ALL";
+  return qualification ?? "ALL";
+}
+
+export function shouldShowPlayerPerformanceQualificationControls(
+  scope: PlayerPerformanceScope,
+): boolean {
+  return scope === "season";
 }

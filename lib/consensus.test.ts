@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { filterEligibleConsensusSubmissions } from "@/lib/consensus-filters";
+import {
+  filterEligibleConsensusSubmissions,
+  filterEligibleOfficialRankerSubmissions,
+} from "@/lib/consensus-filters";
 import { buildConsensusEntries } from "@/lib/consensus-math";
 import { assignCompetitionRanksAscending } from "@/lib/fantasy/competition-rank";
 import { ctaForContestState } from "@/lib/homepage-cta";
+import { EXPERT_SOURCE_KIND } from "@/lib/expert-identity";
 
 function ranks(count: number, rankValue: number) {
   return Array.from({ length: count }, () => rankValue);
@@ -477,6 +481,29 @@ describe("filterEligibleConsensusSubmissions", () => {
     expect(
       filterEligibleConsensusSubmissions(ballots, "CREATOR").map((row) => row.id),
     ).toEqual(["c"]);
+  });
+
+  it("keeps ballot_union ALL as Human+AI while official-ranker union includes Creator/Expert", () => {
+    const withPublisher = [
+      ...ballots,
+      {
+        id: "pub",
+        status: "LOCKED" as const,
+        profileType: "BENCHMARK" as const,
+        sourceKind: EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS,
+        picks: [{ id: "1" }],
+      },
+    ];
+    expect(
+      filterEligibleConsensusSubmissions(withPublisher, "ALL")
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(["a", "g", "h"]);
+    expect(
+      filterEligibleOfficialRankerSubmissions(withPublisher)
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(["a", "b", "c", "g", "h", "pub"]);
   });
 });
 
