@@ -93,4 +93,22 @@ describe("SNG roster export", () => {
       ],
     })).toThrow("Ambiguous canonical player identities");
   });
+
+  it("decodes numeric HTML entities before crossing the export boundary", () => {
+    const result = buildSngRosterExport({
+      seasonId: "season-2026",
+      seasonYear: 2026,
+      sourceSyncedAt: null,
+      exportedAt: new Date("2026-09-19T00:00:00Z"),
+      players: [player({
+        displayName: "Audric Estim&#xE9;",
+        rankableEntry: {
+          ...player().rankableEntry,
+          externalId: "audric-estime",
+          name: "Audric Estim&#xE9;",
+        },
+      })],
+    });
+    expect(result.rows[0]?.canonicalName).toBe("Audric Estimé");
+  });
 });

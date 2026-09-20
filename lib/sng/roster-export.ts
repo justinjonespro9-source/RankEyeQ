@@ -1,4 +1,5 @@
 import { parsePlayerAliases } from "@/lib/nfl/player-aliases";
+import { decodeHtmlText } from "@/lib/providers/nfl/nflcom/parse-roster";
 
 export const SNG_ROSTER_EXPORT_VERSION = "sng-sports-roster-v1";
 
@@ -69,7 +70,7 @@ export function buildSngRosterExport(input: {
     .map((player) => ({
       provider: player.rankableEntry.provider,
       externalId: player.rankableEntry.externalId,
-      canonicalName: player.rankableEntry.name || player.displayName,
+      canonicalName: decodeHtmlText(player.rankableEntry.name || player.displayName),
       aliases: parsePlayerAliases(player.rankableEntry.adminNotes),
       teamAbbreviation: player.team,
       fantasyPosition: player.position as "QB" | "RB" | "WR" | "TE",
