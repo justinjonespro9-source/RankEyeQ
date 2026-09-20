@@ -30,6 +30,22 @@ const supportedStatuses = new Set([
   "FREE_AGENT",
 ]);
 
+// Integration tests historically used the shared database and created these
+// explicit fixture identity shapes. They must never cross the SNG export
+// boundary as trusted NFL roster data. Fail closed rather than silently
+// dropping them so source cleanup remains visible and auditable.
+const testFixtureExternalIdPatterns = [
+  /^test-player-trade$/,
+  /^dup-test-pool\d+$/,
+  /^rb-canonical-pool-integrity-\d+$/,
+  /^mover-player-trade\d+$/,
+  /^(?:wr-trade|wr-legacy|wr-weekteam|wr-filter|shared-id|rb-sync)-roster-team-\d+(?:-dup)?$/,
+];
+
+function isKnownTestFixtureExternalId(value: string) {
+  return testFixtureExternalIdPatterns.some((pattern) => pattern.test(value));
+}
+
 function mapStatus(value: string) {
   const normalized = value.trim().toUpperCase();
   if (normalized === "IR") return "INJURED_RESERVE";
@@ -72,6 +88,35 @@ export function buildSngRosterExport(input: {
   const duplicateExternalKeys = [...new Set(externalKeys.filter((key, index) => externalKeys.indexOf(key) !== index))];
   if (duplicateExternalKeys.length > 0) {
     throw new Error(`Duplicate provider identities in export: ${duplicateExternalKeys.join(", ")}`);
+  }
+
+  const fixtureIdentities = rows
+    .filter((row) => isKnownTestFixtureExternalId(row.externalId))
+    .map((row) => `${row.provider}:${row.externalId}`);
+  if (fixtureIdentities.length > 0) {
+    throw new Error(
+      `Known integration-test identities found in canonical season roster: ${fixtureIdentities.join(", ")}`,
+    );
+  }
+
+  const compositeKeys = rows.map((row) =>
+    [
+      row.canonicalName.trim().toLocaleLowerCase("en-US"),
+      row.teamAbbreviation.trim().toUpperCase(),
+      row.fantasyPosition,
+    ].join("|"),
+  );
+  const duplicateCompositeKeys = [
+    ...new Set(
+      compositeKeys.filter(
+        (key, index) => compositeKeys.indexOf(key) !== index,
+      ),
+    ),
+  ];
+  if (duplicateCompositeKeys.length > 0) {
+    throw new Error(
+      `Ambiguous canonical player identities in export: ${duplicateCompositeKeys.join(", ")}`,
+    );
   }
 
   return {

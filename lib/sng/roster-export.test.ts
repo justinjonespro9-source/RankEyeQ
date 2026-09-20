@@ -59,4 +59,38 @@ describe("SNG roster export", () => {
       players: [player(), player({ team: "PHI" })],
     })).toThrow("Duplicate provider identities");
   });
+
+  it("fails closed when a known integration-test identity reaches the canonical roster", () => {
+    expect(() => buildSngRosterExport({
+      seasonId: "season-2026",
+      seasonYear: 2026,
+      sourceSyncedAt: null,
+      exportedAt: new Date("2026-09-19T00:00:00Z"),
+      players: [player({
+        rankableEntry: {
+          ...player().rankableEntry,
+          externalId: "wr-filter-roster-team-123456789",
+          name: "Filter WR",
+        },
+      })],
+    })).toThrow("Known integration-test identities");
+  });
+
+  it("rejects ambiguous canonical name/team/position composites", () => {
+    expect(() => buildSngRosterExport({
+      seasonId: "season-2026",
+      seasonYear: 2026,
+      sourceSyncedAt: null,
+      exportedAt: new Date("2026-09-19T00:00:00Z"),
+      players: [
+        player(),
+        player({
+          rankableEntry: {
+            ...player().rankableEntry,
+            externalId: "aaron-jones-second-source-row",
+          },
+        }),
+      ],
+    })).toThrow("Ambiguous canonical player identities");
+  });
 });
