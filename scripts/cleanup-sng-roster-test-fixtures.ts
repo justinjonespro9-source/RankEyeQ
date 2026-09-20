@@ -51,23 +51,42 @@ async function main() {
     return;
   }
 
-  const unsafe = entries.filter((entry) =>
-    entry._count.picks > 0 ||
-    entry._count.benchmarkSnapshotPicks > 0 ||
-    entry._count.pregameSnapshotEntries > 0 ||
-    entry._count.playerWeekStats > 0 ||
-    entry._count.defenseWeekStats > 0 ||
-    entry._count.weekAvailabilities > 0 ||
-    entry._count.contestEntries > 0,
+  const protectedReferences = entries.filter((entry) =>
+    entry._count.picks > 0 || entry._count.pregameSnapshotEntries > 0,
   );
   const non2026Memberships = entries.flatMap((entry) =>
     entry.seasonPlayers.filter((membership) =>
       membership.season.year !== 2026 || membership.season.sport !== "NFL",
     ).map(() => entry.externalId),
   );
-  if (unsafe.length > 0 || non2026Memberships.length > 0) {
+  const referenceTotals = entries.reduce((totals, entry) => ({
+    contestEntries: totals.contestEntries + entry._count.contestEntries,
+    rankingPicks: totals.rankingPicks + entry._count.picks,
+    benchmarkSnapshotPicks: totals.benchmarkSnapshotPicks + entry._count.benchmarkSnapshotPicks,
+    pregameSnapshotEntries: totals.pregameSnapshotEntries + entry._count.pregameSnapshotEntries,
+    playerWeekStats: totals.playerWeekStats + entry._count.playerWeekStats,
+    defenseWeekStats: totals.defenseWeekStats + entry._count.defenseWeekStats,
+    weekAvailabilities: totals.weekAvailabilities + entry._count.weekAvailabilities,
+  }), {
+    contestEntries: 0,
+    rankingPicks: 0,
+    benchmarkSnapshotPicks: 0,
+    pregameSnapshotEntries: 0,
+    playerWeekStats: 0,
+    defenseWeekStats: 0,
+    weekAvailabilities: 0,
+  });
+  if (protectedReferences.length > 0 || non2026Memberships.length > 0) {
+    console.error(JSON.stringify({
+      protectedFixtureIdentities: protectedReferences.map((entry) => ({
+        externalId: entry.externalId,
+        rankingPicks: entry._count.picks,
+        pregameSnapshotEntries: entry._count.pregameSnapshotEntries,
+      })),
+      referenceTotals,
+    }, null, 2));
     throw new Error(
-      `STOP: fixture candidates have unexpected references (unsafe=${unsafe.length}, non2026Memberships=${non2026Memberships.length})`,
+      `STOP: fixture candidates have protected references (protected=${protectedReferences.length}, non2026Memberships=${non2026Memberships.length})`,
     );
   }
 
@@ -78,8 +97,9 @@ async function main() {
     ...target,
     fixtureIdentities: ids.length,
     seasonMemberships: memberships,
-    unsafeHistoricalReferences: unsafe.length,
+    protectedHistoricalReferences: protectedReferences.length,
     non2026Memberships: non2026Memberships.length,
+    referenceTotals,
     sampleExternalIds: entries.slice(0, 10).map((entry) => entry.externalId),
   }, null, 2));
 
