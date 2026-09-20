@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset",
-    "sng:export-roster": "prisma generate && tsx scripts/export-sng-2026-roster.ts"
+    "sng:export-roster": "prisma generate && tsx scripts/export-sng-2026-roster.ts",
+    "sng:cleanup-local-roster-fixtures": "prisma generate && tsx scripts/cleanup-sng-roster-test-fixtures.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
