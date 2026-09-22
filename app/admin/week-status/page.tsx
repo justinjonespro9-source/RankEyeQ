@@ -10,6 +10,8 @@ import {
   bulkMarkAvailableAction,
   bulkMarkOutAction,
   clearWeekManualOverrideAction,
+  postKickoffFactualCorrectionAction,
+  regradeContestsAfterFactualCorrectionAction,
   setWeekPlayerStatusAction,
   syncNflInjuryStatusAction,
   syncWeekStatusFromProviderAction,
@@ -19,10 +21,12 @@ import {
   loadWeekStatusBoard,
   WEEKLY_DESIGNATION_VALUES,
 } from "@/lib/admin/week-status";
+import { POST_KICKOFF_CORRECTION_DESIGNATIONS } from "@/lib/eligibility/post-kickoff-factual-correction";
 import { getLastInjurySyncAt } from "@/lib/nfl/injury-sync";
 import { prisma } from "@/lib/db";
 import { formatInChicago } from "@/lib/timing/chicago";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
 export const metadata: Metadata = {
   title: "Week status · Admin",
@@ -64,6 +68,17 @@ export default async function AdminWeekStatusPage({
     syncError?: string;
     rosterSynced?: string;
     rosterUpdated?: string;
+    designationSaved?: string;
+    designation?: string;
+    correctionOk?: string;
+    correctionError?: string;
+    correctionRequiresRegrade?: string;
+    correctionFreezePicks?: string;
+    correctionContests?: string;
+    correctionAuditId?: string;
+    correctionMsg?: string;
+    regradeOk?: string;
+    regraded?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -121,6 +136,11 @@ export default async function AdminWeekStatusPage({
         [])
       : [];
 
+  const now = new Date();
+  const kickedOffRows = rows.filter(
+    (row) => row.kickoffAt != null && kickoffHasPassed(row.kickoffAt, now),
+  );
+
   function href(next: {
     weekId?: string;
     position?: string;
@@ -145,6 +165,104 @@ export default async function AdminWeekStatusPage({
         title="Week player status"
         description="Roster status (SeasonPlayer) is separate from weekly game availability (PlayerWeekAvailability). Roster ACTIVE does not mean AVAILABLE for the week — a player can remain on the 53-man roster and still be OUT. Manual overrides are never overwritten by injury sync until cleared."
       />
+
+      {params.designationSaved === "1" ? (
+        <div
+          className={`mb-4 rounded-md border px-3 py-3 text-sm ${
+            Number(params.skippedKickoff ?? "0") > 0 &&
+            Number(params.updated ?? "0") === 0
+              ? "border-danger/30 bg-danger-soft text-danger"
+              : Number(params.skippedKickoff ?? "0") > 0
+                ? "border-warning/40 bg-warning-soft text-warning"
+                : "border-accent/30 bg-accent-soft text-accent-ink"
+          }`}
+          role="status"
+        >
+          {Number(params.skippedKickoff ?? "0") > 0 ? (
+            <>
+              <p className="font-medium">
+                Not updated — this player&apos;s game has already kicked off.
+              </p>
+              <p className="mt-1">
+                Ordinary weekly designation edits stay blocked after kickoff
+                (updated {params.updated ?? "0"} · skipped kickoff{" "}
+                {params.skippedKickoff ?? "0"}). Use{" "}
+                <strong>Post-Kickoff Factual Correction</strong> below for an
+                official OUT/INACTIVE correction.
+              </p>
+            </>
+          ) : (
+            <p className="font-medium">
+              Manual designation saved ({params.designation ?? "—"}) · updated{" "}
+              {params.updated ?? "0"}
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {params.correctionOk === "1" ? (
+        <div
+          className="mb-4 rounded-md border border-warning/40 bg-warning-soft px-3 py-3 text-sm text-warning"
+          role="status"
+        >
+          <p className="font-medium">
+            {params.correctionMsg ??
+              "Correction saved — affected graded results require regrade."}
+          </p>
+          <p className="mt-1 text-xs">
+            Freeze picks updated: {params.correctionFreezePicks ?? "0"} ·
+            Affected contests:{" "}
+            {params.correctionContests
+              ? params.correctionContests.split(",").filter(Boolean).length
+              : 0}
+          </p>
+          {params.correctionRequiresRegrade === "1" &&
+          params.correctionAuditId ? (
+            <form
+              action={regradeContestsAfterFactualCorrectionAction}
+              className="mt-3"
+            >
+              <input type="hidden" name="weekId" value={weekId ?? ""} />
+              <input type="hidden" name="position" value={position} />
+              <input
+                type="hidden"
+                name="correctionAuditId"
+                value={params.correctionAuditId}
+              />
+              <Button type="submit" variant="secondary">
+                Regrade affected contests now
+              </Button>
+              <p className="mt-1 text-xs max-w-2xl">
+                Regrading can change finalized results and leaderboards. Original
+                submitted ballots stay immutable; only effective scoring boards
+                are recomputed.
+              </p>
+            </form>
+          ) : null}
+        </div>
+      ) : null}
+
+      {params.correctionOk === "0" && params.correctionError ? (
+        <div
+          className="mb-4 rounded-md border border-danger/30 bg-danger-soft px-3 py-3 text-sm text-danger"
+          role="alert"
+        >
+          <p className="font-medium">Post-kickoff correction not applied</p>
+          <p className="mt-1">{params.correctionError}</p>
+        </div>
+      ) : null}
+
+      {params.regradeOk === "1" ? (
+        <div
+          className="mb-4 rounded-md border border-accent/30 bg-accent-soft px-3 py-3 text-sm text-accent-ink"
+          role="status"
+        >
+          <p className="font-medium">
+            Regrade complete · {params.regraded ?? "0"} contest
+            {params.regraded === "1" ? "" : "s"}
+          </p>
+        </div>
+      ) : null}
 
       {params.synced ? (
         <div
@@ -335,6 +453,7 @@ export default async function AdminWeekStatusPage({
 
       <form action={setWeekPlayerStatusAction}>
         <input type="hidden" name="weekId" value={weekId ?? ""} />
+        <input type="hidden" name="position" value={position} />
         <div className="mb-3 flex flex-wrap items-end gap-2">
           <label className="text-sm">
             <span className="text-muted">Weekly designation</span>
@@ -393,6 +512,12 @@ export default async function AdminWeekStatusPage({
             Clear override
           </Button>
         </div>
+        <p className="mb-4 text-xs text-muted max-w-3xl">
+          Ordinary overrides are blocked after that player&apos;s kickoff
+          (skipAfterKickoff). If the game has already started, use Post-Kickoff
+          Factual Correction instead — do not expect Bulk OUT to rewrite
+          post-kickoff status.
+        </p>
 
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[72rem] text-left text-sm">
@@ -553,6 +678,98 @@ export default async function AdminWeekStatusPage({
           </table>
         </div>
       </form>
+
+      <section className="mt-10 rounded-lg border border-warning/40 bg-surface-elevated px-4 py-5">
+        <h2 className="font-display text-lg font-semibold text-ink">
+          Post-Kickoff Factual Correction
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm text-muted">
+          Exception workflow for an authorized factual{" "}
+          <strong className="text-ink">OUT</strong> or{" "}
+          <strong className="text-ink">INACTIVE</strong> determination after
+          that player&apos;s kickoff (including after FINAL). Original submitted
+          rankings and reserves stay immutable. Existing R1/R2 promotion and
+          anti-hindsight rules apply. Saving a correction does{" "}
+          <strong className="text-ink">not</strong> silently regrade —
+          regrading can change finalized results and leaderboards.
+        </p>
+        <p className="mt-2 max-w-3xl text-xs text-muted">
+          Do not use this for zero fantasy points, zero snaps, or poor
+          performance alone. Only official OUT/INACTIVE factual status
+          qualifies.
+        </p>
+
+        {kickedOffRows.length === 0 ? (
+          <p className="mt-4 text-sm text-muted">
+            No players in this filter have kicked off yet — use ordinary weekly
+            designation controls above.
+          </p>
+        ) : (
+          <form
+            action={postKickoffFactualCorrectionAction}
+            className="mt-4 space-y-3"
+          >
+            <input type="hidden" name="weekId" value={weekId ?? ""} />
+            <input type="hidden" name="position" value={position} />
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-sm">
+                <span className="text-muted">Player (kicked off)</span>
+                <select
+                  name="rankableEntryId"
+                  required
+                  className="mt-1 block min-w-[16rem] rounded-md border border-border bg-surface px-2 py-1.5"
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Select player…
+                  </option>
+                  {kickedOffRows.map((row) => (
+                    <option
+                      key={row.rankableEntryId}
+                      value={row.rankableEntryId}
+                    >
+                      {row.name} ({row.team} · {row.position})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                <span className="text-muted">Corrected status</span>
+                <select
+                  name="designation"
+                  defaultValue="OUT"
+                  className="mt-1 block rounded-md border border-border bg-surface px-2 py-1.5"
+                >
+                  {POST_KICKOFF_CORRECTION_DESIGNATIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {DESIGNATION_FULL_LABEL[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                <span className="text-muted">Factual source / reference</span>
+                <input
+                  name="sourceReference"
+                  required
+                  placeholder="URL or official note"
+                  className="mt-1 block w-56 rounded-md border border-border bg-surface px-2 py-1.5"
+                />
+              </label>
+              <label className="text-sm grow min-w-[14rem]">
+                <span className="text-muted">Reason for correction</span>
+                <input
+                  name="reason"
+                  required
+                  placeholder="e.g. Officially inactive / did not play MNF"
+                  className="mt-1 block w-full rounded-md border border-border bg-surface px-2 py-1.5"
+                />
+              </label>
+              <Button type="submit">Save factual correction</Button>
+            </div>
+          </form>
+        )}
+      </section>
     </Container>
   );
 }

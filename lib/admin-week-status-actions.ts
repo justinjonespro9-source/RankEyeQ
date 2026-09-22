@@ -11,6 +11,13 @@ import {
 } from "@/lib/admin/week-status";
 import { logAdminAction } from "@/lib/admin/audit";
 import { syncWeekInjuriesFromNflCom } from "@/lib/nfl/injury-sync";
+import {
+  applyPostKickoffFactualCorrection,
+  isPostKickoffCorrectionDesignation,
+  logPostKickoffCorrectionRegrade,
+  resolveContestsForPostKickoffCorrectionRegrade,
+} from "@/lib/eligibility/post-kickoff-factual-correction";
+import { gradeContest } from "@/lib/grading";
 
 function revalidateWeekStatus(weekId?: string) {
   revalidatePath("/admin/week-status");
@@ -60,6 +67,7 @@ export async function setWeekPlayerStatusAction(formData: FormData) {
   }
 
   const clearOverride = formData.get("clearManualOverride") === "1";
+  const position = String(formData.get("position") || "ALL");
 
   const result = await setWeekPlayerDesignations({
     weekId,
@@ -87,6 +95,16 @@ export async function setWeekPlayerStatusAction(formData: FormData) {
     },
   });
   revalidateWeekStatus(weekId);
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    designationSaved: "1",
+    designation: designation,
+    updated: String(result.updated),
+    skippedKickoff: String(result.skippedKickoff),
+  });
+  redirect(`/admin/week-status?${params.toString()}`);
 }
 
 export async function bulkMarkOutAction(formData: FormData) {
@@ -218,5 +236,128 @@ export async function syncNflInjuryStatusAction(formData: FormData) {
   if (result.errors[0]) {
     params.set("syncError", result.errors[0].slice(0, 180));
   }
+  redirect(`/admin/week-status?${params.toString()}`);
+}
+
+/**
+ * Admin-only Post-Kickoff Factual Correction (OUT/INACTIVE).
+ * Bypasses ordinary skipAfterKickoff; revises freeze; does not auto-regrade.
+ */
+export async function postKickoffFactualCorrectionAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
+  if (!weekId) throw new Error("weekId required");
+
+  const rankableEntryId = String(formData.get("rankableEntryId") || "").trim();
+  if (!rankableEntryId) throw new Error("Select exactly one player");
+
+  const designationRaw = String(formData.get("designation") || "")
+    .trim()
+    .toUpperCase();
+  if (!isPostKickoffCorrectionDesignation(designationRaw)) {
+    throw new Error("Post-kickoff correction allows OUT or INACTIVE only");
+  }
+
+  const reason = String(formData.get("reason") || "");
+  const sourceReference = String(
+    formData.get("sourceReference") || formData.get("sourceUrl") || "",
+  );
+
+  const result = await applyPostKickoffFactualCorrection({
+    weekId,
+    rankableEntryId,
+    designation: designationRaw,
+    reason,
+    sourceReference,
+    adminUserId: admin.user.id,
+  });
+
+  revalidateWeekStatus(weekId);
+  revalidatePath("/results");
+  revalidatePath("/leaderboards");
+  revalidatePath("/my-ranks");
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+  });
+
+  if (!result.ok) {
+    params.set("correctionError", result.message.slice(0, 220));
+    params.set("correctionOk", "0");
+    redirect(`/admin/week-status?${params.toString()}`);
+  }
+
+  params.set("correctionOk", "1");
+  params.set("correctionRequiresRegrade", result.requiresRegrade ? "1" : "0");
+  params.set("correctionFreezePicks", String(result.freezePicksUpdated));
+  params.set(
+    "correctionContests",
+    result.affectedContestIds.join(",").slice(0, 200),
+  );
+  params.set("correctionAuditId", result.auditLogId);
+  params.set(
+    "correctionMsg",
+    "Correction saved — affected graded results require regrade.",
+  );
+  redirect(`/admin/week-status?${params.toString()}`);
+}
+
+/**
+ * Explicit regrade after a post-kickoff factual correction.
+ * Contest set is derived server-side from the correction audit — browser
+ * contestIds are ignored for authorization.
+ */
+export async function regradeContestsAfterFactualCorrectionAction(
+  formData: FormData,
+) {
+  const admin = await assertAdmin();
+  const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
+  const correctionAuditId = String(formData.get("correctionAuditId") || "");
+
+  if (!weekId) throw new Error("weekId required");
+
+  const resolved = await resolveContestsForPostKickoffCorrectionRegrade({
+    weekId,
+    correctionAuditLogId: correctionAuditId,
+  });
+
+  if (!resolved.ok) {
+    const params = new URLSearchParams({
+      weekId,
+      position,
+      correctionOk: "0",
+      correctionError: resolved.message.slice(0, 220),
+    });
+    redirect(`/admin/week-status?${params.toString()}`);
+  }
+
+  for (const contestId of resolved.contestIds) {
+    await gradeContest(contestId);
+  }
+
+  await logPostKickoffCorrectionRegrade({
+    adminUserId: admin.user.id,
+    weekId,
+    contestIds: resolved.contestIds,
+    correctionAuditLogId: resolved.correctionAuditLogId,
+  });
+
+  revalidateWeekStatus(weekId);
+  revalidatePath("/results");
+  revalidatePath("/leaderboards");
+  revalidatePath("/leaderboards/live");
+  revalidatePath("/my-ranks");
+  revalidatePath("/admin");
+  revalidatePath("/admin/contests");
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    regradeOk: "1",
+    regraded: String(resolved.contestIds.length),
+  });
   redirect(`/admin/week-status?${params.toString()}`);
 }
