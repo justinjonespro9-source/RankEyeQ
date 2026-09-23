@@ -16,7 +16,11 @@ import {
   provisionalRanksFromPoints,
   type LivePlayerStanding,
 } from "@/lib/live-rankiq";
-import { deriveEffectiveBoardFromPicks } from "@/lib/reserves/from-submission";
+import {
+  deriveEffectiveBoardFromPicks,
+} from "@/lib/reserves/from-submission";
+import type { EffectiveBoardResult } from "@/lib/reserves/effective-board";
+import { isPromotionUnavailable } from "@/lib/reserves/promotion-status";
 import { getSubmissionForProfile } from "@/lib/submissions";
 import type {
   ContestPosition,
@@ -24,6 +28,53 @@ import type {
   SubmissionStatus,
 } from "@/lib/generated/prisma/client";
 
+/** Primary scoring-board row — ranks come from canonical effectiveBoard.effective. */
+export type MyRanksEffectivePickRow = {
+  effectiveRank: number;
+  originalPredictedRank: number;
+  rankableEntryId: string;
+  name: string;
+  team: string;
+  opponent: string;
+  fantasyPoints: number | null;
+  currentActualRank: number | null;
+  standingStatus: ProvisionalStandingStatus;
+  showExactHit: boolean;
+  fromReserve: boolean;
+  reserveSlot: number | null;
+};
+
+/** Unavailable ranked players removed from the effective scoring board. */
+export type MyRanksDisplacedPickRow = {
+  rankableEntryId: string;
+  name: string;
+  team: string;
+  originalPredictedRank: number;
+  availability: string | null;
+};
+
+/** Immutable original submission rows (audit / transparency). */
+export type MyRanksOriginalPickRow = {
+  predictedRank: number;
+  rankableEntryId: string;
+  name: string;
+  team: string;
+  isReserve: boolean;
+  reserveSlot: number | null;
+};
+
+/** Reserves strip — activated ranks come from the canonical engine only. */
+export type MyRanksReserveRow = {
+  reserveSlot: number;
+  rankableEntryId: string;
+  name: string;
+  team: string;
+  activatedToRank: number | null;
+  availability: string | null;
+  unavailable: boolean;
+};
+
+/** @deprecated Prefer effectivePicks / originalPicks / reserveRows. */
 export type MyRanksPickRow = {
   predictedRank: number;
   rankableEntryId: string;
@@ -36,11 +87,7 @@ export type MyRanksPickRow = {
   showExactHit: boolean;
   isReserve: boolean;
   reserveSlot: number | null;
-  /** When this reserve was promoted into the effective scoring board. */
   activatedToRank: number | null;
-  replacedName: string | null;
-  replacedAvailability: string | null;
-  /** Displaced from active board (OUT etc.) — still shown on original board. */
   displaced: boolean;
 };
 
@@ -70,18 +117,196 @@ export type MyRanksPositionDashboard = {
   contestStatus: ContestStatus | null;
   isFinal: boolean;
   submissionStatus: SubmissionStatus | null;
+  /** Canonical effective scoring board (primary Your Rankings list). */
+  effectivePicks: MyRanksEffectivePickRow[];
+  /** Ranked players removed from scoring (OUT/INACTIVE, etc.). */
+  displacedPlayers: MyRanksDisplacedPickRow[];
+  /** Immutable original Top-N + R1/R2 for audit view. */
+  originalPicks: MyRanksOriginalPickRow[];
+  /** Reserve strip using canonical activation ranks. */
+  reserveRows: MyRanksReserveRow[];
+  /** True when anyone was displaced or a reserve activated. */
+  hasSubstitution: boolean;
+  /** Flat original picks (legacy consumers / empty checks). */
   picks: MyRanksPickRow[];
   activations: Array<{
     reserveName: string;
     reserveSlot: number;
     effectiveRank: number;
-    replacedName: string;
-    replacedAvailability: string | null;
   }>;
   eyeq: MyRanksEyeq | null;
   standings: MyRanksStandingRow[];
   perfectBoard: MyRanksStandingRow[];
 };
+
+export type MyRanksPickDisplayMeta = {
+  rankableEntryId: string;
+  predictedRank: number;
+  name: string;
+  team: string;
+  opponent: string;
+  fantasyPoints: number | null;
+  currentActualRank: number | null;
+  availability: string | null;
+};
+
+/**
+ * Map canonical deriveEffectiveBoard output into My Ranks presentation rows.
+ * Does not re-derive compact/promote logic — only projects engine output.
+ */
+export function buildMyRanksBoardPresentation(input: {
+  scoringDepth: number;
+  board: EffectiveBoardResult;
+  pickMeta: MyRanksPickDisplayMeta[];
+  isFinal: boolean;
+}): Pick<
+  MyRanksPositionDashboard,
+  | "effectivePicks"
+  | "displacedPlayers"
+  | "originalPicks"
+  | "reserveRows"
+  | "hasSubstitution"
+  | "picks"
+  | "activations"
+> {
+  const metaById = new Map(
+    input.pickMeta.map((row) => [row.rankableEntryId, row]),
+  );
+  const activatedByReserveId = new Map(
+    input.board.activations.map((a) => [a.reserveEntryId, a]),
+  );
+  const displacedIds = new Set(
+    input.board.displaced.map((d) => d.rankableEntryId),
+  );
+
+  const effectivePicks: MyRanksEffectivePickRow[] = input.board.effective.map(
+    (row) => {
+      const meta = metaById.get(row.rankableEntryId);
+      const currentActualRank = meta?.currentActualRank ?? null;
+      const showExactHit =
+        input.isFinal &&
+        currentActualRank != null &&
+        currentActualRank === row.predictedRank &&
+        currentActualRank <= input.scoringDepth;
+
+      return {
+        effectiveRank: row.predictedRank,
+        originalPredictedRank: row.originalPredictedRank,
+        rankableEntryId: row.rankableEntryId,
+        name: meta?.name ?? row.rankableEntryId,
+        team: meta?.team ?? "",
+        opponent: meta?.opponent ?? "",
+        fantasyPoints: meta?.fantasyPoints ?? null,
+        currentActualRank,
+        standingStatus: provisionalStandingStatus(
+          currentActualRank,
+          input.scoringDepth,
+        ),
+        showExactHit,
+        fromReserve: row.fromReserve,
+        reserveSlot: row.reserveSlot,
+      };
+    },
+  );
+
+  const displacedPlayers: MyRanksDisplacedPickRow[] = input.board.displaced.map(
+    (d) => {
+      const meta = metaById.get(d.rankableEntryId);
+      return {
+        rankableEntryId: d.rankableEntryId,
+        name: meta?.name ?? d.rankableEntryId,
+        team: meta?.team ?? "",
+        originalPredictedRank: d.originalPredictedRank,
+        availability: d.availability ?? meta?.availability ?? null,
+      };
+    },
+  );
+
+  const originalPicks: MyRanksOriginalPickRow[] = [...input.pickMeta]
+    .sort((a, b) => a.predictedRank - b.predictedRank)
+    .map((meta) => {
+      const isReserve = meta.predictedRank > input.scoringDepth;
+      return {
+        predictedRank: meta.predictedRank,
+        rankableEntryId: meta.rankableEntryId,
+        name: meta.name,
+        team: meta.team,
+        isReserve,
+        reserveSlot: isReserve
+          ? meta.predictedRank - input.scoringDepth
+          : null,
+      };
+    });
+
+  const reserveRows: MyRanksReserveRow[] = originalPicks
+    .filter((row) => row.isReserve)
+    .map((row) => {
+      const meta = metaById.get(row.rankableEntryId);
+      const activation = activatedByReserveId.get(row.rankableEntryId);
+      const availability = meta?.availability ?? null;
+      return {
+        reserveSlot: row.reserveSlot!,
+        rankableEntryId: row.rankableEntryId,
+        name: row.name,
+        team: row.team,
+        activatedToRank: activation?.effectiveRank ?? null,
+        availability,
+        unavailable: isPromotionUnavailable(availability),
+      };
+    });
+
+  const activations = input.board.activations.map((a) => ({
+    reserveName: metaById.get(a.reserveEntryId)?.name ?? a.reserveEntryId,
+    reserveSlot: a.reserveSlot,
+    effectiveRank: a.effectiveRank,
+  }));
+
+  const picks: MyRanksPickRow[] = input.pickMeta.map((meta) => {
+    const isReserve = meta.predictedRank > input.scoringDepth;
+    const activation = activatedByReserveId.get(meta.rankableEntryId);
+    const effectiveRow = input.board.effective.find(
+      (row) => row.rankableEntryId === meta.rankableEntryId,
+    );
+    const showExactHit =
+      input.isFinal &&
+      !isReserve &&
+      !displacedIds.has(meta.rankableEntryId) &&
+      meta.currentActualRank != null &&
+      effectiveRow != null &&
+      meta.currentActualRank === effectiveRow.predictedRank &&
+      meta.currentActualRank <= input.scoringDepth;
+
+    return {
+      predictedRank: meta.predictedRank,
+      rankableEntryId: meta.rankableEntryId,
+      name: meta.name,
+      team: meta.team,
+      opponent: meta.opponent,
+      fantasyPoints: meta.fantasyPoints,
+      currentActualRank: meta.currentActualRank,
+      standingStatus: provisionalStandingStatus(
+        meta.currentActualRank,
+        input.scoringDepth,
+      ),
+      showExactHit,
+      isReserve,
+      reserveSlot: isReserve ? meta.predictedRank - input.scoringDepth : null,
+      activatedToRank: activation?.effectiveRank ?? null,
+      displaced: displacedIds.has(meta.rankableEntryId),
+    };
+  });
+
+  return {
+    effectivePicks,
+    displacedPlayers,
+    originalPicks,
+    reserveRows,
+    hasSubstitution:
+      displacedPlayers.length > 0 || activations.length > 0,
+    picks,
+    activations,
+  };
+}
 
 export type MyRanksWeekContext = {
   weekId: string;
@@ -176,6 +401,11 @@ export async function getMyRanksPositionDashboard(input: {
     contestStatus: contest?.status ?? null,
     isFinal,
     submissionStatus: null,
+    effectivePicks: [],
+    displacedPlayers: [],
+    originalPicks: [],
+    reserveRows: [],
+    hasSubstitution: false,
     picks: [],
     activations: [],
     eyeq: null,
@@ -244,63 +474,33 @@ export async function getMyRanksPositionDashboard(input: {
     picks: submission.picks,
     scoringDepth: rankingDepth,
   });
-  const activatedByReserveId = new Map(
-    effectiveBoard.activations.map((a) => [a.reserveEntryId, a]),
-  );
-  const displacedIds = new Set(
-    effectiveBoard.displaced.map((d) => d.rankableEntryId),
-  );
-  const nameById = new Map(
-    submission.picks.map((p) => [p.rankableEntryId, p.rankableEntry.name]),
-  );
 
-  base.activations = effectiveBoard.activations.map((a) => ({
-    reserveName: nameById.get(a.reserveEntryId) ?? a.reserveEntryId,
-    reserveSlot: a.reserveSlot,
-    effectiveRank: a.effectiveRank,
-    replacedName: nameById.get(a.replacedEntryId) ?? a.replacedEntryId,
-    replacedAvailability: a.replacedAvailability,
+  const pickMeta = submission.picks.map((pick) => ({
+    rankableEntryId: pick.rankableEntryId,
+    predictedRank: pick.predictedRank,
+    name: pick.rankableEntry.name,
+    team: pick.rankableEntry.team,
+    opponent: pick.rankableEntry.opponent,
+    fantasyPoints: pointsById.get(pick.rankableEntryId) ?? null,
+    currentActualRank: isFinal
+      ? (finalById.get(pick.rankableEntryId) ?? null)
+      : (provisionalById.get(pick.rankableEntryId) ?? null),
+    availability: pick.rankableEntry.availability ?? null,
   }));
 
-  base.picks = submission.picks.map((pick) => {
-    const currentActualRank = isFinal
-      ? (finalById.get(pick.rankableEntryId) ?? null)
-      : (provisionalById.get(pick.rankableEntryId) ?? null);
-    const fantasyPoints = pointsById.get(pick.rankableEntryId) ?? null;
-    const isReserve = pick.predictedRank > rankingDepth;
-    const activation = activatedByReserveId.get(pick.rankableEntryId);
-    const effectiveRow = effectiveBoard.effective.find(
-      (row) => row.rankableEntryId === pick.rankableEntryId,
-    );
-    const showExactHit =
-      isFinal &&
-      !isReserve &&
-      !displacedIds.has(pick.rankableEntryId) &&
-      currentActualRank != null &&
-      effectiveRow != null &&
-      currentActualRank === effectiveRow.predictedRank &&
-      currentActualRank <= rankingDepth;
-
-    return {
-      predictedRank: pick.predictedRank,
-      rankableEntryId: pick.rankableEntryId,
-      name: pick.rankableEntry.name,
-      team: pick.rankableEntry.team,
-      opponent: pick.rankableEntry.opponent,
-      fantasyPoints,
-      currentActualRank,
-      standingStatus: provisionalStandingStatus(currentActualRank, rankingDepth),
-      showExactHit,
-      isReserve,
-      reserveSlot: isReserve ? pick.predictedRank - rankingDepth : null,
-      activatedToRank: activation?.effectiveRank ?? null,
-      replacedName: activation
-        ? (nameById.get(activation.replacedEntryId) ?? null)
-        : null,
-      replacedAvailability: activation?.replacedAvailability ?? null,
-      displaced: displacedIds.has(pick.rankableEntryId),
-    };
+  const presentation = buildMyRanksBoardPresentation({
+    scoringDepth: rankingDepth,
+    board: effectiveBoard,
+    pickMeta,
+    isFinal,
   });
+  base.effectivePicks = presentation.effectivePicks;
+  base.displacedPlayers = presentation.displacedPlayers;
+  base.originalPicks = presentation.originalPicks;
+  base.reserveRows = presentation.reserveRows;
+  base.hasSubstitution = presentation.hasSubstitution;
+  base.picks = presentation.picks;
+  base.activations = presentation.activations;
 
   if (isFinal && submission.normalizedScore != null) {
     base.eyeq = {
@@ -310,6 +510,9 @@ export async function getMyRanksPositionDashboard(input: {
       isLive: false,
     };
   } else if (!isFinal) {
+    const nameById = new Map(
+      pickMeta.map((row) => [row.rankableEntryId, row.name]),
+    );
     const summary = scoreProvisionalEyeq(
       effectiveBoard.effective.map((row) => ({
         playerId: row.rankableEntryId,

@@ -129,7 +129,7 @@ export function MyRanksDashboard({
               )
             ) : (
               <p className="text-sm text-muted">
-                {dashboard.picks.length === 0
+                {dashboard.originalPicks.length === 0
                   ? variant === "admin"
                     ? "No submission for this position."
                     : "Submit a board on This Week to track live EYEQ here."
@@ -155,9 +155,11 @@ export function MyRanksDashboard({
             Your Rankings
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Predicted order with current {uiPos} standing colors.
+            {dashboard.hasSubstitution
+              ? `Effective scoring board with current ${uiPos} standing colors.`
+              : `Predicted order with current ${uiPos} standing colors.`}
           </p>
-          {dashboard.picks.length === 0 ? (
+          {dashboard.originalPicks.length === 0 ? (
             <div className="mt-3">
               <EmptyPanel
                 title={`No ${dashboard.position} board submitted`}
@@ -178,77 +180,90 @@ export function MyRanksDashboard({
             </div>
           ) : (
             <>
-            <ol className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
-              {dashboard.picks
-                .filter((pick) => !pick.isReserve)
-                .map((pick) => (
-                <li
-                  key={pick.rankableEntryId}
-                  className={`flex items-start justify-between gap-3 px-3 py-3 sm:px-4 ${standingRowShellClass(
-                    pick.standingStatus,
-                    pick.showExactHit,
-                  )}`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-ink">
-                      {pick.showExactHit ? (
-                        <span className="mr-1 text-accent" aria-hidden="true">
-                          ★
-                        </span>
-                      ) : null}
-                      <span className="font-display tabular-nums text-muted">
-                        #{pick.predictedRank}
-                      </span>{" "}
-                      {pick.name}
-                      {pick.displaced ? (
-                        <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-warning">
-                          OUT · displaced
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {pick.team}
-                      {pick.fantasyPoints != null
-                        ? ` · ${pick.fantasyPoints.toFixed(1)} pts`
-                        : ""}
-                      {pick.currentActualRank != null
-                        ? ` · Current ${dashboard.position}${pick.currentActualRank}`
-                        : " · Pending"}
-                    </p>
-                  </div>
-                  <StandingStatusBadge
-                    status={pick.standingStatus}
-                    fieldSize={dashboard.rankingDepth}
-                    currentRank={pick.currentActualRank}
-                    position={dashboard.position}
-                    compact
-                  />
-                </li>
-              ))}
-            </ol>
-            {dashboard.picks.some((p) => p.isReserve) ? (
-              <div className="mt-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-                  Reserves
-                </h3>
-                {dashboard.activations.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-xs text-muted">
-                    {dashboard.activations.map((a) => (
-                      <li key={`${a.reserveSlot}-${a.effectiveRank}`}>
-                        R{a.reserveSlot} {a.reserveName} → activated to{" "}
-                        {dashboard.position}
-                        {a.effectiveRank}. Replaced: {a.replacedName}
-                        {a.replacedAvailability
-                          ? ` (${a.replacedAvailability})`
+              <ol className="mt-3 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
+                {dashboard.effectivePicks.map((pick) => (
+                  <li
+                    key={pick.rankableEntryId}
+                    className={`flex items-start justify-between gap-3 px-3 py-3 sm:px-4 ${standingRowShellClass(
+                      pick.standingStatus,
+                      pick.showExactHit,
+                    )}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-ink">
+                        {pick.showExactHit ? (
+                          <span className="mr-1 text-accent" aria-hidden="true">
+                            ★
+                          </span>
+                        ) : null}
+                        <span className="font-display tabular-nums text-muted">
+                          #{pick.effectiveRank}
+                        </span>{" "}
+                        {pick.name}
+                        {pick.fromReserve && pick.reserveSlot != null ? (
+                          <span className="ml-2 text-xs font-medium text-success">
+                            R{pick.reserveSlot} → #{pick.effectiveRank}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {pick.team}
+                        {pick.fantasyPoints != null
+                          ? ` · ${pick.fantasyPoints.toFixed(1)} pts`
                           : ""}
+                        {pick.currentActualRank != null
+                          ? ` · Current ${dashboard.position}${pick.currentActualRank}`
+                          : " · Pending"}
+                      </p>
+                    </div>
+                    <StandingStatusBadge
+                      status={pick.standingStatus}
+                      fieldSize={dashboard.rankingDepth}
+                      currentRank={pick.currentActualRank}
+                      position={dashboard.position}
+                      compact
+                    />
+                  </li>
+                ))}
+              </ol>
+
+              {dashboard.hasSubstitution &&
+              dashboard.displacedPlayers.length > 0 ? (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Removed from scoring board
+                  </h3>
+                  <ul className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-dashed border-border bg-surface">
+                    {dashboard.displacedPlayers.map((player) => (
+                      <li
+                        key={player.rankableEntryId}
+                        className="px-3 py-2.5 sm:px-4"
+                      >
+                        <p className="text-sm font-medium text-ink">
+                          {player.name}
+                          {player.availability ? (
+                            <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-warning">
+                              {player.availability}
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted">
+                          {player.team} · Originally #{player.originalPredictedRank}{" "}
+                          · Removed from scoring board
+                        </p>
                       </li>
                     ))}
                   </ul>
-                ) : null}
-                <ol className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-dashed border-border bg-surface">
-                  {dashboard.picks
-                    .filter((pick) => pick.isReserve)
-                    .map((pick) => (
+                </div>
+              ) : null}
+
+              {dashboard.reserveRows.length > 0 ? (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Reserves
+                  </h3>
+                  <ol className="mt-2 divide-y divide-border overflow-hidden rounded-lg border border-dashed border-border bg-surface">
+                    {dashboard.reserveRows.map((pick) => (
                       <li
                         key={pick.rankableEntryId}
                         className="flex items-start justify-between gap-3 px-3 py-3 sm:px-4"
@@ -261,23 +276,55 @@ export function MyRanksDashboard({
                             {pick.name}
                             {pick.activatedToRank != null ? (
                               <span className="ml-2 text-xs font-medium text-success">
-                                → {dashboard.position}
-                                {pick.activatedToRank}
+                                Activated → #{pick.activatedToRank}
+                              </span>
+                            ) : pick.unavailable && pick.availability ? (
+                              <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-warning">
+                                {pick.availability}
                               </span>
                             ) : null}
                           </p>
                           <p className="mt-0.5 text-xs text-muted">
                             {pick.team}
-                            {pick.replacedName
-                              ? ` · Replaced ${pick.replacedName}`
-                              : " · Reserve"}
+                            {pick.activatedToRank != null
+                              ? ""
+                              : pick.unavailable
+                                ? " · Ineligible reserve"
+                                : " · Reserve"}
                           </p>
                         </div>
                       </li>
                     ))}
-                </ol>
-              </div>
-            ) : null}
+                  </ol>
+                </div>
+              ) : null}
+
+              {dashboard.hasSubstitution ? (
+                <details className="mt-4 rounded-lg border border-border bg-surface px-3 py-2 sm:px-4">
+                  <summary className="cursor-pointer text-sm font-medium text-ink">
+                    Original submission
+                  </summary>
+                  <p className="mt-1 text-xs text-muted">
+                    Locked ballot as submitted — audit history only.
+                  </p>
+                  <ol className="mt-2 divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-elevated">
+                    {dashboard.originalPicks.map((pick) => (
+                      <li
+                        key={`original-${pick.rankableEntryId}`}
+                        className="px-3 py-2 text-sm"
+                      >
+                        <span className="font-display tabular-nums text-muted">
+                          {pick.isReserve
+                            ? `R${pick.reserveSlot}`
+                            : `#${pick.predictedRank}`}
+                        </span>{" "}
+                        <span className="font-medium text-ink">{pick.name}</span>
+                        <span className="text-muted"> · {pick.team}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ) : null}
             </>
           )}
         </section>
