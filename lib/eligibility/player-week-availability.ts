@@ -84,12 +84,147 @@ export function designationFromEntryAvailability(
 
 /**
  * Resolve weekly designation when no PlayerWeekAvailability row exists.
- * Explicit legacy injury mirrors (Q/D/OUT/INACTIVE) are honored; ACTIVE → UNKNOWN.
+ *
+ * Master/prior RankableEntry.availability (OUT/Q/D/INACTIVE) must NOT masquerade
+ * as the selected week's official game status — those values can be stale.
+ * Roster-unavailable is handled separately via SeasonPlayer.nflStatus.
+ *
+ * `fallbackEntryAvailability` on ResolvePlayerWeekStatusInput is retained for
+ * call-site compatibility but is intentionally ignored here.
  */
-export function designationWithoutWeekRecord(
-  fallbackEntryAvailability: EntryAvailability | string | null | undefined,
-): WeeklyDesignation {
-  return designationFromEntryAvailability(fallbackEntryAvailability);
+export function designationWithoutWeekRecord(): WeeklyDesignation {
+  return "UNKNOWN";
+}
+
+/**
+ * Conceptual source of the effective weekly availability display.
+ * Derived for Admin — not a persisted enum.
+ */
+export type WeeklyAvailabilitySourceKind =
+  | "ADMIN_OVERRIDE"
+  | "ROSTER_UNAVAILABLE"
+  | "OFFICIAL_GAME_STATUS"
+  | "PRACTICE_ONLY"
+  | "NO_SOURCE_ROW"
+  | "NO_OFFICIAL_STATUS";
+
+export type WeeklyAvailabilityPresentation = {
+  designation: WeeklyDesignation;
+  /** Operator-facing primary label (e.g. "No official status yet"). */
+  designationLabel: string;
+  sourceKind: WeeklyAvailabilitySourceKind;
+  /** Short badge under the designation. */
+  sourceBadge: string;
+  practiceStatus: string | null;
+  officialGameStatusLabel: string;
+};
+
+/**
+ * Build operator-facing labels for the Admin availability board.
+ * Does not change effective-board / reserve semantics.
+ */
+export function presentWeeklyAvailability(input: {
+  resolved: ResolvedPlayerWeekStatus;
+  hasWeekRecord: boolean;
+  practiceStatus?: string | null;
+  /** True when NFL.com listed the player with blank Game Status. */
+  onInjuryReportBlankGameStatus?: boolean;
+  /** True when NFL.com listed the player with a mapped official Game Status. */
+  onInjuryReportOfficialGameStatus?: boolean;
+}): WeeklyAvailabilityPresentation {
+  const { resolved } = input;
+  const practiceStatus = input.practiceStatus?.trim() || null;
+
+  if (resolved.rosterUnavailable) {
+    return {
+      designation: resolved.designation,
+      designationLabel:
+        resolved.unavailableReason ??
+        DESIGNATION_FULL_LABEL[resolved.designation],
+      sourceKind: "ROSTER_UNAVAILABLE",
+      sourceBadge: `Roster · ${resolved.unavailableReason ?? resolved.rosterStatus ?? "unavailable"}`,
+      practiceStatus,
+      officialGameStatusLabel: "—",
+    };
+  }
+
+  if (resolved.manualOverride && input.hasWeekRecord) {
+    return {
+      designation: resolved.designation,
+      designationLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      sourceKind: "ADMIN_OVERRIDE",
+      sourceBadge: "Admin override",
+      practiceStatus,
+      officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+    };
+  }
+
+  if (
+    input.hasWeekRecord &&
+    resolved.sourceType === "NFL_SYNC" &&
+    (resolved.designation === "OUT" ||
+      resolved.designation === "QUESTIONABLE" ||
+      resolved.designation === "DOUBTFUL" ||
+      resolved.designation === "INACTIVE" ||
+      resolved.designation === "AVAILABLE")
+  ) {
+    return {
+      designation: resolved.designation,
+      designationLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      sourceKind: "OFFICIAL_GAME_STATUS",
+      sourceBadge: "NFL.com · official game status",
+      practiceStatus,
+      officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+    };
+  }
+
+  if (input.onInjuryReportOfficialGameStatus && input.hasWeekRecord) {
+    return {
+      designation: resolved.designation,
+      designationLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      sourceKind: "OFFICIAL_GAME_STATUS",
+      sourceBadge: "NFL.com · official game status",
+      practiceStatus,
+      officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+    };
+  }
+
+  if (input.onInjuryReportBlankGameStatus || practiceStatus) {
+    return {
+      designation: "UNKNOWN",
+      designationLabel: "No official status yet",
+      sourceKind: "PRACTICE_ONLY",
+      sourceBadge: "NFL.com game status not published",
+      practiceStatus,
+      officialGameStatusLabel: "No official status yet",
+    };
+  }
+
+  if (!input.hasWeekRecord) {
+    return {
+      designation: "UNKNOWN",
+      designationLabel: "No official status yet",
+      sourceKind: "NO_SOURCE_ROW",
+      sourceBadge: "No current-week injury row",
+      practiceStatus,
+      officialGameStatusLabel: "No official status yet",
+    };
+  }
+
+  return {
+    designation: resolved.designation,
+    designationLabel:
+      resolved.designation === "UNKNOWN"
+        ? "No official status yet"
+        : DESIGNATION_FULL_LABEL[resolved.designation],
+    sourceKind: "NO_OFFICIAL_STATUS",
+    sourceBadge: "NFL.com game status not published",
+    practiceStatus,
+    officialGameStatusLabel:
+      resolved.designation === "UNKNOWN"
+        ? "No official status yet"
+        : DESIGNATION_FULL_LABEL[resolved.designation],
+  };
 }
 
 export function entryAvailabilityFromDesignation(
@@ -199,8 +334,7 @@ export function resolvePlayerWeekStatus(
   const rosterStatus = input.nflStatus?.trim() || null;
 
   const designation: WeeklyDesignation =
-    input.weekDesignation ??
-    designationWithoutWeekRecord(input.fallbackEntryAvailability);
+    input.weekDesignation ?? designationWithoutWeekRecord();
 
   const weeklyUnavailable = WEEKLY_UNAVAILABLE_DESIGNATIONS.has(designation);
   const selectable =

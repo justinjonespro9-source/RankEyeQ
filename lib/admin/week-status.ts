@@ -13,9 +13,11 @@ import {
 import {
   DESIGNATION_FULL_LABEL,
   parseWeeklyDesignation,
+  presentWeeklyAvailability,
   resolvePlayerWeekStatus,
   WEEKLY_DESIGNATION_VALUES,
   type ResolvedPlayerWeekStatus,
+  type WeeklyAvailabilityPresentation,
   type WeeklyDesignation,
 } from "@/lib/eligibility/player-week-availability";
 import {
@@ -27,6 +29,11 @@ import {
   resolveWeekScopedGame,
   type WeekScopedGame,
 } from "@/lib/timing/resolve-contest-kickoff";
+import {
+  fetchNflComInjuryRows,
+} from "@/lib/providers/nfl/nflcom/fetch-injuries";
+import type { ParsedInjuryRow } from "@/lib/providers/nfl/nflcom/parse-injuries";
+import { normalizePlayerName } from "@/lib/nfl/player-identity";
 
 export { WEEKLY_AVAILABILITY_VALUES, WEEKLY_DESIGNATION_VALUES };
 export { DESIGNATION_FULL_LABEL };
@@ -93,6 +100,10 @@ export type WeekStatusRow = {
   matchupMissing: boolean;
   selectionCount: number;
   nflStatus: string | null;
+  /** True when a current-week PlayerWeekAvailability row exists. */
+  hasWeekRecord: boolean;
+  /** Operator presentation (labels, practice vs official GS). */
+  presentation: WeeklyAvailabilityPresentation;
 };
 
 export async function loadWeekStatusBoard(input: {
@@ -100,6 +111,11 @@ export async function loadWeekStatusBoard(input: {
   position?: ContestPosition | "ALL";
   team?: string;
   query?: string;
+  /**
+   * When true (default for Admin), attach live NFL.com practice / blank-GS
+   * context for operator display. Failures are non-fatal.
+   */
+  enrichInjuryReport?: boolean;
 }): Promise<WeekStatusRow[]> {
   const week = await prisma.week.findUnique({
     where: { id: input.weekId },
@@ -183,9 +199,22 @@ export async function loadWeekStatusBoard(input: {
     selectionCounts.map((row) => [row.rankableEntryId, row._count._all]),
   );
 
+  let injuryByKey = new Map<string, ParsedInjuryRow>();
+  if (input.enrichInjuryReport !== false) {
+    try {
+      const fetched = await fetchNflComInjuryRows();
+      injuryByKey = indexInjuryRowsByPlayerTeam(fetched.rows);
+    } catch {
+      // Non-fatal — board still loads without practice enrichment.
+    }
+  }
+
   return entries.map((entry) => {
     const weekAvail = entry.rankableEntry.weekAvailabilities[0] ?? null;
     const nflStatus = entry.rankableEntry.seasonPlayers[0]?.nflStatus ?? null;
+    const hasWeekRecord = weekAvail != null;
+    // Master RankableEntry.availability is intentionally NOT used as week status
+    // (stale prior-week mirrors). Roster-unavailable still comes from nflStatus.
     const resolved = resolvePlayerWeekStatus({
       nflStatus,
       weekDesignation: weekAvail?.designation as WeeklyDesignation | undefined,
@@ -195,13 +224,29 @@ export async function loadWeekStatusBoard(input: {
       sourcePublishedAt: weekAvail?.sourcePublishedAt,
       observedAt: weekAvail?.observedAt,
       manualOverride: weekAvail?.manualOverride,
-      fallbackEntryAvailability: entry.rankableEntry.availability,
     });
     const matchup = resolveWeekStatusMatchup({
       weekId: input.weekId,
       team: entry.rankableEntry.team,
       contestGame: entry.game,
       excluded: entry.excluded,
+    });
+
+    const injury = findInjuryRow(
+      injuryByKey,
+      entry.rankableEntry.name,
+      entry.rankableEntry.team,
+    );
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord,
+      practiceStatus: injury?.practiceStatus ?? null,
+      onInjuryReportBlankGameStatus: Boolean(
+        injury && injury.gameStatus == null,
+      ),
+      onInjuryReportOfficialGameStatus: Boolean(
+        injury && injury.gameStatus != null,
+      ),
     });
 
     return {
@@ -226,8 +271,30 @@ export async function loadWeekStatusBoard(input: {
       matchupMissing: matchup.matchupMissing,
       selectionCount: countById.get(entry.rankableEntryId) ?? 0,
       nflStatus,
+      hasWeekRecord,
+      presentation,
     };
   });
+}
+
+function injuryRowKey(name: string, team: string) {
+  return `${normalizePlayerName(name)}|${team.toUpperCase()}`;
+}
+
+function indexInjuryRowsByPlayerTeam(rows: ParsedInjuryRow[]) {
+  const map = new Map<string, ParsedInjuryRow>();
+  for (const row of rows) {
+    map.set(injuryRowKey(row.name, row.team), row);
+  }
+  return map;
+}
+
+function findInjuryRow(
+  index: Map<string, ParsedInjuryRow>,
+  name: string,
+  team: string,
+) {
+  return index.get(injuryRowKey(name, team)) ?? null;
 }
 
 export async function setWeekPlayerDesignations(input: {

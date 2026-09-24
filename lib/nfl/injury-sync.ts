@@ -62,6 +62,12 @@ export type InjurySyncSummary = {
   source: "nfl.com" | "none";
   sourceUrl: string;
   syncedAt: Date;
+  /** Total rows parsed from NFL.com (all positions). */
+  sourceRowCount: number;
+  /** Rows with a mapped official Game Status (Out/Q/D/IR). */
+  officialGameStatusCount: number;
+  /** Rows with blank Game Status (practice-only / awaiting official status). */
+  blankGameStatusCount: number;
   matched: number;
   updated: number;
   unchanged: number;
@@ -77,6 +83,42 @@ export type InjurySyncSummary = {
   matches: InjurySyncMatch[];
   skippedNonFantasy: number;
 };
+
+export function formatInjurySyncOperatorMessage(
+  summary: InjurySyncSummary,
+): string {
+  if (!summary.ok && summary.source === "none") {
+    return [
+      "NFL Injury Sync failed",
+      summary.errors[0] ?? "Source unavailable",
+      "Existing designations left unchanged",
+    ].join("\n");
+  }
+
+  const lines = [
+    "NFL Injury Sync complete ✓",
+    "",
+    `${summary.sourceRowCount} NFL.com injury-report rows`,
+    `${summary.officialGameStatusCount} official Game Status`,
+    `${summary.blankGameStatusCount} awaiting official Game Status`,
+    "",
+    "Fantasy pool:",
+    `${summary.matched} matched`,
+    `${summary.unmatched} unmatched`,
+    `${summary.out} OUT`,
+    `${summary.questionable} QUESTIONABLE`,
+    `${summary.doubtful} DOUBTFUL`,
+    "",
+    `Updated: ${summary.updated}`,
+    `Unchanged: ${summary.unchanged}`,
+    `Skipped kickoff: ${summary.skippedKickoff}`,
+    `Skipped manual: ${summary.skippedManual}`,
+    `Errors: ${summary.failed}`,
+    `Source: ${summary.sourceUrl}`,
+    `Fetched: ${summary.syncedAt.toISOString()}`,
+  ];
+  return lines.join("\n");
+}
 
 type RankableCandidate = {
   id: string;
@@ -264,6 +306,10 @@ export async function syncWeekInjuriesFromNflCom(input: {
     isInjuryFantasyPosition(row.position),
   );
   const skippedNonFantasy = nflRows.length - workingRows.length;
+  const officialGameStatusCount = nflRows.filter(
+    (row) => row.gameStatus != null,
+  ).length;
+  const blankGameStatusCount = nflRows.length - officialGameStatusCount;
 
   const contests = await prisma.rankIQContest.findMany({
     where: {
@@ -402,6 +448,9 @@ export async function syncWeekInjuriesFromNflCom(input: {
     source,
     sourceUrl,
     syncedAt,
+    sourceRowCount: nflRows.length,
+    officialGameStatusCount,
+    blankGameStatusCount,
     matched,
     updated,
     unchanged,
@@ -429,6 +478,9 @@ function emptySummary(partial: {
 }): InjurySyncSummary {
   return {
     ...partial,
+    sourceRowCount: 0,
+    officialGameStatusCount: 0,
+    blankGameStatusCount: 0,
     matched: 0,
     updated: 0,
     unchanged: 0,

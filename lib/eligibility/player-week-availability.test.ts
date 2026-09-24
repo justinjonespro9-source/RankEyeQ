@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatAvailabilityPromptParts,
   isRosterUnavailableStatus,
+  presentWeeklyAvailability,
   resolvePlayerWeekStatus,
   WEEKLY_UNAVAILABLE_DESIGNATIONS,
 } from "@/lib/eligibility/player-week-availability";
@@ -38,6 +39,91 @@ describe("PlayerWeekAvailability resolution", () => {
     expect(status.selectable).toBe(true);
     expect(status.eligibleDisclosure).toBe("UNKNOWN");
     expect(status.promotionUnavailable).toBe(false);
+  });
+
+  it("stale RankableEntry OUT does not become current-week OUT", () => {
+    const status = resolvePlayerWeekStatus({
+      nflStatus: "ACTIVE",
+      weekDesignation: null,
+      fallbackEntryAvailability: "OUT",
+    });
+    expect(status.designation).toBe("UNKNOWN");
+    expect(status.weeklyUnavailable).toBe(false);
+    expect(status.selectable).toBe(true);
+    expect(status.promotionUnavailable).toBe(false);
+  });
+
+  it("stale RankableEntry QUESTIONABLE/DOUBTFUL do not become current-week Q/D", () => {
+    for (const stale of ["QUESTIONABLE", "DOUBTFUL", "INACTIVE"] as const) {
+      const status = resolvePlayerWeekStatus({
+        nflStatus: "ACTIVE",
+        weekDesignation: null,
+        fallbackEntryAvailability: stale,
+      });
+      expect(status.designation).toBe("UNKNOWN");
+      expect(status.weeklyUnavailable).toBe(false);
+    }
+  });
+
+  it("presents practice-only as No official status yet", () => {
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: "ACTIVE",
+      weekDesignation: null,
+    });
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord: false,
+      practiceStatus: "Did Not Participate In Practice",
+      onInjuryReportBlankGameStatus: true,
+    });
+    expect(presentation.designationLabel).toBe("No official status yet");
+    expect(presentation.sourceKind).toBe("PRACTICE_ONLY");
+    expect(presentation.practiceStatus).toMatch(/Did Not Participate/i);
+    expect(presentation.officialGameStatusLabel).toBe("No official status yet");
+  });
+
+  it("presents NFL_SYNC OUT with official game status badge", () => {
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: "ACTIVE",
+      weekDesignation: "OUT",
+      sourceType: "NFL_SYNC",
+    });
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord: true,
+      onInjuryReportOfficialGameStatus: true,
+    });
+    expect(presentation.designationLabel).toBe("Out");
+    expect(presentation.sourceKind).toBe("OFFICIAL_GAME_STATUS");
+    expect(presentation.sourceBadge).toContain("official game status");
+  });
+
+  it("presents Admin override distinctly", () => {
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: "ACTIVE",
+      weekDesignation: "OUT",
+      sourceType: "MANUAL",
+      manualOverride: true,
+    });
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord: true,
+    });
+    expect(presentation.sourceKind).toBe("ADMIN_OVERRIDE");
+    expect(presentation.sourceBadge).toBe("Admin override");
+  });
+
+  it("presents roster IR above weekly designation", () => {
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: "IR",
+      weekDesignation: "AVAILABLE",
+    });
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord: true,
+    });
+    expect(presentation.sourceKind).toBe("ROSTER_UNAVAILABLE");
+    expect(presentation.sourceBadge).toMatch(/Roster/);
   });
 
   it("ACTIVE roster + weekly INACTIVE = unavailable", () => {

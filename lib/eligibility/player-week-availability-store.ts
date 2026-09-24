@@ -229,7 +229,7 @@ export async function loadResolvedStatusesForWeek(input: {
   const ids = [...new Set(input.rankableEntryIds)];
   if (ids.length === 0) return new Map();
 
-  const [weekRows, seasonPlayers, rankables] = await Promise.all([
+  const [weekRows, seasonPlayers] = await Promise.all([
     prisma.playerWeekAvailability.findMany({
       where: { weekId: input.weekId, rankableEntryId: { in: ids } },
     }),
@@ -237,18 +237,11 @@ export async function loadResolvedStatusesForWeek(input: {
       where: { seasonId: input.seasonId, rankableEntryId: { in: ids } },
       select: { rankableEntryId: true, nflStatus: true },
     }),
-    prisma.rankableEntry.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, availability: true },
-    }),
   ]);
 
   const weekById = new Map(weekRows.map((row) => [row.rankableEntryId, row]));
   const rosterById = new Map(
     seasonPlayers.map((row) => [row.rankableEntryId, row.nflStatus]),
-  );
-  const fallbackById = new Map(
-    rankables.map((row) => [row.id, row.availability]),
   );
 
   const out = new Map<string, ResolvedPlayerWeekStatus>();
@@ -265,7 +258,7 @@ export async function loadResolvedStatusesForWeek(input: {
         sourcePublishedAt: week?.sourcePublishedAt,
         observedAt: week?.observedAt,
         manualOverride: week?.manualOverride,
-        fallbackEntryAvailability: fallbackById.get(id),
+        // Intentionally omit RankableEntry.availability — not week-scoped.
       }),
     );
   }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { resolveWeekStatusMatchup } from "@/lib/admin/week-status";
+import {
+  presentWeeklyAvailability,
+  resolvePlayerWeekStatus,
+} from "@/lib/eligibility/player-week-availability";
 
 describe("resolveWeekStatusMatchup", () => {
   const week2Id = "week-2";
@@ -20,8 +24,7 @@ describe("resolveWeekStatusMatchup", () => {
   };
 
   it("displays Week 2 ContestEntry game even when master Week 1 fields are poisoned", () => {
-    // Deliberately ignore RankableEntry.gameStartsAt / opponent — they are not inputs.
-    const poisonedMasterKickoff = new Date("2026-09-10T23:15:00.000Z"); // Thu
+    const poisonedMasterKickoff = new Date("2026-09-10T23:15:00.000Z");
     expect(poisonedMasterKickoff.toISOString()).not.toBe(
       week2Game.startsAt.toISOString(),
     );
@@ -57,7 +60,6 @@ describe("resolveWeekStatusMatchup", () => {
       weekId: week2Id,
       team: "NE",
       contestGame: null,
-      excluded: false,
     });
     expect(matchup.matchupMissing).toBe(true);
     expect(matchup.kickoffAt).toBeNull();
@@ -73,5 +75,34 @@ describe("resolveWeekStatusMatchup", () => {
     });
     expect(matchup.matchupMissing).toBe(false);
     expect(matchup.opponent).toBe("TBD");
+  });
+});
+
+describe("week-status availability presentation contract", () => {
+  it("distinguishes practice-only from official Out", () => {
+    const practiceOnly = presentWeeklyAvailability({
+      resolved: resolvePlayerWeekStatus({
+        nflStatus: "ACTIVE",
+        weekDesignation: null,
+        fallbackEntryAvailability: "OUT",
+      }),
+      hasWeekRecord: false,
+      practiceStatus: "Did Not Participate In Practice",
+      onInjuryReportBlankGameStatus: true,
+    });
+    expect(practiceOnly.designationLabel).toBe("No official status yet");
+    expect(practiceOnly.sourceKind).toBe("PRACTICE_ONLY");
+
+    const official = presentWeeklyAvailability({
+      resolved: resolvePlayerWeekStatus({
+        nflStatus: "ACTIVE",
+        weekDesignation: "OUT",
+        sourceType: "NFL_SYNC",
+      }),
+      hasWeekRecord: true,
+      onInjuryReportOfficialGameStatus: true,
+    });
+    expect(official.designationLabel).toBe("Out");
+    expect(official.sourceKind).toBe("OFFICIAL_GAME_STATUS");
   });
 });

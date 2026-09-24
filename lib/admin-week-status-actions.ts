@@ -10,7 +10,7 @@ import {
   syncWeekAvailabilityFromSeasonPlayers,
 } from "@/lib/admin/week-status";
 import { logAdminAction } from "@/lib/admin/audit";
-import { syncWeekInjuriesFromNflCom } from "@/lib/nfl/injury-sync";
+import { syncWeekInjuriesFromNflCom, formatInjurySyncOperatorMessage } from "@/lib/nfl/injury-sync";
 import {
   applyPostKickoffFactualCorrection,
   isPostKickoffCorrectionDesignation,
@@ -187,6 +187,11 @@ export async function syncNflInjuryStatusAction(formData: FormData) {
     apply: true,
   });
 
+  const unmatchedNames = result.matches
+    .filter((m) => m.status !== "matched")
+    .slice(0, 30)
+    .map((m) => `${m.row.name} (${m.row.team})`);
+
   await logAdminAction({
     adminUserId: admin.user.id,
     action: "week_status.injury_synced",
@@ -196,6 +201,10 @@ export async function syncNflInjuryStatusAction(formData: FormData) {
       ok: result.ok,
       source: result.source,
       sourceUrl: result.sourceUrl,
+      syncedAt: result.syncedAt.toISOString(),
+      sourceRowCount: result.sourceRowCount,
+      officialGameStatusCount: result.officialGameStatusCount,
+      blankGameStatusCount: result.blankGameStatusCount,
       matched: result.matched,
       updated: result.updated,
       unchanged: result.unchanged,
@@ -208,10 +217,8 @@ export async function syncNflInjuryStatusAction(formData: FormData) {
       unmatched: result.unmatched,
       ambiguous: result.ambiguous,
       errors: result.errors.slice(0, 10),
-      unmatchedNames: result.matches
-        .filter((m) => m.status !== "matched")
-        .slice(0, 30)
-        .map((m) => `${m.row.name} (${m.row.team})`),
+      unmatchedNames,
+      operatorMessage: formatInjurySyncOperatorMessage(result),
     },
   });
 
@@ -232,9 +239,68 @@ export async function syncNflInjuryStatusAction(formData: FormData) {
     out: String(result.out),
     unmatched: String(result.unmatched),
     source: result.source,
+    sourceRows: String(result.sourceRowCount),
+    officialGs: String(result.officialGameStatusCount),
+    blankGs: String(result.blankGameStatusCount),
+    syncedAt: result.syncedAt.toISOString(),
   });
   if (result.errors[0]) {
     params.set("syncError", result.errors[0].slice(0, 180));
+  }
+  if (unmatchedNames.length > 0) {
+    params.set(
+      "unmatchedPreview",
+      unmatchedNames.slice(0, 15).join(" · ").slice(0, 500),
+    );
+  }
+  redirect(`/admin/week-status?${params.toString()}`);
+}
+
+/** Dry-run injury sync — same pipeline, no writes. */
+export async function previewNflInjuryStatusAction(formData: FormData) {
+  await assertAdmin();
+  const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
+  if (!weekId) throw new Error("weekId required");
+
+  const result = await syncWeekInjuriesFromNflCom({
+    weekId,
+    apply: false,
+  });
+
+  const unmatchedNames = result.matches
+    .filter((m) => m.status !== "matched")
+    .slice(0, 30)
+    .map((m) => `${m.row.name} (${m.row.team})`);
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    previewed: result.ok ? "1" : "0",
+    matched: String(result.matched),
+    updated: String(result.updated),
+    unchanged: String(result.unchanged),
+    skippedManual: String(result.skippedManual),
+    skippedKickoff: String(result.skippedKickoff),
+    failed: String(result.failed),
+    questionable: String(result.questionable),
+    doubtful: String(result.doubtful),
+    out: String(result.out),
+    unmatched: String(result.unmatched),
+    source: result.source,
+    sourceRows: String(result.sourceRowCount),
+    officialGs: String(result.officialGameStatusCount),
+    blankGs: String(result.blankGameStatusCount),
+    syncedAt: result.syncedAt.toISOString(),
+  });
+  if (result.errors[0]) {
+    params.set("syncError", result.errors[0].slice(0, 180));
+  }
+  if (unmatchedNames.length > 0) {
+    params.set(
+      "unmatchedPreview",
+      unmatchedNames.slice(0, 15).join(" · ").slice(0, 500),
+    );
   }
   redirect(`/admin/week-status?${params.toString()}`);
 }

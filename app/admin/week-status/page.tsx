@@ -11,6 +11,7 @@ import {
   bulkMarkOutAction,
   clearWeekManualOverrideAction,
   postKickoffFactualCorrectionAction,
+  previewNflInjuryStatusAction,
   regradeContestsAfterFactualCorrectionAction,
   setWeekPlayerStatusAction,
   syncNflInjuryStatusAction,
@@ -54,6 +55,7 @@ export default async function AdminWeekStatusPage({
     team?: string;
     q?: string;
     synced?: string;
+    previewed?: string;
     matched?: string;
     updated?: string;
     unchanged?: string;
@@ -65,6 +67,11 @@ export default async function AdminWeekStatusPage({
     out?: string;
     unmatched?: string;
     source?: string;
+    sourceRows?: string;
+    officialGs?: string;
+    blankGs?: string;
+    syncedAt?: string;
+    unmatchedPreview?: string;
     syncError?: string;
     rosterSynced?: string;
     rosterUpdated?: string;
@@ -125,17 +132,27 @@ export default async function AdminWeekStatusPage({
         })
       : null;
   const unmatchedNames =
-    unmatchedAudit?.metadata &&
-    typeof unmatchedAudit.metadata === "object" &&
-    unmatchedAudit.metadata !== null &&
-    "unmatchedNames" in unmatchedAudit.metadata &&
-    Array.isArray(
-      (unmatchedAudit.metadata as { unmatchedNames?: unknown }).unmatchedNames,
-    )
-      ? ((unmatchedAudit.metadata as { unmatchedNames: string[] }).unmatchedNames ??
-        [])
-      : [];
+    params.unmatchedPreview
+      ? params.unmatchedPreview.split(" · ").filter(Boolean)
+      : unmatchedAudit?.metadata &&
+          typeof unmatchedAudit.metadata === "object" &&
+          unmatchedAudit.metadata !== null &&
+          "unmatchedNames" in unmatchedAudit.metadata &&
+          Array.isArray(
+            (unmatchedAudit.metadata as { unmatchedNames?: unknown })
+              .unmatchedNames,
+          )
+        ? ((unmatchedAudit.metadata as { unmatchedNames: string[] })
+            .unmatchedNames ?? [])
+        : [];
 
+  const syncBannerActive = Boolean(params.synced || params.previewed);
+  const syncOk =
+    params.synced === "1" || params.previewed === "1"
+      ? true
+      : params.synced === "0" || params.previewed === "0"
+        ? false
+        : null;
   const now = new Date();
   const kickedOffRows = rows.filter(
     (row) => row.kickoffAt != null && kickoffHasPassed(row.kickoffAt, now),
@@ -264,35 +281,57 @@ export default async function AdminWeekStatusPage({
         </div>
       ) : null}
 
-      {params.synced ? (
+      {syncBannerActive ? (
         <div
           className={`mb-4 rounded-md border px-3 py-3 text-sm ${
-            params.synced === "1"
+            syncOk
               ? "border-accent/30 bg-accent-soft text-accent-ink"
               : "border-danger/30 bg-danger-soft text-danger"
           }`}
           role="status"
         >
           <p className="font-medium">
-            Sync NFL Injury Report{" "}
-            {params.synced === "1" ? "complete" : "failed"} · source{" "}
-            {params.source ?? "none"}
+            {params.previewed
+              ? "Preview Injury Sync"
+              : "NFL Injury Sync"}{" "}
+            {syncOk ? "complete ✓" : "failed"} · source {params.source ?? "none"}
           </p>
-          <p className="mt-1">
-            Updated {params.updated ?? "0"} · Unchanged {params.unchanged ?? "0"}{" "}
-            · Skipped manual {params.skippedManual ?? "0"} · Skipped kickoff{" "}
-            {params.skippedKickoff ?? "0"} · Unmatched {params.unmatched ?? "0"}{" "}
-            · Failed {params.failed ?? "0"}
-          </p>
-          <p className="mt-1 text-xs">
-            Matched {params.matched ?? "0"} · Q {params.questionable ?? "0"} · D{" "}
-            {params.doubtful ?? "0"} · Out {params.out ?? "0"}
-          </p>
+          <ul className="mt-2 space-y-0.5 text-sm">
+            <li>
+              {params.sourceRows ?? "—"} NFL.com injury-report rows
+            </li>
+            <li>
+              {params.officialGs ?? "—"} official Game Status ·{" "}
+              {params.blankGs ?? "—"} awaiting official Game Status
+            </li>
+          </ul>
+          <p className="mt-2 font-medium">Fantasy pool</p>
+          <ul className="mt-1 space-y-0.5 text-sm">
+            <li>
+              {params.matched ?? "0"} matched · {params.unmatched ?? "0"} unmatched
+            </li>
+            <li>
+              {params.out ?? "0"} OUT · {params.questionable ?? "0"} QUESTIONABLE ·{" "}
+              {params.doubtful ?? "0"} DOUBTFUL
+            </li>
+            <li>
+              Updated {params.updated ?? "0"} · Unchanged {params.unchanged ?? "0"}{" "}
+              · Skipped kickoff {params.skippedKickoff ?? "0"} · Skipped manual{" "}
+              {params.skippedManual ?? "0"} · Errors {params.failed ?? "0"}
+            </li>
+          </ul>
+          {params.syncedAt ? (
+            <p className="mt-2 text-xs text-muted">
+              Source fetched {params.syncedAt}
+            </p>
+          ) : null}
           <p className="mt-2 text-xs max-w-3xl">
             Blank NFL.com Game Status values do not overwrite weekly
-            availability — those players count as Unchanged and stay UNKNOWN
-            (or keep their existing designation). Injury sync never writes
-            matchup or kickoff fields.
+            availability and do not infer OUT from practice. Injury sync never
+            writes matchup or kickoff fields.
+            {params.previewed
+              ? " This was a dry-run — no designations were written."
+              : ""}
           </p>
           {params.syncError ? (
             <p className="mt-1">{params.syncError}</p>
@@ -404,6 +443,13 @@ export default async function AdminWeekStatusPage({
       {weekId ? (
         <div className="mb-4 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
+            <form action={previewNflInjuryStatusAction}>
+              <input type="hidden" name="weekId" value={weekId} />
+              <input type="hidden" name="position" value={position} />
+              <Button type="submit" variant="secondary">
+                Preview Injury Sync
+              </Button>
+            </form>
             <form action={syncNflInjuryStatusAction}>
               <input type="hidden" name="weekId" value={weekId} />
               <input type="hidden" name="position" value={position} />
@@ -436,11 +482,11 @@ export default async function AdminWeekStatusPage({
             <strong className="font-medium text-ink">
               Sync NFL Injury Report
             </strong>{" "}
-            writes week-specific PlayerWeekAvailability designations from the
-            NFL.com injuries page Game Status column only. Blank Game Status
-            values do not overwrite weekly availability — those rows stay
-            Unchanged (UNKNOWN / existing). Manual overrides are never
-            overwritten. Injury sync never changes matchups or kickoffs.{" "}
+            writes week-specific PlayerWeekAvailability from the NFL.com
+            injuries page <em>Game Status</em> column only. Practice status is
+            shown for context and never infers OUT. Blank Game Status does not
+            overwrite existing designations. Preview is a dry-run of the same
+            pipeline.{" "}
             <strong className="font-medium text-ink">
               Sync NFL Roster Status
             </strong>{" "}
@@ -530,10 +576,11 @@ export default async function AdminWeekStatusPage({
                 <th className="px-3 py-2">Opponent</th>
                 <th className="px-3 py-2">Kickoff</th>
                 <th className="px-3 py-2">Roster status</th>
-                <th className="px-3 py-2">Weekly designation</th>
+                <th className="px-3 py-2">Practice</th>
+                <th className="px-3 py-2">Official game status</th>
+                <th className="px-3 py-2">Source</th>
                 <th className="px-3 py-2">Manual override</th>
                 <th className="px-3 py-2">Note</th>
-                <th className="px-3 py-2">Source</th>
                 <th className="px-3 py-2">Last updated</th>
                 <th className="px-3 py-2">Eligible</th>
                 <th className="px-3 py-2">On boards</th>
@@ -595,31 +642,29 @@ export default async function AdminWeekStatusPage({
                         {row.nflStatus ?? "—"}
                       </Badge>
                     </td>
+                    <td className="px-3 py-2 text-xs text-muted max-w-[9rem]">
+                      {row.presentation.practiceStatus ?? "—"}
+                    </td>
                     <td className="px-3 py-2">
-                      <Badge
-                        tone={
-                          row.resolved.weeklyUnavailable ||
-                          row.resolved.rosterUnavailable
-                            ? "warning"
-                            : row.designation === "QUESTIONABLE" ||
-                                row.designation === "DOUBTFUL" ||
-                                row.designation === "UNKNOWN"
+                      <div className="space-y-1">
+                        <Badge
+                          tone={
+                            row.resolved.weeklyUnavailable ||
+                            row.resolved.rosterUnavailable
                               ? "warning"
-                              : "neutral"
-                        }
-                      >
-                        {row.designation}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2">
-                      {row.manualOverride ? (
-                        <Badge tone="warning">Override</Badge>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-muted max-w-[10rem] truncate">
-                      {row.injuryDescription ?? "—"}
+                              : row.designation === "QUESTIONABLE" ||
+                                  row.designation === "DOUBTFUL" ||
+                                  row.designation === "UNKNOWN"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
+                          {row.presentation.designationLabel}
+                        </Badge>
+                        <p className="text-[11px] text-muted leading-snug">
+                          {row.presentation.sourceBadge}
+                        </p>
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-muted text-xs">
                       {row.sourceType ?? "—"}
@@ -636,6 +681,16 @@ export default async function AdminWeekStatusPage({
                           </a>
                         </>
                       ) : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.manualOverride ? (
+                        <Badge tone="warning">Override</Badge>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-muted max-w-[10rem] truncate">
+                      {row.injuryDescription ?? "—"}
                     </td>
                     <td className="px-3 py-2 text-muted text-xs">
                       {row.observedAt
