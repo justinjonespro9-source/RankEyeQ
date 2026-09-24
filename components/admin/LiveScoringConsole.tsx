@@ -24,6 +24,7 @@ import type { PlayerStatLine } from "@/lib/fantasy/player-scoring";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { PostFinalStatCorrectionPanel } from "@/components/admin/PostFinalStatCorrectionPanel";
 
 type SeasonOption = {
   id: string;
@@ -571,6 +572,8 @@ function LiveScoringConsoleInner({
               >
                 Verify &amp; Finalize Game
               </Button>
+            ) : anyLocked ? (
+              <Badge tone="warning">Weekly FINAL — use Correct Final Stats</Badge>
             ) : (
               <Button
                 type="button"
@@ -578,10 +581,18 @@ function LiveScoringConsoleInner({
                 disabled={pending}
                 onClick={() => setConfirmReopen(true)}
               >
-                Reopen / Correct Final Stats
+                Reopen game stats
               </Button>
             )}
           </div>
+
+          {anyLocked ? (
+            <PostFinalStatCorrectionPanel
+              weekId={weekId}
+              scoringVersion={scoringVersion}
+              lockedEntries={entries.filter((entry) => entry.lockedByFinal)}
+            />
+          ) : null}
 
           {confirmFinalize && selectedGame ? (
             <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">

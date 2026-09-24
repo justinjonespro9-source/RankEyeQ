@@ -208,10 +208,9 @@ export async function gradeContest(
   } catch (error) {
     // Restore prior status when possible so public Results does not stay stuck
     // on GRADING / UNOFFICIAL after a mid-grade failure.
-    const restoreTo =
-      priorStatus === "GRADING" || priorStatus === "FINAL"
-        ? "LOCKED"
-        : priorStatus;
+    // Restore prior status. FINAL stays FINAL so post-FINAL regrade failures
+    // do not silently demote completed contests to LOCKED.
+    const restoreTo = priorStatus === "GRADING" ? "LOCKED" : priorStatus;
     await prisma.rankIQContest
       .update({
         where: { id: contestId },
