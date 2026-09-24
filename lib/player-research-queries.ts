@@ -6,6 +6,7 @@ import {
   type PlayerResearchWindow,
   sortPlayerResearchStats,
 } from "@/lib/player-research";
+import { opponentFromContestEntryGame } from "@/lib/week-scoped-opponent";
 
 export type LeagueWeeklyResultRow = {
   rankableEntryId: string;
@@ -47,6 +48,25 @@ export async function getLeagueWeeklyResults(input: {
       entry.rankableEntryId,
       entry,
     ]) ?? [],
+  );
+
+  const contestEntries = await prisma.contestEntry.findMany({
+    where: { contestId: input.contestId },
+    select: {
+      rankableEntryId: true,
+      game: {
+        select: {
+          id: true,
+          weekId: true,
+          homeTeam: true,
+          awayTeam: true,
+          startsAt: true,
+        },
+      },
+    },
+  });
+  const gameByEntryId = new Map(
+    contestEntries.map((entry) => [entry.rankableEntryId, entry.game]),
   );
 
   const rows =
@@ -111,7 +131,11 @@ export async function getLeagueWeeklyResults(input: {
       rankableEntryId,
       name: row.rankableEntry?.name ?? "Unknown",
       team: row.rankableEntry?.team ?? "—",
-      opponent: row.rankableEntry?.opponent ?? "TBD",
+      opponent: opponentFromContestEntryGame({
+        team: row.rankableEntry?.team ?? "",
+        weekId: contest.weekId,
+        contestGame: gameByEntryId.get(rankableEntryId) ?? null,
+      }),
       actualRank,
       fantasyPoints: row.fantasyPoints,
       selectionRate,

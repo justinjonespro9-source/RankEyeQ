@@ -7,10 +7,45 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { formatRankIqScore } from "@/lib/scoring";
 import { toUiPosition } from "@/lib/contest-defaults";
-import type { MyRanksPositionDashboard } from "@/lib/my-ranks";
+import type {
+  MyRanksPositionDashboard,
+  MyRanksWeekNavItem,
+} from "@/lib/my-ranks";
+import { buildMyRanksHref } from "@/lib/historical-nav";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
 const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
+
+export function MyRanksWeekTabs({
+  weeks,
+  activeWeekId,
+  position,
+}: {
+  weeks: MyRanksWeekNavItem[];
+  activeWeekId: string;
+  position: ContestPosition;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap gap-2" role="navigation" aria-label="Week">
+      {weeks.map((week) => {
+        const selected = week.weekId === activeWeekId;
+        return (
+          <Link
+            key={week.weekId}
+            href={buildMyRanksHref({ weekId: week.weekId, position })}
+            className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
+              selected
+                ? "bg-accent text-ink"
+                : "border border-border bg-surface-elevated text-ink hover:border-ink/30"
+            }`}
+          >
+            {week.weekLabel}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function MyRanksPositionTabs({
   active,
@@ -65,12 +100,18 @@ function EmptyPanel({ title, description }: { title: string; description: string
 export function MyRanksDashboard({
   dashboard,
   variant = "user",
+  isActiveWeek = true,
 }: {
   dashboard: MyRanksPositionDashboard;
   /** Admin control room hides user edit CTA. */
   variant?: "user" | "admin";
+  /** False when viewing a non-active historical week. */
+  isActiveWeek?: boolean;
 }) {
   const uiPos = toUiPosition(dashboard.position).toUpperCase();
+  const isHistorical = dashboard.isFinal || !isActiveWeek;
+  const canEditActive =
+    variant === "user" && isActiveWeek && !dashboard.isFinal;
   const standingsLabel = dashboard.isFinal
     ? "Final Position Results"
     : "Live Position Standings";
@@ -88,8 +129,11 @@ export function MyRanksDashboard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="mb-2 flex flex-wrap gap-2">
+              <Badge tone="neutral">
+                Week {dashboard.weekNumber} · {dashboard.position}
+              </Badge>
               <Badge tone={dashboard.isFinal ? "success" : "warning"}>
-                {dashboard.isFinal ? "Final" : "LIVE / UNOFFICIAL"}
+                {dashboard.isFinal ? "FINAL" : "LIVE / UNOFFICIAL"}
               </Badge>
               {dashboard.submissionStatus ? (
                 <Badge
@@ -132,17 +176,26 @@ export function MyRanksDashboard({
                 {dashboard.originalPicks.length === 0
                   ? variant === "admin"
                     ? "No submission for this position."
-                    : "Submit a board on This Week to track live EYEQ here."
+                    : isHistorical
+                      ? `No ranking submitted for Week ${dashboard.weekNumber} ${dashboard.position}.`
+                      : "Submit a board on This Week to track live EYEQ here."
                   : "Waiting for live scores on picks."}
               </p>
             )}
           </div>
-          {variant === "user" ? (
+          {canEditActive ? (
             <Link
               href={`/rank/${toUiPosition(dashboard.position)}`}
               className="text-sm font-medium text-accent-ink hover:underline"
             >
-              {dashboard.isFinal ? "Back to This Week" : "Edit on This Week"}
+              Edit on This Week
+            </Link>
+          ) : variant === "user" ? (
+            <Link
+              href="/rank"
+              className="text-sm font-medium text-accent-ink hover:underline"
+            >
+              This Week
             </Link>
           ) : null}
         </div>
@@ -155,21 +208,27 @@ export function MyRanksDashboard({
             Your Rankings
           </h2>
           <p className="mt-1 text-sm text-muted">
-            {dashboard.hasSubstitution
-              ? `Effective scoring board with current ${uiPos} standing colors.`
-              : `Predicted order with current ${uiPos} standing colors.`}
+            {dashboard.isFinal
+              ? dashboard.hasSubstitution
+                ? `Scored/effective ranking board (FINAL) — substitutions applied.`
+                : `Scored ranking board (FINAL).`
+              : dashboard.hasSubstitution
+                ? `Effective scoring board with current ${uiPos} standing colors.`
+                : `Predicted order with current ${uiPos} standing colors.`}
           </p>
           {dashboard.originalPicks.length === 0 ? (
             <div className="mt-3">
               <EmptyPanel
-                title={`No ${dashboard.position} board submitted`}
+                title={`No ranking submitted for Week ${dashboard.weekNumber} ${dashboard.position}`}
                 description={
                   variant === "admin"
                     ? "Use Manage Rankings to import or capture this position through the existing workflow."
-                    : "Build or submit this position on This Week, then return here for live tracking."
+                    : isHistorical
+                      ? "Historical weeks are read-only. Switch week or position above to browse other boards."
+                      : "Build or submit this position on This Week, then return here for live tracking."
                 }
               />
-              {variant === "user" ? (
+              {canEditActive ? (
                 <Link
                   href={`/rank/${toUiPosition(dashboard.position)}`}
                   className="mt-3 inline-block text-sm font-medium text-accent-ink hover:underline"
@@ -208,6 +267,7 @@ export function MyRanksDashboard({
                       </p>
                       <p className="mt-0.5 text-xs text-muted">
                         {pick.team}
+                        {pick.opponent ? ` · ${pick.opponent}` : ""}
                         {pick.fantasyPoints != null
                           ? ` · ${pick.fantasyPoints.toFixed(1)} pts`
                           : ""}

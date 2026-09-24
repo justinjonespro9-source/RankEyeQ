@@ -15,6 +15,7 @@ import {
   resolveAllParticipationFromSnapshot,
   selectedCountFromRate,
 } from "@/lib/consensus-group-weighted";
+import { opponentFromContestEntryGame } from "@/lib/week-scoped-opponent";
 
 export type { ConsensusFilter } from "@/lib/consensus-filters";
 export type { ConsensusCallouts, ConsensusEntry, PlayerConfidenceSignals };
@@ -51,7 +52,7 @@ async function loadContestForConsensus(contestId: string) {
     where: { id: contestId },
     include: {
       week: true,
-      entries: { include: { rankableEntry: true } },
+      entries: { include: { rankableEntry: true, game: true } },
       submissions: {
         include: {
           picks: true,
@@ -96,7 +97,11 @@ function buildLiveSegmentConsensus(
       rankableEntryId: entry.rankableEntryId,
       name: entry.rankableEntry.name,
       team: entry.rankableEntry.team,
-      opponent: entry.rankableEntry.opponent,
+      opponent: opponentFromContestEntryGame({
+        team: entry.rankableEntry.team,
+        weekId: contest.weekId,
+        contestGame: entry.game,
+      }),
       actualRank: entry.actualRank,
       fantasyPoints: entry.fantasyPoints,
       predictedRanks: eligible
@@ -185,7 +190,7 @@ async function getContestConsensusFromSnapshot(
     include: {
       week: true,
       pregameSnapshot: { include: { entries: { include: { rankableEntry: true } } } },
-      entries: { include: { rankableEntry: true } },
+      entries: { include: { rankableEntry: true, game: true } },
     },
   });
 
@@ -225,7 +230,11 @@ async function getContestConsensusFromSnapshot(
         fantasyPoints: entry.fantasyPoints,
         name: entry.rankableEntry.name,
         team: entry.rankableEntry.team,
-        opponent: entry.rankableEntry.opponent,
+        opponent: opponentFromContestEntryGame({
+          team: entry.rankableEntry.team,
+          weekId: contest.weekId,
+          contestGame: entry.game,
+        }),
       },
     ]),
   );

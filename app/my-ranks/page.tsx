@@ -5,6 +5,7 @@ import { Container } from "@/components/layout/Container";
 import {
   MyRanksDashboard,
   MyRanksPositionTabs,
+  MyRanksWeekTabs,
 } from "@/components/my-ranks/MyRanksDashboard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -36,7 +37,10 @@ export default async function MyRanksPage({
   }
 
   const params = await searchParams;
-  const weekContext = await getMyRanksWeekContext();
+  const weekContext = await getMyRanksWeekContext({
+    universalProfileId: ctx.universalProfile.id,
+    weekId: params.weekId ?? null,
+  });
   if (!weekContext) {
     return (
       <Container className="py-12 sm:py-16">
@@ -63,7 +67,7 @@ export default async function MyRanksPage({
   const dashboard = await getMyRanksPositionDashboard({
     universalProfileId: ctx.universalProfile.id,
     position,
-    weekId: params.weekId ?? weekContext.weekId,
+    weekId: weekContext.weekId,
   });
 
   if (!dashboard) {
@@ -84,12 +88,19 @@ export default async function MyRanksPage({
     );
   }
 
+  const isActiveWeek = dashboard.weekId === weekContext.activeWeekId;
+  const description = dashboard.isFinal
+    ? `Historical ${dashboard.weekLabel} · ${dashboard.position} — scored/effective board (read-only).`
+    : isActiveWeek
+      ? "Submitted boards, live positional standings, and the perfect board right now — unofficial until the week is final."
+      : `${dashboard.weekLabel} · ${dashboard.position} — live/unofficial tracking.`;
+
   return (
     <Container className="py-12 sm:py-16">
       <SectionHeading
         eyebrow="My Ranks"
         title={`${dashboard.weekLabel} · ${dashboard.position}`}
-        description="Submitted boards, live positional standings, and the perfect board right now — unofficial until the week is final."
+        description={description}
         action={
           <Link
             href="/rank"
@@ -100,12 +111,21 @@ export default async function MyRanksPage({
         }
       />
 
+      <MyRanksWeekTabs
+        weeks={weekContext.weeks}
+        activeWeekId={dashboard.weekId}
+        position={dashboard.position}
+      />
+
       <MyRanksPositionTabs
         active={dashboard.position}
         weekId={dashboard.weekId}
       />
 
-      <MyRanksDashboard dashboard={dashboard} />
+      <MyRanksDashboard
+        dashboard={dashboard}
+        isActiveWeek={isActiveWeek}
+      />
     </Container>
   );
 }

@@ -22,6 +22,8 @@ import {
 import type { EffectiveBoardResult } from "@/lib/reserves/effective-board";
 import { isPromotionUnavailable } from "@/lib/reserves/promotion-status";
 import { getSubmissionForProfile } from "@/lib/submissions";
+import { opponentFromContestEntryGame } from "@/lib/week-scoped-opponent";
+import { resolveMyRanksDefaultWeekId } from "@/lib/historical-nav";
 import type {
   ContestPosition,
   ContestStatus,
@@ -308,11 +310,23 @@ export function buildMyRanksBoardPresentation(input: {
   };
 }
 
-export type MyRanksWeekContext = {
+export type MyRanksWeekNavItem = {
   weekId: string;
   weekLabel: string;
   weekNumber: number;
+  status: string;
+};
+
+export type MyRanksWeekContext = {
+  /** Resolved default / selected week id for the page. */
+  weekId: string;
+  weekLabel: string;
+  weekNumber: number;
+  /** Active (OPEN/LOCKED preferential) season week — for live vs historical UX. */
+  activeWeekId: string;
   positions: ContestPosition[];
+  /** Season weeks for navigation (newest first). */
+  weeks: MyRanksWeekNavItem[];
 };
 
 function toStandingRows(standings: LivePlayerStanding[]): MyRanksStandingRow[] {
@@ -347,14 +361,78 @@ async function getFinalPositionStandings(
   }));
 }
 
-export async function getMyRanksWeekContext(): Promise<MyRanksWeekContext | null> {
+export async function getMyRanksWeekContext(input?: {
+  universalProfileId?: string;
+  weekId?: string | null;
+}): Promise<MyRanksWeekContext | null> {
   const context = await getActiveSeasonAndWeek();
-  if (!context?.week) return null;
+  if (!context?.week || !context.season) return null;
+
+  const weeks = [...context.season.weeks]
+    .map((week) => ({
+      weekId: week.id,
+      weekLabel: week.label,
+      weekNumber: week.weekNumber,
+      status: week.status,
+    }))
+    .sort((a, b) => b.weekNumber - a.weekNumber);
+
+  const activeWeekId = context.week.id;
+  let resolvedWeekId = input?.weekId ?? null;
+
+  if (!resolvedWeekId) {
+    if (input?.universalProfileId) {
+      const eligible = await prisma.rankingSubmission.findMany({
+        where: {
+          universalProfileId: input.universalProfileId,
+          status: { in: ["SUBMITTED", "LOCKED", "GRADED"] },
+          contest: {
+            week: { seasonId: context.season.id, isTest: false },
+          },
+        },
+        select: {
+          contest: {
+            select: {
+              weekId: true,
+              week: { select: { weekNumber: true } },
+            },
+          },
+        },
+      });
+      const submissions = eligible.map((row) => ({
+        weekId: row.contest.weekId,
+        weekNumber: row.contest.week.weekNumber,
+      }));
+      // Dedupe by weekId keeping max weekNumber (identical)
+      const byWeek = new Map<string, number>();
+      for (const row of submissions) {
+        byWeek.set(row.weekId, row.weekNumber);
+      }
+      resolvedWeekId = resolveMyRanksDefaultWeekId({
+        activeWeekId,
+        submissions: [...byWeek.entries()].map(([weekId, weekNumber]) => ({
+          weekId,
+          weekNumber,
+        })),
+      });
+    } else {
+      resolvedWeekId = activeWeekId;
+    }
+  }
+
+  const selected =
+    weeks.find((week) => week.weekId === resolvedWeekId) ??
+    weeks.find((week) => week.weekId === activeWeekId) ??
+    weeks[0];
+  if (!selected) return null;
+
   return {
-    weekId: context.week.id,
-    weekLabel: context.week.label,
-    weekNumber: context.week.weekNumber,
+    weekId: selected.weekId,
+    weekLabel: selected.weekLabel,
+    weekNumber: selected.weekNumber,
+    activeWeekId,
     positions: [...CONTEST_POSITIONS],
+    weeks,
   };
 }
 
@@ -426,6 +504,15 @@ export async function getMyRanksPositionDashboard(input: {
         rankableEntryId: true,
         fantasyPoints: true,
         actualRank: true,
+        game: {
+          select: {
+            id: true,
+            weekId: true,
+            homeTeam: true,
+            awayTeam: true,
+            startsAt: true,
+          },
+        },
       },
     }),
   ]);
@@ -475,12 +562,19 @@ export async function getMyRanksPositionDashboard(input: {
     scoringDepth: rankingDepth,
   });
 
+  const gameByEntryId = new Map(
+    contestEntries.map((entry) => [entry.rankableEntryId, entry.game]),
+  );
   const pickMeta = submission.picks.map((pick) => ({
     rankableEntryId: pick.rankableEntryId,
     predictedRank: pick.predictedRank,
     name: pick.rankableEntry.name,
     team: pick.rankableEntry.team,
-    opponent: pick.rankableEntry.opponent,
+    opponent: opponentFromContestEntryGame({
+      team: pick.rankableEntry.team,
+      weekId: week.id,
+      contestGame: gameByEntryId.get(pick.rankableEntryId) ?? null,
+    }),
     fantasyPoints: pointsById.get(pick.rankableEntryId) ?? null,
     currentActualRank: isFinal
       ? (finalById.get(pick.rankableEntryId) ?? null)

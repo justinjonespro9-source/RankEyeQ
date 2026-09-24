@@ -29,6 +29,10 @@ import { trackEvent } from "@/lib/analytics";
 import { ConsensusDeltaMove } from "@/components/results/ConsensusDeltaMove";
 import { publicPageMetadata } from "@/lib/seo";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
+import {
+  buildMyRanksHref,
+  resultsHref,
+} from "@/lib/historical-nav";
 
 export const metadata: Metadata = publicPageMetadata({
   title: 'Consensus',
@@ -439,13 +443,21 @@ export default async function ConsensusPage({
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <Link
-                    href={`/rank/${position.toLowerCase()}`}
+                    href={
+                      weekId
+                        ? buildMyRanksHref({ weekId, position })
+                        : `/rank/${position.toLowerCase()}`
+                    }
                     className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-ink"
                   >
                     Your ranking board
                   </Link>
                   <Link
-                    href={`/results?weekId=${weekId ?? ""}&position=${position}`}
+                    href={
+                      weekId
+                        ? resultsHref({ weekId, position })
+                        : `/results?position=${position}`
+                    }
                     className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm font-medium text-ink"
                   >
                     Results vs actual

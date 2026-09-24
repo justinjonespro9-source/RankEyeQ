@@ -18,7 +18,14 @@ import { getActiveProfile } from "@/lib/active-profile";
 import { prisma } from "@/lib/db";
 import { getContestResultsView } from "@/lib/results-view";
 import { formatRankIqScore } from "@/lib/scoring";
-import { toUiPosition } from "@/lib/contest-defaults";
+import {
+  buildMyRanksHref,
+  parseContestPosition,
+  resolveResultsSelection,
+  resultsHref,
+  type HistoricalNavContest,
+} from "@/lib/historical-nav";
+import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { publicPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = publicPageMetadata({
@@ -37,6 +44,7 @@ export default async function ResultsPage({
     contestId?: string;
     adminTest?: string;
     weekId?: string;
+    position?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -46,8 +54,9 @@ export default async function ResultsPage({
     adminTestPreview: isAdminTestPreviewRequested(params),
   });
   const activeProfile = await getActiveProfile();
+  const adminTest = includeTest;
 
-  const contests = await prisma.rankIQContest.findMany({
+  const contestsRaw = await prisma.rankIQContest.findMany({
     where: {
       status: { in: ["FINAL", "ARCHIVED"] },
       week: includeTest
@@ -60,10 +69,40 @@ export default async function ResultsPage({
     orderBy: [{ week: { weekNumber: "desc" } }, { position: "asc" }],
   });
 
-  const selectedId = params.contestId ?? contests[0]?.id ?? null;
+  const contests: HistoricalNavContest[] = contestsRaw.map((contest) => ({
+    id: contest.id,
+    weekId: contest.weekId,
+    weekNumber: contest.week.weekNumber,
+    weekLabel: contest.week.label,
+    position: contest.position,
+    status: contest.status,
+  }));
+
+  const selection = resolveResultsSelection({
+    contests,
+    contestId: params.contestId,
+    weekId: params.weekId,
+    position: params.position,
+    defaultPosition: parseContestPosition(params.position, "QB"),
+  });
+
+  const selectedId = selection.selectedContest?.id ?? null;
+  const selectedWeekId = selection.selectedWeekId;
+  const selectedPosition = selection.selectedPosition;
   const view = selectedId
     ? await getContestResultsView(selectedId, activeProfile?.id)
     : null;
+
+  function weekHref(weekId: string) {
+    const position = (selectedPosition ?? "QB") as ContestPosition;
+    // Preserve position when the week has that contest; resolver falls back otherwise.
+    return resultsHref({ weekId, position, adminTest });
+  }
+
+  function positionHref(position: ContestPosition) {
+    if (!selectedWeekId) return "/results";
+    return resultsHref({ weekId: selectedWeekId, position, adminTest });
+  }
 
   return (
     <Container className="py-12 sm:py-16">
@@ -83,18 +122,33 @@ export default async function ResultsPage({
         />
       ) : (
         <>
-          <div className="mb-6 flex flex-wrap gap-2">
-            {contests.map((contest) => (
+          <div className="mb-3 flex flex-wrap gap-2" role="navigation" aria-label="Week">
+            {selection.weeks.map((week) => (
               <Link
-                key={contest.id}
-                href={`/results?contestId=${contest.id}`}
+                key={week.weekId}
+                href={weekHref(week.weekId)}
                 className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
-                  selectedId === contest.id
+                  selectedWeekId === week.weekId
                     ? "bg-accent text-ink"
                     : "border border-border bg-surface-elevated text-ink"
                 }`}
               >
-                {contest.week.label} {contest.position}
+                {week.weekLabel}
+              </Link>
+            ))}
+          </div>
+          <div className="mb-6 flex flex-wrap gap-2" role="navigation" aria-label="Position">
+            {selection.positions.map((position) => (
+              <Link
+                key={position}
+                href={positionHref(position)}
+                className={`inline-flex min-h-10 items-center rounded-md px-3 py-2 text-sm font-medium ${
+                  selectedPosition === position
+                    ? "bg-accent-soft text-ink"
+                    : "border border-border bg-surface-elevated text-ink"
+                }`}
+              >
+                {position}
               </Link>
             ))}
           </div>
@@ -124,10 +178,13 @@ export default async function ResultsPage({
                     : ""}
                 </Badge>
                 <Link
-                  href={`/rank/${toUiPosition(view.contest.position)}`}
+                  href={buildMyRanksHref({
+                    weekId: view.contest.weekId,
+                    position: view.contest.position,
+                  })}
                   className="inline-flex min-h-10 items-center text-sm text-accent-ink hover:underline"
                 >
-                  Ranking board
+                  Your ranking board
                 </Link>
                 <Link
                   href={`/consensus?weekId=${view.contest.weekId}&position=${view.contest.position}`}

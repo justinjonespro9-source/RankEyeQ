@@ -5,6 +5,7 @@ import { getLeagueWeeklyResults } from "@/lib/player-research-queries";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import { scoreContest } from "@/lib/scoring";
 import type { ContestScoreSummary } from "@/types/scoring";
+import { opponentFromContestEntryGame } from "@/lib/week-scoped-opponent";
 
 export async function getContestResultsView(
   contestId: string,
@@ -16,7 +17,7 @@ export async function getContestResultsView(
       week: true,
       season: true,
       entries: {
-        include: { rankableEntry: true },
+        include: { rankableEntry: true, game: true },
         orderBy: [{ actualRank: "asc" }, { rankableEntry: { name: "asc" } }],
       },
     },
@@ -80,10 +81,17 @@ export async function getContestResultsView(
         [...actualById.entries()].map(([id, rank]) => [id, rank]),
       );
 
+      const gameByEntryId = new Map(
+        contest.entries.map((entry) => [entry.rankableEntryId, entry.game]),
+      );
       for (const pick of submission.picks) {
         userPickMeta.set(pick.rankableEntryId, {
           team: pick.rankableEntry.team,
-          opponent: pick.rankableEntry.opponent,
+          opponent: opponentFromContestEntryGame({
+            team: pick.rankableEntry.team,
+            weekId: contest.weekId,
+            contestGame: gameByEntryId.get(pick.rankableEntryId) ?? null,
+          }),
           fantasyPoints: fantasyById.get(pick.rankableEntryId) ?? null,
         });
       }
