@@ -1,4 +1,3 @@
-// @ts-nocheck — vitest mocks use loose shapes
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +46,31 @@ const {
   gradeContestMock: vi.fn(),
   reopenLiveGameMock: vi.fn(),
 }));
+
+/** Loose Prisma find args used by contest/weekStat mocks in this file. */
+type MockFindArgs = {
+  where?: {
+    id?: string;
+    weekId_position?: unknown;
+  };
+  include?: {
+    entries?: unknown;
+    submissions?: unknown;
+  };
+};
+
+type MockAuditCreateArgs = {
+  data?: unknown;
+};
+
+type MockTx = {
+  playerWeekStat: { update: typeof updatePlayerStat };
+  defenseWeekStat: { update: typeof updateDefenseStat };
+  contestEntry: { update: typeof updateContestEntry };
+  adminAuditLog: {
+    create: (args: MockAuditCreateArgs) => Promise<{ id: string }>;
+  };
+};
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -291,7 +315,7 @@ describe("post-FINAL correction validation + preview write-free", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     findUniquePlayerStat.mockResolvedValue(basePlayerStat());
-    findUniqueContest.mockImplementation(async (args: { where?: Record<string, unknown>; include?: unknown }) => {
+    findUniqueContest.mockImplementation(async (args?: MockFindArgs) => {
       if (args?.where?.id === "contest-wr") {
         return {
           id: "contest-wr",
@@ -417,7 +441,7 @@ describe("post-FINAL correction validation + preview write-free", () => {
   });
 
   it("rejects ordinary OPEN contest through post-FINAL path", async () => {
-    findUniqueContest.mockImplementation(async (args: { where?: Record<string, unknown>; include?: unknown }) => {
+    findUniqueContest.mockImplementation(async (args?: MockFindArgs) => {
       if (args?.where?.weekId_position) {
         return {
           id: "contest-wr",
@@ -448,7 +472,7 @@ describe("post-FINAL apply orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     findUniquePlayerStat.mockResolvedValue(basePlayerStat());
-    findUniqueContest.mockImplementation(async (args: { where?: Record<string, unknown>; include?: unknown }) => {
+    findUniqueContest.mockImplementation(async (args?: MockFindArgs) => {
       if (args?.where?.id === "contest-wr" || args?.include?.entries) {
         return {
           id: "contest-wr",
@@ -508,13 +532,13 @@ describe("post-FINAL apply orchestration", () => {
         rankableEntry: { name: "Player B" },
       },
     ]);
-    transaction.mockImplementation(async (fn: (tx: Record<string, unknown>) => Promise<unknown>) =>
+    transaction.mockImplementation(async (fn: (tx: MockTx) => Promise<unknown>) =>
       fn({
         playerWeekStat: { update: updatePlayerStat },
         defenseWeekStat: { update: updateDefenseStat },
         contestEntry: { update: updateContestEntry },
         adminAuditLog: {
-          create: async (args: { where?: Record<string, unknown>; include?: unknown }) => {
+          create: async (args: MockAuditCreateArgs) => {
             createAudit(args.data ?? args);
             return { id: "audit-1" };
           },
