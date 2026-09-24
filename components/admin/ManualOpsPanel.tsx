@@ -14,12 +14,14 @@ import {
   previewFantasyPointsAction,
   previewManualPoolAction,
   previewManualScheduleAction,
+  syncWeekMatchupsAction,
 } from "@/lib/admin-manual-actions";
 import { buildAiSchedulePrompt } from "@/lib/nfl/manual/ai-schedule-prompt";
 import type { ScheduleParseResult } from "@/lib/nfl/manual/parse-schedule";
 import { schedulePreviewIsReadyToSave } from "@/lib/nfl/manual/schedule-preview-state";
 import { regradeWeekContestsAction } from "@/lib/nfl/actions";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import type { OperatorMatchupSyncSummary } from "@/lib/nfl/week-matchup-repair";
 
 const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
 
@@ -43,6 +45,20 @@ export function ManualOpsPanel({
   const [schedulePreview, setSchedulePreview] =
     useState<ScheduleParseResult | null>(null);
   const [schedulePreviewStale, setSchedulePreviewStale] = useState(false);
+  const [scheduleSaveResult, setScheduleSaveResult] = useState<{
+    operatorMessage: string;
+    matchupSummary: OperatorMatchupSyncSummary;
+  } | null>(null);
+  const [syncPreview, setSyncPreview] = useState<{
+    message: string;
+    summary: OperatorMatchupSyncSummary;
+    attentionRows: Array<{
+      name: string;
+      team: string;
+      position: ContestPosition;
+      status: string;
+    }>;
+  } | null>(null);
   const [promptCopied, setPromptCopied] = useState(false);
   const [poolText, setPoolText] = useState("");
   const [poolPosition, setPoolPosition] = useState<ContestPosition | "ALL">(
@@ -105,30 +121,92 @@ export function ManualOpsPanel({
         <p className="mt-1 text-sm text-muted">
           Operator-entered schedule, pools, and fantasy points. No live sports-data
           API. Opponent and kickoff from prior weeks are never carried forward.
+          Saving a schedule also synchronizes existing pool matchups for this week.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={pending || !previousWeekId}
+            onClick={() =>
+              run(async () => {
+                const result = await copyPreviousWeekPoolsAction({
+                  weekId,
+                  sourceWeekId: previousWeekId ?? undefined,
+                });
+                setMessage(
+                  result.ok
+                    ? `Copied pools · retained ${result.result.retained} · added ${result.result.added} · exclusions ${result.result.exclusionsPreserved}`
+                    : result.error,
+                );
+              })
+            }
+          >
+            Copy Previous Week Pools
+          </Button>
+          <p className="max-w-xs text-[11px] leading-snug text-muted">
+            Copies/refreshes pool membership and applicable exclusions from the
+            prior week. Not required merely to synchronize schedule matchups.
+          </p>
+        </div>
         <Button
           type="button"
           size="sm"
           variant="secondary"
-          disabled={pending || !previousWeekId}
+          disabled={pending}
+          onClick={() =>
+            run(
+              async () => {
+                const result = await syncWeekMatchupsAction({
+                  weekId,
+                  apply: false,
+                });
+                if (!result.ok) {
+                  setMessage(result.error);
+                  return;
+                }
+                setSyncPreview({
+                  message: result.message,
+                  summary: result.summary,
+                  attentionRows: result.attentionRows,
+                });
+                setMessage(result.message);
+              },
+              { refresh: false },
+            )
+          }
+        >
+          Preview Sync Matchups
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={pending}
           onClick={() =>
             run(async () => {
-              const result = await copyPreviousWeekPoolsAction({
+              const result = await syncWeekMatchupsAction({
                 weekId,
-                sourceWeekId: previousWeekId ?? undefined,
+                apply: true,
               });
-              setMessage(
-                result.ok
-                  ? `Copied pools · retained ${result.result.retained} · added ${result.result.added} · exclusions ${result.result.exclusionsPreserved}`
-                  : result.error,
-              );
+              if (!result.ok) {
+                setMessage(result.error);
+                return;
+              }
+              setSyncPreview({
+                message: result.message,
+                summary: result.summary,
+                attentionRows: result.attentionRows,
+              });
+              setMessage(result.message);
             })
           }
         >
-          Copy Previous Week Pools
+          Sync Matchups
         </Button>
         <Button
           type="button"
@@ -214,12 +292,22 @@ export function ManualOpsPanel({
       {auditSummary ? (
         <p className="text-xs text-muted">{auditSummary}</p>
       ) : null}
+      {syncPreview ? (
+        <MatchupSyncResultPanel
+          title="Matchup sync"
+          message={syncPreview.message}
+          summary={syncPreview.summary}
+          attentionRows={syncPreview.attentionRows}
+        />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
           <h3 className="font-medium text-ink">Paste weekly schedule</h3>
           <p className="mt-1 text-xs text-muted">
-            Away | Home | Kickoff — e.g. GB | MIN | 2026-09-13 12:00 CT
+            Away | Home | Kickoff — e.g. GB | MIN | 2026-09-13 12:00 CT. After
+            save, existing pool entries are linked to this week&apos;s games
+            (stamp-only — does not copy or rebuild pools).
           </p>
 
           <div className="mt-3 rounded-md border border-border bg-surface px-3 py-3">
@@ -296,12 +384,14 @@ export function ManualOpsPanel({
                   });
                   if (result.ok) {
                     setSchedulePreviewStale(false);
+                    setScheduleSaveResult({
+                      operatorMessage: result.result.operatorMessage,
+                      matchupSummary: result.result.matchupSummary,
+                    });
+                    setMessage(result.result.operatorMessage);
+                  } else {
+                    setMessage(result.error);
                   }
-                  setMessage(
-                    result.ok
-                      ? `Schedule saved · created ${result.result.created} · updated ${result.result.updated}`
-                      : result.error,
-                  );
                 })
               }
             >
@@ -315,6 +405,14 @@ export function ManualOpsPanel({
               weekNumber={weekNumber}
               preview={schedulePreview}
               stale={schedulePreviewStale}
+            />
+          ) : null}
+
+          {scheduleSaveResult ? (
+            <MatchupSyncResultPanel
+              title="Schedule save result"
+              message={scheduleSaveResult.operatorMessage}
+              summary={scheduleSaveResult.matchupSummary}
             />
           ) : null}
         </div>
@@ -504,11 +602,64 @@ export function ManualOpsPanel({
       </div>
 
       {message ? (
-        <p className="text-sm text-accent-ink" role="status">
+        <p className="whitespace-pre-line text-sm text-accent-ink" role="status">
           {message}
         </p>
       ) : null}
     </section>
+  );
+}
+
+function MatchupSyncResultPanel({
+  title,
+  message,
+  summary,
+  attentionRows,
+}: {
+  title: string;
+  message: string;
+  summary: OperatorMatchupSyncSummary;
+  attentionRows?: Array<{
+    name: string;
+    team: string;
+    position: ContestPosition;
+    status: string;
+  }>;
+}) {
+  const warning = summary.needsAttention > 0 || summary.skippedDueToLifecycle;
+  return (
+    <div
+      className={`rounded-md border px-3 py-3 text-sm ${
+        warning
+          ? "border-warning/40 bg-warning-soft/40"
+          : "border-success/40 bg-success-soft/30"
+      }`}
+      role="status"
+    >
+      <p className="font-semibold uppercase tracking-wide text-ink">{title}</p>
+      <p className="mt-1 whitespace-pre-line text-sm text-ink">{message}</p>
+      <ul className="mt-2 space-y-0.5 text-xs text-muted">
+        <li>
+          Pool entries: {summary.totalEntries} · linked {summary.linkedCorrectly} ·
+          repaired {summary.updated} · already correct {summary.alreadyCorrect}
+        </li>
+        <li>
+          Unmatched {summary.unmatched} · ambiguous {summary.ambiguous}
+          {summary.staleCorrected > 0
+            ? ` · stale corrected ${summary.staleCorrected}`
+            : ""}
+        </li>
+      </ul>
+      {attentionRows && attentionRows.length > 0 ? (
+        <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs text-warning">
+          {attentionRows.map((row) => (
+            <li key={`${row.position}-${row.name}-${row.team}`}>
+              {row.position} {row.name} ({row.team}) — {row.status}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

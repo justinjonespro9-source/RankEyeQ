@@ -56,3 +56,25 @@ export function findGameForTeam<
       teamCodesMatch(game.homeTeam, team) || teamCodesMatch(game.awayTeam, team),
   );
 }
+
+/**
+ * Resolve a team's week game with ambiguity detection.
+ * Prefer this over findGameForTeam when linking ContestEntry.gameId —
+ * never guess when a team appears on more than one game.
+ */
+export type WeekGameResolution<T> =
+  | { status: "unique"; game: T }
+  | { status: "ambiguous"; games: T[] }
+  | { status: "none" };
+
+export function resolveWeekGameForTeam<
+  T extends { homeTeam: string; awayTeam: string },
+>(games: T[], team: string): WeekGameResolution<T> {
+  const matches = games.filter(
+    (game) =>
+      teamCodesMatch(game.homeTeam, team) || teamCodesMatch(game.awayTeam, team),
+  );
+  if (matches.length === 0) return { status: "none" };
+  if (matches.length > 1) return { status: "ambiguous", games: matches };
+  return { status: "unique", game: matches[0]! };
+}

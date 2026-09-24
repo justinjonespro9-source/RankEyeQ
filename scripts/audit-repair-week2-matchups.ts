@@ -124,6 +124,8 @@ async function main() {
   const report = await auditRepairWeekMatchups({
     weekId: week.id,
     apply,
+    // Controlled CLI repair may target any week; operator UI paths respect lifecycle.
+    respectLifecycle: false,
   });
 
   console.log("\n=== Matchup repair summary ===");

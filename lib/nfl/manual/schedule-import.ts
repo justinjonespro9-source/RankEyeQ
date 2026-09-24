@@ -13,6 +13,13 @@ import {
   scheduleKeepExternalIds,
   type OrphanGameCleanupReport,
 } from "@/lib/nfl/orphan-game-cleanup";
+import {
+  auditRepairWeekMatchups,
+  formatScheduleSaveMatchupMessage,
+  summarizeMatchupSync,
+  type OperatorMatchupSyncSummary,
+  type WeekMatchupRepairReport,
+} from "@/lib/nfl/week-matchup-repair";
 
 export async function recordManualImport(input: {
   adminUserId: string;
@@ -61,7 +68,11 @@ export async function commitManualSchedule(input: {
   created: number;
   updated: number;
   games: number;
+  uniqueTeamCount: number;
   orphanCleanup: OrphanGameCleanupReport | null;
+  matchupSync: WeekMatchupRepairReport;
+  matchupSummary: OperatorMatchupSyncSummary;
+  operatorMessage: string;
 }> {
   const week = await prisma.week.findUniqueOrThrow({
     where: { id: input.weekId },
@@ -74,6 +85,7 @@ export async function commitManualSchedule(input: {
 
   let created = 0;
   let updated = 0;
+  const scheduleGameIds: string[] = [];
 
   for (const row of parsed.rows) {
     const externalId = `manual-${week.season.year}-w${week.weekNumber}-${row.awayTeam}-${row.homeTeam}`;
@@ -83,7 +95,7 @@ export async function commitManualSchedule(input: {
       },
     });
     if (!existing) {
-      await prisma.nflGame.create({
+      const createdGame = await prisma.nflGame.create({
         data: {
           provider: "manual",
           externalId,
@@ -97,6 +109,7 @@ export async function commitManualSchedule(input: {
           status: "SCHEDULED",
         },
       });
+      scheduleGameIds.push(createdGame.id);
       created += 1;
     } else {
       await prisma.nflGame.update({
@@ -111,6 +124,7 @@ export async function commitManualSchedule(input: {
           startsAt: row.kickoff!,
         },
       });
+      scheduleGameIds.push(existing.id);
       updated += 1;
     }
   }
@@ -169,6 +183,15 @@ export async function commitManualSchedule(input: {
     await applyWeekTimingFromSchedule(week.id);
   }
 
+  // Stamp-only matchup sync BEFORE orphan cleanup so entries leave obsolete
+  // games and those orphans can then be deleted safely.
+  const matchupSync = await auditRepairWeekMatchups({
+    weekId: week.id,
+    apply: true,
+    respectLifecycle: true,
+    scheduleGameIds,
+  });
+
   let orphanCleanup: OrphanGameCleanupReport | null = null;
   if (input.replaceOrphanGames !== false) {
     const keepExternalIds = scheduleKeepExternalIds({
@@ -187,11 +210,28 @@ export async function commitManualSchedule(input: {
     }
   }
 
+  const uniqueTeamCount = parsed.summary.uniqueTeamCount;
+  const matchupSummary = summarizeMatchupSync({
+    report: matchupSync,
+    uniqueTeamCount,
+  });
+  const operatorMessage = formatScheduleSaveMatchupMessage({
+    created,
+    updated,
+    games: parsed.rows.length,
+    uniqueTeamCount,
+    summary: matchupSummary,
+  });
+
   return {
     created,
     updated,
     games: parsed.rows.length,
+    uniqueTeamCount,
     orphanCleanup,
+    matchupSync,
+    matchupSummary,
+    operatorMessage,
   };
 }
 

@@ -23,6 +23,12 @@ import {
   commitManualSchedule,
   previewManualSchedule,
 } from "@/lib/nfl/manual/schedule-import";
+import {
+  auditRepairWeekMatchups,
+  formatPreviewSyncMatchupsMessage,
+  formatSyncMatchupsMessage,
+  summarizeMatchupSync,
+} from "@/lib/nfl/week-matchup-repair";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
@@ -89,7 +95,14 @@ export async function commitManualScheduleAction(input: {
       action: "manual.schedule_imported",
       entityType: "Week",
       entityId: input.weekId,
-      metadata: result,
+      metadata: {
+        created: result.created,
+        updated: result.updated,
+        games: result.games,
+        uniqueTeamCount: result.uniqueTeamCount,
+        matchupSummary: result.matchupSummary,
+        orphanCleanup: result.orphanCleanup,
+      },
     });
     revalidateManual(input.weekId);
     return { ok: true as const, result };
@@ -97,6 +110,61 @@ export async function commitManualScheduleAction(input: {
     return {
       ok: false as const,
       error: error instanceof Error ? error.message : "Schedule import failed",
+    };
+  }
+}
+
+/**
+ * Stamp-only Sync Matchups for an existing week schedule.
+ * Dry-run (apply=false) reports counts; apply=true writes ContestEntry.gameId.
+ */
+export async function syncWeekMatchupsAction(input: {
+  weekId: string;
+  apply?: boolean;
+}) {
+  const admin = await assertAdmin();
+  await assertManualRateLimit();
+  try {
+    const apply = Boolean(input.apply);
+    const report = await auditRepairWeekMatchups({
+      weekId: input.weekId,
+      apply,
+      respectLifecycle: true,
+    });
+    const summary = summarizeMatchupSync({ report });
+    if (apply) {
+      await logAdminAction({
+        adminUserId: admin.user.id,
+        action: "manual.matchups_synced",
+        entityType: "Week",
+        entityId: input.weekId,
+        metadata: { summary },
+      });
+      revalidateManual(input.weekId);
+    }
+    return {
+      ok: true as const,
+      applied: report.applied,
+      summary,
+      message: apply
+        ? formatSyncMatchupsMessage(summary)
+        : formatPreviewSyncMatchupsMessage(summary),
+      attentionRows: report.rows
+        .filter(
+          (row) => row.status === "unmatched" || row.status === "ambiguous",
+        )
+        .slice(0, 25)
+        .map((row) => ({
+          name: row.name,
+          team: row.team,
+          position: row.position,
+          status: row.status,
+        })),
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : "Matchup sync failed",
     };
   }
 }
