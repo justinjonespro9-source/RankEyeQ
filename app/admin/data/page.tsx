@@ -136,6 +136,8 @@ export default async function AdminDataPage({
             <ManualOpsPanel
               weekId={weekId}
               weekLabel={selectedWeek.label}
+              seasonYear={activeSeason.year}
+              weekNumber={selectedWeek.weekNumber}
               previousWeekId={
                 weeks
                   .filter((week) => week.weekNumber < selectedWeek.weekNumber)

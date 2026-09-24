@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { evaluateWeeklyEligibility } from "@/lib/nfl/manual/eligibility";
+import { buildAiSchedulePrompt } from "@/lib/nfl/manual/ai-schedule-prompt";
 import { parseFantasyPointsPaste } from "@/lib/nfl/manual/parse-fantasy-points";
 import { parseWeeklyPoolPaste } from "@/lib/nfl/manual/parse-pool";
 import { parseWeeklySchedulePaste } from "@/lib/nfl/manual/parse-schedule";
@@ -67,6 +68,29 @@ CHI | DET | 2026-09-13 12:00 CT
       homeTeam: "MIN",
     });
     expect(parsed.rows[0].kickoff).toBeInstanceOf(Date);
+    expect(parsed.rows[0].kickoffLabel).toMatch(/2026-09-13 \d{2}:\d{2} CT/);
+    expect(parsed.summary.structuralPassed).toBe(true);
+    expect(parsed.summary.completeness).toBe("VERIFY_SLATE");
+  });
+
+  it("normalizes supported aliases to canonical abbreviations", () => {
+    const parsed = parseWeeklySchedulePaste(`
+JAC | WSH | 2026-09-13 12:00 CT
+`);
+    expect(parsed.ready).toBe(true);
+    expect(parsed.rows[0]).toMatchObject({
+      awayTeam: "JAX",
+      homeTeam: "WAS",
+    });
+  });
+
+  it("blocks unknown team abbreviations after normalization", () => {
+    const parsed = parseWeeklySchedulePaste(`
+XYZ | MIN | 2026-09-13 12:00 CT
+`);
+    expect(parsed.ready).toBe(false);
+    expect(parsed.rows[0]?.issues).toContain("unknown_team");
+    expect(parsed.blockers.some((b) => b.includes("unknown team"))).toBe(true);
   });
 
   it("flags duplicate teams, self-matchups, and duplicate games", () => {
@@ -74,10 +98,121 @@ CHI | DET | 2026-09-13 12:00 CT
 GB | MIN | 2026-09-13 12:00 CT
 MIN | CHI | 2026-09-13 15:25 CT
 DET | DET | 2026-09-13 12:00 CT
+GB | CHI | 2026-09-13 12:00 CT
 `);
     expect(parsed.ready).toBe(false);
     expect(parsed.blockers.some((b) => b.includes("duplicate team"))).toBe(true);
     expect(parsed.blockers.some((b) => b.includes("self matchup"))).toBe(true);
+  });
+
+  it("blocks duplicate game pairs", () => {
+    const parsed = parseWeeklySchedulePaste(`
+GB | MIN | 2026-09-13 12:00 CT
+MIN | GB | 2026-09-13 15:25 CT
+`);
+    expect(parsed.ready).toBe(false);
+    expect(parsed.blockers.some((b) => b.includes("duplicate game"))).toBe(true);
+  });
+
+  it("blocks invalid kickoff timestamps", () => {
+    const parsed = parseWeeklySchedulePaste(`
+GB | MIN | not-a-time
+`);
+    expect(parsed.ready).toBe(false);
+    expect(parsed.rows[0]?.issues).toContain("invalid_kickoff");
+  });
+
+  it("allows a bye-week-sized slate as structurally valid", () => {
+    // 14 games / 28 teams — incomplete vs full slate, but structurally ok
+    const lines = [
+      "ATL | GB | 2026-09-24 19:15 CT",
+      "LAC | BUF | 2026-09-27 12:00 CT",
+      "CAR | CLE | 2026-09-27 12:00 CT",
+      "NYJ | DET | 2026-09-27 12:00 CT",
+      "HOU | IND | 2026-09-27 12:00 CT",
+      "NE | JAX | 2026-09-27 12:00 CT",
+      "KC | MIA | 2026-09-27 12:00 CT",
+      "TEN | NYG | 2026-09-27 12:00 CT",
+      "CIN | PIT | 2026-09-27 12:00 CT",
+      "SEA | WAS | 2026-09-27 12:00 CT",
+      "ARI | SF | 2026-09-27 15:05 CT",
+      "MIN | TB | 2026-09-27 15:05 CT",
+      "BAL | DAL | 2026-09-27 15:25 CT",
+      "LV | NO | 2026-09-27 15:25 CT",
+    ].join("\n");
+    const parsed = parseWeeklySchedulePaste(lines);
+    expect(parsed.ready).toBe(true);
+    expect(parsed.summary.gameCount).toBe(14);
+    expect(parsed.summary.uniqueTeamCount).toBe(28);
+    expect(parsed.summary.absentTeams).toEqual(
+      expect.arrayContaining(["CHI", "DEN", "LAR", "PHI"]),
+    );
+    expect(parsed.summary.completeness).toBe("VERIFY_SLATE");
+  });
+
+  it("marks a full 16-game slate as FULL completeness", () => {
+    const lines = [
+      "ATL | GB | 2026-09-24 19:15 CT",
+      "LAC | BUF | 2026-09-27 12:00 CT",
+      "CAR | CLE | 2026-09-27 12:00 CT",
+      "NYJ | DET | 2026-09-27 12:00 CT",
+      "HOU | IND | 2026-09-27 12:00 CT",
+      "NE | JAX | 2026-09-27 12:00 CT",
+      "KC | MIA | 2026-09-27 12:00 CT",
+      "TEN | NYG | 2026-09-27 12:00 CT",
+      "CIN | PIT | 2026-09-27 12:00 CT",
+      "SEA | WAS | 2026-09-27 12:00 CT",
+      "ARI | SF | 2026-09-27 15:05 CT",
+      "MIN | TB | 2026-09-27 15:05 CT",
+      "BAL | DAL | 2026-09-27 15:25 CT",
+      "LV | NO | 2026-09-27 15:25 CT",
+      "LAR | DEN | 2026-09-27 19:20 CT",
+      "PHI | CHI | 2026-09-28 19:15 CT",
+    ].join("\n");
+    const parsed = parseWeeklySchedulePaste(lines);
+    expect(parsed.ready).toBe(true);
+    expect(parsed.summary.gameCount).toBe(16);
+    expect(parsed.summary.uniqueTeamCount).toBe(32);
+    expect(parsed.summary.absentTeams).toEqual([]);
+    expect(parsed.summary.completeness).toBe("FULL");
+  });
+});
+
+describe("AI schedule prompt helper", () => {
+  it("dynamically uses season year and week number", () => {
+    const w3 = buildAiSchedulePrompt({ seasonYear: 2026, weekNumber: 3 });
+    const w10 = buildAiSchedulePrompt({ seasonYear: 2027, weekNumber: 10 });
+    expect(w3).toContain("2026 NFL Week 3");
+    expect(w3).not.toContain("2026 NFL Week 4");
+    expect(w10).toContain("2027 NFL Week 10");
+    expect(w10).not.toContain("2026 NFL Week 3");
+  });
+
+  it("requires the exact paste format and canonical abbreviations", () => {
+    const prompt = buildAiSchedulePrompt({ seasonYear: 2026, weekNumber: 4 });
+    expect(prompt).toContain("AWAY | HOME | YYYY-MM-DD HH:MM CT");
+    expect(prompt).toContain("JAX");
+    expect(prompt).toContain("WAS");
+    expect(prompt).toContain("preferably NFL.com");
+    expect(prompt).toContain("Return ONLY the paste-ready schedule lines");
+  });
+});
+
+describe("schedule preview save-readiness state", () => {
+  it("invalidates READY when preview becomes stale after input change", async () => {
+    const { schedulePreviewIsReadyToSave } = await import(
+      "@/lib/nfl/manual/schedule-preview-state"
+    );
+    expect(
+      schedulePreviewIsReadyToSave({ ready: true }, false),
+    ).toBe(true);
+    expect(
+      schedulePreviewIsReadyToSave({ ready: true }, true),
+    ).toBe(false);
+    expect(
+      schedulePreviewIsReadyToSave({ ready: false }, false),
+    ).toBe(false);
+    expect(schedulePreviewIsReadyToSave(null, false)).toBe(false);
   });
 });
 

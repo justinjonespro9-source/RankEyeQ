@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import {
@@ -15,6 +15,9 @@ import {
   previewManualPoolAction,
   previewManualScheduleAction,
 } from "@/lib/admin-manual-actions";
+import { buildAiSchedulePrompt } from "@/lib/nfl/manual/ai-schedule-prompt";
+import type { ScheduleParseResult } from "@/lib/nfl/manual/parse-schedule";
+import { schedulePreviewIsReadyToSave } from "@/lib/nfl/manual/schedule-preview-state";
 import { regradeWeekContestsAction } from "@/lib/nfl/actions";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
@@ -23,16 +26,24 @@ const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
 export function ManualOpsPanel({
   weekId,
   weekLabel,
+  seasonYear,
+  weekNumber,
   previousWeekId,
 }: {
   weekId: string;
   weekLabel: string;
+  seasonYear: number;
+  weekNumber: number;
   previousWeekId: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleText, setScheduleText] = useState("");
+  const [schedulePreview, setSchedulePreview] =
+    useState<ScheduleParseResult | null>(null);
+  const [schedulePreviewStale, setSchedulePreviewStale] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [poolText, setPoolText] = useState("");
   const [poolPosition, setPoolPosition] = useState<ContestPosition | "ALL">(
     "ALL",
@@ -44,15 +55,45 @@ export function ManualOpsPanel({
   const [confirmCreates, setConfirmCreates] = useState(false);
   const [auditSummary, setAuditSummary] = useState<string | null>(null);
 
-  function run(action: () => Promise<void>) {
+  const aiSchedulePrompt = useMemo(
+    () => buildAiSchedulePrompt({ seasonYear, weekNumber }),
+    [seasonYear, weekNumber],
+  );
+
+  const scheduleReadyToSave = schedulePreviewIsReadyToSave(
+    schedulePreview,
+    schedulePreviewStale,
+  );
+
+  function run(action: () => Promise<void>, options?: { refresh?: boolean }) {
     startTransition(async () => {
       try {
         await action();
-        router.refresh();
+        if (options?.refresh !== false) {
+          router.refresh();
+        }
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Action failed");
       }
     });
+  }
+
+  function onScheduleTextChange(value: string) {
+    setScheduleText(value);
+    if (schedulePreview) {
+      setSchedulePreviewStale(true);
+    }
+  }
+
+  async function copyAiPrompt() {
+    try {
+      await navigator.clipboard.writeText(aiSchedulePrompt);
+      setPromptCopied(true);
+      setMessage("AI schedule prompt copied");
+      window.setTimeout(() => setPromptCopied(false), 2000);
+    } catch {
+      setMessage("Unable to copy prompt — select and copy manually");
+    }
   }
 
   return (
@@ -180,9 +221,33 @@ export function ManualOpsPanel({
           <p className="mt-1 text-xs text-muted">
             Away | Home | Kickoff — e.g. GB | MIN | 2026-09-13 12:00 CT
           </p>
+
+          <div className="mt-3 rounded-md border border-border bg-surface px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-ink">AI Schedule Prompt</p>
+                <p className="mt-0.5 text-xs text-muted">
+                  Copy a prompt for {seasonYear} NFL Week {weekNumber}, then paste
+                  the AI output above. Preview remains the safety gate.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => {
+                  void copyAiPrompt();
+                }}
+              >
+                {promptCopied ? "Copied" : "Copy Prompt"}
+              </Button>
+            </div>
+          </div>
+
           <textarea
             value={scheduleText}
-            onChange={(event) => setScheduleText(event.target.value)}
+            onChange={(event) => onScheduleTextChange(event.target.value)}
             rows={8}
             className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
           />
@@ -193,16 +258,21 @@ export function ManualOpsPanel({
               variant="secondary"
               disabled={pending}
               onClick={() =>
-                run(async () => {
-                  const result = await previewManualScheduleAction({
-                    text: scheduleText,
-                  });
-                  setMessage(
-                    result.preview.ready
-                      ? `Schedule ready · ${result.preview.rows.length} games`
-                      : result.preview.blockers[0] ?? "Schedule not ready",
-                  );
-                })
+                run(
+                  async () => {
+                    const result = await previewManualScheduleAction({
+                      text: scheduleText,
+                    });
+                    setSchedulePreview(result.preview);
+                    setSchedulePreviewStale(false);
+                    setMessage(
+                      result.preview.ready
+                        ? `Schedule preview · ${result.preview.summary.gameCount} games · READY TO SAVE`
+                        : `Schedule preview · BLOCKED · ${result.preview.blockers[0] ?? "fix rows"}`,
+                    );
+                  },
+                  { refresh: false },
+                )
               }
             >
               Preview schedule
@@ -210,13 +280,23 @@ export function ManualOpsPanel({
             <Button
               type="button"
               size="sm"
-              disabled={pending}
+              disabled={pending || (schedulePreview != null && !scheduleReadyToSave)}
+              title={
+                schedulePreview != null && !scheduleReadyToSave
+                  ? schedulePreviewStale
+                    ? "Schedule changed — Preview again before saving"
+                    : "Fix blocking errors before saving"
+                  : undefined
+              }
               onClick={() =>
                 run(async () => {
                   const result = await commitManualScheduleAction({
                     weekId,
                     text: scheduleText,
                   });
+                  if (result.ok) {
+                    setSchedulePreviewStale(false);
+                  }
                   setMessage(
                     result.ok
                       ? `Schedule saved · created ${result.result.created} · updated ${result.result.updated}`
@@ -228,6 +308,15 @@ export function ManualOpsPanel({
               Save schedule
             </Button>
           </div>
+
+          {schedulePreview ? (
+            <SchedulePreviewPanel
+              seasonYear={seasonYear}
+              weekNumber={weekNumber}
+              preview={schedulePreview}
+              stale={schedulePreviewStale}
+            />
+          ) : null}
         </div>
 
         <div>
@@ -420,5 +509,137 @@ export function ManualOpsPanel({
         </p>
       ) : null}
     </section>
+  );
+}
+
+function SchedulePreviewPanel({
+  seasonYear,
+  weekNumber,
+  preview,
+  stale,
+}: {
+  seasonYear: number;
+  weekNumber: number;
+  preview: ScheduleParseResult;
+  stale: boolean;
+}) {
+  const { summary } = preview;
+  const invalidAbbr = preview.rows.filter((row) =>
+    row.issues.includes("unknown_team"),
+  ).length;
+  const invalidKickoff = preview.rows.filter((row) =>
+    row.issues.includes("invalid_kickoff"),
+  ).length;
+  const duplicateGames = preview.rows.filter((row) =>
+    row.issues.includes("duplicate_game"),
+  ).length;
+  const duplicateTeams = preview.rows.filter((row) =>
+    row.issues.includes("duplicate_team"),
+  ).length;
+
+  return (
+    <div
+      className={`mt-3 rounded-md border px-3 py-3 text-sm ${
+        stale
+          ? "border-warning/40 bg-warning-soft/40"
+          : preview.ready
+            ? "border-success/40 bg-success-soft/30"
+            : "border-danger/40 bg-danger-soft/40"
+      }`}
+      role="status"
+    >
+      <p className="font-semibold uppercase tracking-wide text-ink">
+        Schedule Preview — {seasonYear} Week {weekNumber}
+      </p>
+      {stale ? (
+        <p className="mt-1 text-xs font-medium text-warning">
+          Input changed since last Preview — re-run Preview before saving.
+        </p>
+      ) : null}
+      <ul className="mt-2 space-y-0.5 text-xs text-muted">
+        <li>{summary.gameCount} games parsed</li>
+        <li>{summary.teamAppearanceCount} team appearances</li>
+        <li>{summary.uniqueTeamCount} unique teams</li>
+        <li>{duplicateGames} duplicate games</li>
+        <li>{duplicateTeams} duplicate team appearances</li>
+        <li>{invalidAbbr} invalid team abbreviations</li>
+        <li>{invalidKickoff} invalid kickoff timestamps</li>
+        {summary.absentTeams.length > 0 ? (
+          <li>
+            {summary.absentTeams.length} teams absent:{" "}
+            {summary.absentTeams.join(", ")}
+          </li>
+        ) : (
+          <li>0 teams absent</li>
+        )}
+      </ul>
+
+      <div className="mt-3 space-y-1 text-xs">
+        <p className="font-medium text-ink">
+          Structural validation:{" "}
+          {summary.structuralPassed ? "PASSED" : "FAILED"}
+        </p>
+        <p className="font-medium text-ink">
+          Completeness:{" "}
+          {summary.completeness === "FULL"
+            ? "FULL SLATE"
+            : summary.completeness === "VERIFY_SLATE"
+              ? "VERIFY SLATE"
+              : "BLOCKED"}
+        </p>
+        {!stale && preview.ready ? (
+          <p className="font-semibold text-success">READY TO SAVE</p>
+        ) : null}
+        {!stale && !preview.ready ? (
+          <p className="font-semibold text-danger">BLOCKED — FIX BEFORE SAVING</p>
+        ) : null}
+      </div>
+
+      {preview.blockers.length > 0 ? (
+        <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-danger">
+          {preview.blockers.map((blocker) => (
+            <li key={blocker}>{blocker}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {preview.rows.length > 0 ? (
+        <div className="mt-3 overflow-x-auto">
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+            Away | Home | Kickoff CT
+          </p>
+          <table className="w-full min-w-[20rem] border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-border text-left text-muted">
+                <th className="py-1 pr-2 font-medium">Away</th>
+                <th className="py-1 pr-2 font-medium">Home</th>
+                <th className="py-1 font-medium">Kickoff CT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.rows.map((row) => (
+                <tr
+                  key={`${row.lineNumber}-${row.raw}`}
+                  className={
+                    row.issues.length > 0
+                      ? "border-b border-border/60 text-danger"
+                      : "border-b border-border/60 text-ink"
+                  }
+                >
+                  <td className="py-1 pr-2 font-mono">{row.awayTeam || "—"}</td>
+                  <td className="py-1 pr-2 font-mono">{row.homeTeam || "—"}</td>
+                  <td className="py-1 font-mono">
+                    {row.kickoffLabel ?? "—"}
+                    {row.issues.length > 0
+                      ? ` · ${row.issues.join(", ").replaceAll("_", " ")}`
+                      : ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
 }

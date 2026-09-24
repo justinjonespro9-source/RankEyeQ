@@ -1,7 +1,15 @@
+import { NFL_TEAMS } from "@/lib/nfl-schedule";
 import { parseChicagoDateTimeLocal, zonedLocalToUtc } from "@/lib/timing/chicago";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 
 const POSITIONS = new Set(["QB", "RB", "WR", "TE", "DEF"]);
+
+/** Canonical RankEyeQ NFL abbreviations (source: `NFL_TEAMS`). */
+export const CANONICAL_NFL_TEAM_ABBRS: ReadonlySet<string> = new Set(
+  NFL_TEAMS.map((team) => team.abbr),
+);
+
+export const CANONICAL_NFL_TEAM_ABBR_LIST = NFL_TEAMS.map((team) => team.abbr);
 
 export function splitDelimitedLine(line: string): string[] {
   if (line.includes("|")) {
@@ -125,6 +133,12 @@ export function normalizeTeamAbbr(raw: string) {
   const upper = raw.trim().toUpperCase().replace(/\./g, "");
   if (!upper) return upper;
   return TEAM_CODE_ALIASES[upper] ?? upper;
+}
+
+/** True when the code normalizes to one of the canonical 32 NFL abbreviations. */
+export function isCanonicalNflTeamAbbr(raw: string) {
+  const normalized = normalizeTeamAbbr(raw);
+  return Boolean(normalized) && CANONICAL_NFL_TEAM_ABBRS.has(normalized);
 }
 
 /** True when two team codes refer to the same franchise after alias normalization. */

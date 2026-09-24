@@ -318,6 +318,8 @@ export default async function AdminCommandCenterPage({
               <ManualOpsPanel
                 weekId={week.id}
                 weekLabel={week.label}
+                seasonYear={week.season.year}
+                weekNumber={week.weekNumber}
                 previousWeekId={previousWeekId}
               />
             </div>
