@@ -27,7 +27,7 @@ import {
 } from "@/lib/timing/chicago";
 
 export const metadata: Metadata = {
-  title: "Admin command center",
+  title: "Weekly Ops · Admin",
   description: "Weekly RankEyeQ operator workflow.",
 };
 
@@ -52,12 +52,12 @@ export default async function AdminCommandCenterPage({
       <AdminBanner />
       <AdminNav current="/admin" />
       <SectionHeading
-        eyebrow="Operator"
-        title="Weekly command center"
+        eyebrow="Weekly Ops"
+        title="Weekly Ops"
         description={
           manualMode
             ? "Manual NFL data mode: paste schedule/pools/results, then lock, grade, and finalize — no paid sports API."
-            : "One flow for NFL week setup, data, AI boards, lock/reveal, live stats, and finalization."
+            : "Operating cockpit for NFL week setup, data, AI boards, lock/reveal, live stats, and finalization."
         }
       />
 

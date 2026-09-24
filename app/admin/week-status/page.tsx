@@ -29,7 +29,7 @@ import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
 export const metadata: Metadata = {
-  title: "Week status · Admin",
+  title: "Availability · Admin",
   description:
     "Update weekly player availability (injury/inactive) separately from NFL roster status.",
 };
@@ -161,8 +161,8 @@ export default async function AdminWeekStatusPage({
       <AdminBanner />
       <AdminNav current="/admin/week-status" />
       <SectionHeading
-        eyebrow="Weekly eligibility"
-        title="Week player status"
+        eyebrow="Weekly Ops"
+        title="Player Availability"
         description="Roster status (SeasonPlayer) is separate from weekly game availability (PlayerWeekAvailability). Roster ACTIVE does not mean AVAILABLE for the week — a player can remain on the 53-man roster and still be OUT. Manual overrides are never overwritten by injury sync until cleared."
       />
 

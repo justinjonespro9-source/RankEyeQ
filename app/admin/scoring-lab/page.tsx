@@ -18,7 +18,7 @@ export default function ScoringLabPage() {
       <AdminBanner />
       <AdminNav current="/admin/scoring-lab" />
       <SectionHeading
-        eyebrow="Internal tooling"
+        eyebrow="Scoring"
         title="Scoring lab"
         description="Compare predefined Top-10 ranking styles against a fixed actual board to judge whether EYEQ scores feel intuitive."
         action={<Badge tone="warning">Dev only</Badge>}

@@ -11,8 +11,8 @@ import { prisma } from "@/lib/db";
 import { formatInChicago } from "@/lib/timing/chicago";
 
 export const metadata: Metadata = {
-  title: "Weekly ops",
-  description: "RankEyeQ weekly operations dashboard.",
+  title: "Ops Status · Admin",
+  description: "Read-only RankEyeQ weekly operations status dashboard.",
 };
 
 export const dynamic = "force-dynamic";
@@ -41,9 +41,9 @@ export default async function AdminOpsPage({
       <AdminBanner />
       <AdminNav current="/admin/ops" />
       <SectionHeading
-        eyebrow="Operations"
-        title="Weekly ops dashboard"
-        description="Timing, submissions, bots, and data readiness for all five position contests."
+        eyebrow="Weekly Ops"
+        title="Ops Status"
+        description="Read-only timing, submissions, bots, and data readiness for all five position contests. Use Weekly Ops tools to take action."
       />
 
       {weeks.length === 0 || !dashboard ? (
@@ -69,6 +69,45 @@ export default async function AdminOpsPage({
                 {week.label}
               </Link>
             ))}
+          </div>
+
+          <div className="mb-6 flex flex-wrap gap-2 text-sm">
+            <Link
+              href="/admin"
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Open Weekly Ops cockpit
+            </Link>
+            <Link
+              href={weekId ? `/admin/live-scoring?weekId=${weekId}` : "/admin/live-scoring"}
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Live Scoring
+            </Link>
+            <Link
+              href={weekId ? `/admin/week-status?weekId=${weekId}` : "/admin/week-status"}
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Availability
+            </Link>
+            <Link
+              href={weekId ? `/admin/weekly-exceptions?weekId=${weekId}` : "/admin/weekly-exceptions"}
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Exceptions
+            </Link>
+            <Link
+              href={weekId ? `/admin/data?weekId=${weekId}` : "/admin/data"}
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              NFL Data
+            </Link>
+            <Link
+              href="/admin/diagnostics"
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Diagnostics
+            </Link>
           </div>
 
           <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
