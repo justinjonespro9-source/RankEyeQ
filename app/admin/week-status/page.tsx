@@ -12,9 +12,11 @@ import {
   clearWeekManualOverrideAction,
   postKickoffFactualCorrectionAction,
   previewNflInjuryStatusAction,
+  previewPlayerAvailabilityAction,
   regradeContestsAfterFactualCorrectionAction,
   setWeekPlayerStatusAction,
   syncNflInjuryStatusAction,
+  syncPlayerAvailabilityAction,
   syncWeekStatusFromProviderAction,
 } from "@/lib/admin-week-status-actions";
 import {
@@ -24,6 +26,10 @@ import {
 } from "@/lib/admin/week-status";
 import { POST_KICKOFF_CORRECTION_DESIGNATIONS } from "@/lib/eligibility/post-kickoff-factual-correction";
 import { getLastInjurySyncAt } from "@/lib/nfl/injury-sync";
+import {
+  isRosterSyncStale,
+  ROSTER_STALE_AFTER_MS,
+} from "@/lib/nfl/player-availability-engine";
 import { prisma } from "@/lib/db";
 import { formatInChicago } from "@/lib/timing/chicago";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
@@ -75,6 +81,16 @@ export default async function AdminWeekStatusPage({
     syncError?: string;
     rosterSynced?: string;
     rosterUpdated?: string;
+    availPreviewed?: string;
+    availSynced?: string;
+    rosterTeams?: string;
+    rosterMatched?: string;
+    rosterConflicts?: string;
+    rosterSyncedAt?: string;
+    resolvedEligible?: string;
+    resolvedRosterUnavail?: string;
+    resolvedWeeklyOut?: string;
+    resolvedNoOfficial?: string;
     designationSaved?: string;
     designation?: string;
     correctionOk?: string;
@@ -119,6 +135,12 @@ export default async function AdminWeekStatusPage({
   const lastSyncAt = weekId ? await getLastInjurySyncAt(weekId) : null;
   const missingMatchups = rows.filter((row) => row.matchupMissing);
   const selectedWeek = weeks.find((week) => week.id === weekId) ?? null;
+  const now = new Date();
+  const rosterSyncedAt = selectedWeek?.season.rosterSyncedAt ?? null;
+  const rosterStale = isRosterSyncStale(rosterSyncedAt, now);
+  const rosterStaleHours = rosterSyncedAt
+    ? Math.floor((now.getTime() - rosterSyncedAt.getTime()) / (60 * 60 * 1000))
+    : null;
 
   const unmatchedAudit =
     weekId && params.synced
@@ -153,7 +175,13 @@ export default async function AdminWeekStatusPage({
       : params.synced === "0" || params.previewed === "0"
         ? false
         : null;
-  const now = new Date();
+  const availBannerActive = Boolean(params.availPreviewed || params.availSynced);
+  const availOk =
+    params.availPreviewed === "1" || params.availSynced === "1"
+      ? true
+      : params.availPreviewed === "0" || params.availSynced === "0"
+        ? false
+        : null;
   const kickedOffRows = rows.filter(
     (row) => row.kickoffAt != null && kickoffHasPassed(row.kickoffAt, now),
   );
@@ -278,6 +306,63 @@ export default async function AdminWeekStatusPage({
             Regrade complete · {params.regraded ?? "0"} contest
             {params.regraded === "1" ? "" : "s"}
           </p>
+        </div>
+      ) : null}
+
+      {availBannerActive ? (
+        <div
+          className={`mb-4 rounded-md border px-3 py-3 text-sm ${
+            availOk
+              ? "border-accent/30 bg-accent-soft text-accent-ink"
+              : "border-danger/30 bg-danger-soft text-danger"
+          }`}
+          role="status"
+        >
+          <p className="font-medium">
+            Player Availability{" "}
+            {params.availPreviewed ? "Preview" : "Sync"}{" "}
+            {availOk ? "complete ✓" : "failed"}
+          </p>
+          <p className="mt-2 font-medium">Roster</p>
+          <ul className="mt-1 space-y-0.5 text-sm">
+            <li>
+              {params.rosterTeams ?? "—"} teams · {params.rosterMatched ?? "—"}{" "}
+              matched · {params.rosterUpdated ?? "0"} status changes
+              {params.availPreviewed ? " proposed" : " applied"}
+            </li>
+            <li>
+              {params.rosterConflicts ?? "0"} identity conflicts skipped
+            </li>
+          </ul>
+          <p className="mt-2 font-medium">Injury report</p>
+          <ul className="mt-1 space-y-0.5 text-sm">
+            <li>
+              {params.sourceRows ?? "—"} rows · {params.officialGs ?? "—"}{" "}
+              official Game Status · {params.blankGs ?? "—"} awaiting
+            </li>
+            <li>
+              {params.matched ?? "0"} matched · {params.out ?? "0"} OUT ·{" "}
+              {params.questionable ?? "0"} Q · {params.doubtful ?? "0"} D
+            </li>
+          </ul>
+          <p className="mt-2 font-medium">Resolved week</p>
+          <ul className="mt-1 space-y-0.5 text-sm">
+            <li>
+              {params.resolvedEligible ?? "—"} eligible ·{" "}
+              {params.resolvedRosterUnavail ?? "—"} roster-unavailable ·{" "}
+              {params.resolvedWeeklyOut ?? "—"} weekly OUT ·{" "}
+              {params.resolvedNoOfficial ?? "—"} no official status yet
+            </li>
+          </ul>
+          {params.availPreviewed ? (
+            <p className="mt-2 text-xs">
+              Dry-run — no SeasonPlayer, RankableEntry, or PlayerWeekAvailability
+              writes.
+            </p>
+          ) : null}
+          {params.syncError ? (
+            <p className="mt-1">{params.syncError}</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -442,7 +527,61 @@ export default async function AdminWeekStatusPage({
 
       {weekId ? (
         <div className="mb-4 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span>
+              Roster status last synced:{" "}
+              {rosterSyncedAt
+                ? formatInChicago(rosterSyncedAt, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZoneName: "short",
+                  })
+                : "never"}
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              Weekly injury report last fetched:{" "}
+              {lastSyncAt
+                ? formatInChicago(lastSyncAt, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZoneName: "short",
+                  })
+                : "never"}
+            </span>
+          </div>
+          {rosterStale ? (
+            <p
+              className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning"
+              role="status"
+            >
+              Roster status is{" "}
+              {rosterStaleHours != null
+                ? `${rosterStaleHours} hour${rosterStaleHours === 1 ? "" : "s"}`
+                : "unknown age"}{" "}
+              old (threshold {ROSTER_STALE_AFTER_MS / (60 * 60 * 1000)}h). Run
+              Preview / Sync Player Availability before relying on this board.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
+            <form action={previewPlayerAvailabilityAction}>
+              <input type="hidden" name="weekId" value={weekId} />
+              <input type="hidden" name="position" value={position} />
+              <Button type="submit" variant="secondary">
+                Preview Player Availability
+              </Button>
+            </form>
+            <form action={syncPlayerAvailabilityAction}>
+              <input type="hidden" name="weekId" value={weekId} />
+              <input type="hidden" name="position" value={position} />
+              <Button type="submit">Sync Player Availability</Button>
+            </form>
             <form action={previewNflInjuryStatusAction}>
               <input type="hidden" name="weekId" value={weekId} />
               <input type="hidden" name="position" value={position} />
@@ -453,46 +592,31 @@ export default async function AdminWeekStatusPage({
             <form action={syncNflInjuryStatusAction}>
               <input type="hidden" name="weekId" value={weekId} />
               <input type="hidden" name="position" value={position} />
-              <Button type="submit">Sync NFL Injury Report</Button>
+              <Button type="submit" variant="secondary">
+                Sync NFL Injury Report
+              </Button>
             </form>
             <form action={syncWeekStatusFromProviderAction}>
               <input type="hidden" name="weekId" value={weekId} />
               <input type="hidden" name="position" value={position} />
               <Button type="submit" variant="secondary">
-                Sync NFL Roster Status
+                Sync RankableEntry from SeasonPlayer
               </Button>
             </form>
-            {lastSyncAt ? (
-              <span className="text-xs text-muted">
-                Last injury sync:{" "}
-                {formatInChicago(lastSyncAt, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                  timeZoneName: "short",
-                })}
-              </span>
-            ) : (
-              <span className="text-xs text-muted">No injury sync yet</span>
-            )}
           </div>
           <p className="text-xs text-muted max-w-3xl">
             <strong className="font-medium text-ink">
-              Sync NFL Injury Report
+              Preview / Sync Player Availability
             </strong>{" "}
-            writes week-specific PlayerWeekAvailability from the NFL.com
-            injuries page <em>Game Status</em> column only. Practice status is
-            shown for context and never infers OUT. Blank Game Status does not
-            overwrite existing designations. Preview is a dry-run of the same
-            pipeline.{" "}
+            reconciles NFL.com current roster Status and the weekly injury Game
+            Status report. Preview is zero-write. Practice status is
+            informational and never infers OUT. Identity conflicts are skipped
+            on apply.{" "}
             <strong className="font-medium text-ink">
-              Sync NFL Roster Status
+              Sync RankableEntry from SeasonPlayer
             </strong>{" "}
-            updates IR / PUP / SUSPENDED / FREE_AGENT / ACTIVE from season roster
-            membership onto RankableEntry only — it does not change weekly injury
-            designations or ContestEntry matchups/kickoffs.
+            only copies already-persisted SeasonPlayer roster codes onto
+            RankableEntry — it does not fetch NFL.com.
           </p>
         </div>
       ) : null}

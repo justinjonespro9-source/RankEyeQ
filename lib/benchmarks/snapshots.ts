@@ -393,6 +393,35 @@ export async function captureBenchmarkSnapshot(input: {
     );
   }
 
+  // Capture-time availability warning (does not rewrite historical boards).
+  // Full as-of historical reconstruction is out of V2 scope.
+  try {
+    const selectedIds = input.picks
+      .filter((pick) => pick.selected && pick.rankableEntryId)
+      .map((pick) => pick.rankableEntryId as string);
+    if (selectedIds.length > 0) {
+      const { loadResolvedStatusesForWeek } = await import(
+        "@/lib/eligibility/player-week-availability-store"
+      );
+      const resolved = await loadResolvedStatusesForWeek({
+        weekId: contest.weekId,
+        seasonId: contest.week.seasonId,
+        rankableEntryIds: selectedIds,
+      });
+      const hardUnavail = selectedIds.filter((id) => {
+        const status = resolved.get(id);
+        return status != null && !status.selectable;
+      });
+      if (hardUnavail.length > 0) {
+        warnings.push(
+          `${hardUnavail.length} selected pick(s) are currently hard-unavailable as of capture time (roster IR/PUP/SUS/etc. or weekly OUT). Source fidelity preserved — review before treating as normally eligible.`,
+        );
+      }
+    }
+  } catch {
+    // Non-fatal — capture continues if resolution fails.
+  }
+
   let competitiveAt: Date;
   try {
     competitiveAt = competitiveCaptureTimestamp({

@@ -1,14 +1,15 @@
 /**
  * Map NFL.com roster status codes to RankEyeQ season-player fields.
  *
- * Source codes follow NFL.com / nflverse roster status conventions:
+ * Source codes follow NFL.com team roster Status column:
  * - ACT  — active 53-man roster
- * - DEV  — practice squad (developmental)
- * - RES / RSR / PRAC — reserve / practice-squad variants
+ * - RES / RSR — Reserve/Injured (NOT practice squad)
+ * - DEV / PRAC / E14 — practice squad / developmental
+ * - IR / PUP / NFI* — injury reserve variants
  * - CUT / RLS / FA / UFA / … — not on this team's active roster
- * - EXE — commissioner's exempt list (still roster-affiliated; weekly field
- *         eligibility is decided separately in eligibility-rules)
- * - RSN — non-football injury reserve (roster-affiliated but not active)
+ * - EXE — commissioner's exempt list
+ * - RSN — non-football injury / illness reserve
+ * - SUS — suspended
  *
  * Always preserve the raw `sourceNflStatus` on SeasonPlayer for auditability.
  * This mapper only sets canonical `nflStatus` + `activeOnNFLRoster`.
@@ -19,8 +20,8 @@ export type MappedRosterStatus = {
   activeOnNFLRoster: boolean;
 };
 
-/** Codes that are not on the active NFL roster (practice squad, cuts, etc.). */
-const INACTIVE_ROSTER_STATUSES = new Set([
+/** Codes that are not on the active participating NFL roster. */
+const OFF_ACTIVE_ROSTER_STATUSES = new Set([
   "CUT",
   "RLS",
   "RELEASED",
@@ -36,34 +37,14 @@ const INACTIVE_ROSTER_STATUSES = new Set([
   "PRA",
   "PRACTICE",
   "PRACTICE_SQUAD",
-  // Developmental / practice squad (NFL.com "DEV" column).
   "DEV",
-  // International Player Pathway practice-squad exempt slot.
   "E14",
-  // Under contract but not on the active roster.
   "INA",
-  // Released from practice squad.
   "TRC",
   "TRD",
   "TRT",
-  // Non-football injury / illness reserve — not active for weekly field.
   "RSN",
-]);
-
-const PRACTICE_SQUAD_STATUSES = new Set([
-  "DEV",
-  "RES",
-  "RSR",
-  "PRAC",
-  "PRA",
-  "PRACTICE",
-  "PRACTICE_SQUAD",
-  "E14",
-]);
-
-const INJURY_OR_DISCIPLINE_STATUSES = new Set([
-  "SUS",
-  "SUSPENDED",
+  "EXE",
   "IR",
   "IR-R",
   "IR-LT",
@@ -71,7 +52,16 @@ const INJURY_OR_DISCIPLINE_STATUSES = new Set([
   "NFI",
   "NFI-A",
   "NFI-R",
-  "COVID-19",
+]);
+
+/** Practice-squad / developmental only — never Reserve/Injured. */
+const PRACTICE_SQUAD_STATUSES = new Set([
+  "DEV",
+  "PRAC",
+  "PRA",
+  "PRACTICE",
+  "PRACTICE_SQUAD",
+  "E14",
 ]);
 
 export function mapNflComStatusToSeasonFields(
@@ -86,39 +76,57 @@ export function mapNflComStatusToSeasonFields(
     return { nflStatus: "ACTIVE", activeOnNFLRoster: true };
   }
 
-  if (INACTIVE_ROSTER_STATUSES.has(raw)) {
-    if (PRACTICE_SQUAD_STATUSES.has(raw)) {
-      return { nflStatus: "PRACTICE_SQUAD", activeOnNFLRoster: false };
-    }
-    if (raw === "FA" || raw === "UFA" || raw === "RFA") {
-      return { nflStatus: "FA", activeOnNFLRoster: false };
-    }
-    if (raw === "RET" || raw === "RETIRED") {
-      return { nflStatus: "RETIRED", activeOnNFLRoster: false };
-    }
+  if (raw === "SUS" || raw === "SUSPENDED") {
+    // Still roster-affiliated; hard-unavailable for weekly selection via resolver.
+    return { nflStatus: "SUSPENDED", activeOnNFLRoster: true };
+  }
+
+  // Reserve/Injured — NFL.com uses RES/RSR on team roster pages.
+  if (raw === "RES" || raw === "RSR" || raw === "RESERVE_INJURED") {
+    return { nflStatus: "IR", activeOnNFLRoster: false };
+  }
+
+  if (raw.startsWith("IR")) {
+    return { nflStatus: raw === "IR" ? "IR" : raw, activeOnNFLRoster: false };
+  }
+
+  if (raw === "PUP" || raw.startsWith("PUP")) {
+    return { nflStatus: "PUP", activeOnNFLRoster: false };
+  }
+
+  if (raw.startsWith("NFI") || raw === "RSN") {
+    // NFI / non-football reserve → canonical IR for availability; keep RSN distinct.
     if (raw === "RSN") {
       return { nflStatus: "RSN", activeOnNFLRoster: false };
-    }
-    if (raw === "INA") {
-      return { nflStatus: "INACTIVE", activeOnNFLRoster: false };
     }
     return { nflStatus: raw, activeOnNFLRoster: false };
   }
 
-  if (raw === "SUS" || raw === "SUSPENDED") {
-    return { nflStatus: "SUSPENDED", activeOnNFLRoster: true };
-  }
-
-  // Commissioner's exempt — still roster-affiliated; weekly inclusion is gated
-  // by eligibility-rules (currently allowed unless listed as ineligible).
   if (raw === "EXE") {
-    return { nflStatus: "EXE", activeOnNFLRoster: true };
+    return { nflStatus: "EXE", activeOnNFLRoster: false };
   }
 
-  if (INJURY_OR_DISCIPLINE_STATUSES.has(raw) || raw.startsWith("IR")) {
-    return { nflStatus: raw, activeOnNFLRoster: true };
+  if (PRACTICE_SQUAD_STATUSES.has(raw)) {
+    return { nflStatus: "PRACTICE_SQUAD", activeOnNFLRoster: false };
   }
 
-  // Unknown codes: preserve on roster affiliation but flag for review.
+  if (raw === "FA" || raw === "UFA" || raw === "RFA") {
+    return { nflStatus: "FA", activeOnNFLRoster: false };
+  }
+  if (raw === "RET" || raw === "RETIRED") {
+    return { nflStatus: "RETIRED", activeOnNFLRoster: false };
+  }
+  if (raw === "INA") {
+    return { nflStatus: "INACTIVE", activeOnNFLRoster: false };
+  }
+  if (raw === "CUT" || raw === "RLS" || raw === "RELEASED") {
+    return { nflStatus: "CUT", activeOnNFLRoster: false };
+  }
+
+  if (OFF_ACTIVE_ROSTER_STATUSES.has(raw)) {
+    return { nflStatus: raw, activeOnNFLRoster: false };
+  }
+
+  // Unknown codes: preserve but do not assume active participation.
   return { nflStatus: raw, activeOnNFLRoster: true };
 }

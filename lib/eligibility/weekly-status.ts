@@ -77,9 +77,11 @@ export function mapNflStatusToAvailability(
   if (status === "QUESTIONABLE" || status === "Q") return "QUESTIONABLE";
   if (status === "DOUBTFUL" || status === "D") return "DOUBTFUL";
   if (status === "OUT" || status === "O") return "OUT";
-  if (status.startsWith("IR") || status === "RES") return "IR";
+  if (status.startsWith("IR") || status === "RES" || status === "RSR") {
+    return "IR";
+  }
   if (status === "PUP" || status.startsWith("PUP")) return "PUP";
-  if (status.startsWith("NFI")) return "IR";
+  if (status.startsWith("NFI") || status === "RSN") return "IR";
   if (status === "SUSPENDED" || status === "SUS") return "SUSPENDED";
   if (status === "FA" || status === "FREE_AGENT" || status === "CUT") {
     return "FREE_AGENT";

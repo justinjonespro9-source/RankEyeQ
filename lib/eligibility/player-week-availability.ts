@@ -135,6 +135,17 @@ export function presentWeeklyAvailability(input: {
   const { resolved } = input;
   const practiceStatus = input.practiceStatus?.trim() || null;
 
+  if (resolved.manualOverride && input.hasWeekRecord) {
+    return {
+      designation: resolved.designation,
+      designationLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      sourceKind: "ADMIN_OVERRIDE",
+      sourceBadge: "Admin override",
+      practiceStatus,
+      officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+    };
+  }
+
   if (resolved.rosterUnavailable) {
     return {
       designation: resolved.designation,
@@ -145,17 +156,6 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: `Roster · ${resolved.unavailableReason ?? resolved.rosterStatus ?? "unavailable"}`,
       practiceStatus,
       officialGameStatusLabel: "—",
-    };
-  }
-
-  if (resolved.manualOverride && input.hasWeekRecord) {
-    return {
-      designation: resolved.designation,
-      designationLabel: DESIGNATION_FULL_LABEL[resolved.designation],
-      sourceKind: "ADMIN_OVERRIDE",
-      sourceBadge: "Admin override",
-      practiceStatus,
-      officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
     };
   }
 
@@ -264,12 +264,38 @@ export function isRosterUnavailableStatus(
   if (mapped && ROSTER_UNAVAILABLE_ENTRY.has(mapped)) return true;
   const raw = (nflStatus ?? "").trim().toUpperCase();
   if (!raw) return false;
-  if (raw === "FA" || raw === "FREE_AGENT" || raw === "CUT") return true;
-  if (raw.startsWith("IR") || raw === "RES") return true;
+  if (
+    raw === "FA" ||
+    raw === "FREE_AGENT" ||
+    raw === "CUT" ||
+    raw === "RETIRED" ||
+    raw === "RELEASED"
+  ) {
+    return true;
+  }
+  if (
+    raw.startsWith("IR") ||
+    raw === "RES" ||
+    raw === "RSR" ||
+    raw === "RESERVE_INJURED"
+  ) {
+    return true;
+  }
   if (raw === "PUP" || raw.startsWith("PUP") || raw.startsWith("NFI")) {
     return true;
   }
   if (raw === "SUSPENDED" || raw === "SUS") return true;
+  if (
+    raw === "PRACTICE_SQUAD" ||
+    raw === "DEV" ||
+    raw === "PRAC" ||
+    raw === "E14"
+  ) {
+    return true;
+  }
+  if (raw === "EXE" || raw === "RSN" || raw === "INACTIVE" || raw === "INA") {
+    return true;
+  }
   return false;
 }
 
@@ -279,12 +305,30 @@ export function rosterUnavailableLabel(
   const mapped = mapNflStatusToAvailability(nflStatus);
   if (mapped && ROSTER_UNAVAILABLE_ENTRY.has(mapped)) return mapped;
   const raw = (nflStatus ?? "").trim().toUpperCase();
-  if (raw === "FA" || raw === "CUT") return "FREE_AGENT";
-  if (raw.startsWith("IR") || raw === "RES" || raw.startsWith("NFI")) {
+  if (raw === "FA" || raw === "CUT" || raw === "RELEASED") return "FREE_AGENT";
+  if (
+    raw.startsWith("IR") ||
+    raw === "RES" ||
+    raw === "RSR" ||
+    raw === "RESERVE_INJURED" ||
+    raw.startsWith("NFI") ||
+    raw === "RSN"
+  ) {
     return "IR";
   }
   if (raw === "PUP" || raw.startsWith("PUP")) return "PUP";
   if (raw === "SUS" || raw === "SUSPENDED") return "SUSPENDED";
+  if (
+    raw === "PRACTICE_SQUAD" ||
+    raw === "DEV" ||
+    raw === "PRAC" ||
+    raw === "E14"
+  ) {
+    return "PRACTICE_SQUAD";
+  }
+  if (raw === "EXE") return "EXE";
+  if (raw === "INACTIVE" || raw === "INA") return "INACTIVE";
+  if (raw === "RETIRED") return "RETIRED";
   return raw || "ROSTER_UNAVAILABLE";
 }
 
@@ -330,34 +374,45 @@ export type ResolvePlayerWeekStatusInput = {
 export function resolvePlayerWeekStatus(
   input: ResolvePlayerWeekStatusInput,
 ): ResolvedPlayerWeekStatus {
-  const rosterUnavailable = isRosterUnavailableStatus(input.nflStatus);
   const rosterStatus = input.nflStatus?.trim() || null;
-
   const designation: WeeklyDesignation =
     input.weekDesignation ?? designationWithoutWeekRecord();
+  const adminOverride =
+    Boolean(input.manualOverride) && input.weekDesignation != null;
+
+  // Precedence: Admin override > roster hard-unavailable > weekly designation.
+  const rosterUnavailable =
+    !adminOverride && isRosterUnavailableStatus(input.nflStatus);
 
   const weeklyUnavailable = WEEKLY_UNAVAILABLE_DESIGNATIONS.has(designation);
-  const selectable =
-    !rosterUnavailable && WEEKLY_SELECTABLE_DESIGNATIONS.has(designation);
+  const selectable = adminOverride
+    ? WEEKLY_SELECTABLE_DESIGNATIONS.has(designation)
+    : !rosterUnavailable && WEEKLY_SELECTABLE_DESIGNATIONS.has(designation);
 
   let effectiveEntryAvailability: EntryAvailability;
-  if (rosterUnavailable) {
+  if (adminOverride) {
+    effectiveEntryAvailability = entryAvailabilityFromDesignation(designation);
+  } else if (rosterUnavailable) {
     const mapped = mapNflStatusToAvailability(input.nflStatus);
     effectiveEntryAvailability =
       mapped && ROSTER_UNAVAILABLE_ENTRY.has(mapped)
         ? mapped
-        : ("FREE_AGENT" as EntryAvailability);
+        : mapped === "INACTIVE"
+          ? "INACTIVE"
+          : ("FREE_AGENT" as EntryAvailability);
   } else {
     effectiveEntryAvailability = entryAvailabilityFromDesignation(designation);
   }
 
   const promotionUnavailable =
-    rosterUnavailable ||
+    (!adminOverride && rosterUnavailable) ||
     isPromotionUnavailable(effectiveEntryAvailability) ||
     weeklyUnavailable;
 
   let unavailableReason: string | null = null;
-  if (rosterUnavailable) {
+  if (adminOverride) {
+    if (weeklyUnavailable) unavailableReason = designation;
+  } else if (rosterUnavailable) {
     unavailableReason = rosterUnavailableLabel(input.nflStatus);
   } else if (weeklyUnavailable) {
     unavailableReason = designation;
@@ -384,7 +439,9 @@ export function resolvePlayerWeekStatus(
     observedAt: input.observedAt ?? null,
     manualOverride: Boolean(input.manualOverride),
     rosterStatus,
-    rosterUnavailable,
+    rosterUnavailable: adminOverride
+      ? false
+      : isRosterUnavailableStatus(input.nflStatus),
     weeklyUnavailable,
     selectable,
     promotionUnavailable,

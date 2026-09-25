@@ -16,6 +16,7 @@ import { getPlayerResearchMapForContest } from "@/lib/player-research-queries";
 import { parsePlayerResearchWindow } from "@/lib/player-research";
 import { dedupeRankingPlayersByIdentity } from "@/lib/nfl/pool-canonical-uniqueness";
 import { parsePlayerAliases } from "@/lib/nfl/player-aliases";
+import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
 import {
   opponentLabelForWeekGame,
   resolveWeekScopedGame,
@@ -209,6 +210,15 @@ export async function getPublicPositionContest(
           }).catch(() => new Map())
         : new Map();
 
+    const resolvedById =
+      contest.entries.length > 0
+        ? await loadResolvedStatusesForWeek({
+            weekId: contest.weekId,
+            seasonId: context.season.id,
+            rankableEntryIds: contest.entries.map((e) => e.rankableEntryId),
+          })
+        : new Map();
+
     const challenge = buildPositionChallenge({
       position: contest.position,
       rankingDepth: contest.rankingDepth,
@@ -232,8 +242,10 @@ export async function getPublicPositionContest(
       const searchKeys = [
         ...new Set([entry.rankableEntry.name, ...aliases]),
       ];
+      const resolved = resolvedById.get(entry.rankableEntryId);
       // Matchup/kickoff ONLY from ContestEntry → NflGame for this week.
       // Never RankableEntry.game / gameStartsAt / opponent (prior-week poison).
+      // Availability from canonical weekly resolver (roster + week status).
       const base: RankingPlayer = {
         id: entry.rankableEntry.id,
         name: entry.rankableEntry.name,
@@ -245,7 +257,10 @@ export async function getPublicPositionContest(
         headshotUrl: entry.rankableEntry.headshotUrl ?? undefined,
         gameDay: kickoff ? formatGameDay(kickoff) : "MISSING",
         gameTime: kickoff ? formatGameTime(kickoff) : "",
-        availability: mapAvailability(entry.rankableEntry.availability),
+        availability: mapAvailability(
+          resolved?.effectiveEntryAvailability ??
+            entry.rankableEntry.availability,
+        ),
         searchKeys,
       };
       const withResearch = research

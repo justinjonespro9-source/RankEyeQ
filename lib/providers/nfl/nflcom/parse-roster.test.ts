@@ -45,10 +45,16 @@ describe("NFL.com roster status mapping", () => {
     });
   });
 
-  it("marks CUT and RES as inactive", () => {
+  it("maps RES/RSR Reserve/Injured to IR — never PRACTICE_SQUAD", () => {
+    expect(mapNflComStatusToSeasonFields("RES")).toEqual({
+      nflStatus: "IR",
+      activeOnNFLRoster: false,
+    });
+    expect(mapNflComStatusToSeasonFields("RSR")).toEqual({
+      nflStatus: "IR",
+      activeOnNFLRoster: false,
+    });
     expect(mapNflComStatusToSeasonFields("CUT").activeOnNFLRoster).toBe(false);
-    expect(mapNflComStatusToSeasonFields("RES").activeOnNFLRoster).toBe(false);
-    expect(mapNflComStatusToSeasonFields("RES").nflStatus).toBe("PRACTICE_SQUAD");
   });
 
   it("marks DEV (NFL.com practice squad / developmental) as inactive", () => {
@@ -77,19 +83,22 @@ describe("NFL.com roster status mapping", () => {
     });
   });
 
-  it("keeps EXE (commissioner exempt) roster-affiliated for separate eligibility rules", () => {
+  it("marks EXE (commissioner exempt) off active participating roster", () => {
     expect(mapNflComStatusToSeasonFields("EXE")).toEqual({
       nflStatus: "EXE",
-      activeOnNFLRoster: true,
+      activeOnNFLRoster: false,
     });
   });
 
-  it("preserves SUS and IR for eligibility rules", () => {
+  it("preserves SUS and maps IR off the active roster", () => {
     expect(mapNflComStatusToSeasonFields("SUS")).toEqual({
       nflStatus: "SUSPENDED",
       activeOnNFLRoster: true,
     });
-    expect(mapNflComStatusToSeasonFields("IR").activeOnNFLRoster).toBe(true);
+    expect(mapNflComStatusToSeasonFields("IR")).toEqual({
+      nflStatus: "IR",
+      activeOnNFLRoster: false,
+    });
   });
 });
 

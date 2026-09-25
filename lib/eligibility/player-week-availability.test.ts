@@ -176,6 +176,72 @@ describe("PlayerWeekAvailability resolution", () => {
     }
   });
 
+  it("PRACTICE_SQUAD is hard-unavailable", () => {
+    const status = resolvePlayerWeekStatus({
+      nflStatus: "PRACTICE_SQUAD",
+      weekDesignation: null,
+    });
+    expect(status.selectable).toBe(false);
+    expect(status.rosterUnavailable).toBe(true);
+    expect(status.unavailableReason).toBe("PRACTICE_SQUAD");
+  });
+
+  it("Admin override beats roster hard-unavailable", () => {
+    const status = resolvePlayerWeekStatus({
+      nflStatus: "IR",
+      weekDesignation: "AVAILABLE",
+      manualOverride: true,
+    });
+    expect(status.selectable).toBe(true);
+    expect(status.rosterUnavailable).toBe(false);
+    expect(status.manualOverride).toBe(true);
+    expect(status.effectiveEntryAvailability).toBe("ACTIVE");
+    const presentation = presentWeeklyAvailability({
+      resolved: status,
+      hasWeekRecord: true,
+    });
+    expect(presentation.sourceKind).toBe("ADMIN_OVERRIDE");
+  });
+
+  it("Jaxson Dart case: IR + blank GS + DNP → unavailable, not No official status yet", () => {
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: "IR",
+      weekDesignation: null,
+    });
+    expect(resolved.selectable).toBe(false);
+    expect(resolved.unavailableReason).toBe("IR");
+    const presentation = presentWeeklyAvailability({
+      resolved,
+      hasWeekRecord: false,
+      practiceStatus: "Did Not Participate In Practice",
+      onInjuryReportBlankGameStatus: true,
+    });
+    expect(presentation.sourceKind).toBe("ROSTER_UNAVAILABLE");
+    expect(presentation.sourceBadge).toMatch(/IR/);
+    expect(presentation.designationLabel).not.toBe("No official status yet");
+  });
+
+  it("current roster IR does not reinterpret a historical week designation", () => {
+    // Week 2 PWA OUT stays OUT for that week; current SeasonPlayer IR is a
+    // separate input that only applies when resolving the current week.
+    const week2Historical = resolvePlayerWeekStatus({
+      nflStatus: "ACTIVE",
+      weekDesignation: "OUT",
+      sourceType: "NFL_SYNC",
+    });
+    expect(week2Historical.designation).toBe("OUT");
+    expect(week2Historical.weeklyUnavailable).toBe(true);
+
+    const week3Current = resolvePlayerWeekStatus({
+      nflStatus: "IR",
+      weekDesignation: null,
+    });
+    expect(week3Current.rosterUnavailable).toBe(true);
+    expect(week3Current.designation).toBe("UNKNOWN");
+    // Historical week2 resolution is independent of current IR.
+    expect(week2Historical.designation).toBe("OUT");
+  });
+
   it("UNKNOWN remains selectable with disclosure", () => {
     const status = resolvePlayerWeekStatus({
       nflStatus: "ACTIVE",

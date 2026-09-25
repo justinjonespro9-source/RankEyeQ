@@ -12,6 +12,10 @@ import {
 import { logAdminAction } from "@/lib/admin/audit";
 import { syncWeekInjuriesFromNflCom, formatInjurySyncOperatorMessage } from "@/lib/nfl/injury-sync";
 import {
+  previewPlayerAvailability,
+  syncPlayerAvailability,
+} from "@/lib/nfl/player-availability-engine";
+import {
   applyPostKickoffFactualCorrection,
   isPostKickoffCorrectionDesignation,
   logPostKickoffCorrectionRegrade,
@@ -301,6 +305,104 @@ export async function previewNflInjuryStatusAction(formData: FormData) {
       "unmatchedPreview",
       unmatchedNames.slice(0, 15).join(" · ").slice(0, 500),
     );
+  }
+  redirect(`/admin/week-status?${params.toString()}`);
+}
+
+/** Zero-write Preview Player Availability (roster + injury). */
+export async function previewPlayerAvailabilityAction(formData: FormData) {
+  await assertAdmin();
+  const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
+  if (!weekId) throw new Error("weekId required");
+
+  const result = await previewPlayerAvailability({ weekId });
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    availPreviewed: result.ok ? "1" : "0",
+    rosterTeams: String(result.roster.teamCount),
+    rosterMatched: String(result.roster.matched),
+    rosterUpdated: String(result.roster.updated),
+    rosterConflicts: String(result.roster.skippedConflicts),
+    rosterSyncedAt: result.roster.syncedAt.toISOString(),
+    sourceRows: String(result.injury.sourceRowCount),
+    officialGs: String(result.injury.officialGameStatusCount),
+    blankGs: String(result.injury.blankGameStatusCount),
+    matched: String(result.injury.matched),
+    unmatched: String(result.injury.unmatched),
+    out: String(result.injury.out),
+    questionable: String(result.injury.questionable),
+    doubtful: String(result.injury.doubtful),
+    updated: String(result.injury.updated),
+    unchanged: String(result.injury.unchanged),
+    failed: String(result.injury.failed),
+    syncedAt: result.injury.syncedAt.toISOString(),
+    resolvedEligible: String(result.resolved.eligible),
+    resolvedRosterUnavail: String(result.resolved.rosterUnavailable),
+    resolvedWeeklyOut: String(result.resolved.weeklyOut),
+    resolvedNoOfficial: String(result.resolved.noOfficialStatus),
+  });
+  if (result.errors[0]) {
+    params.set("syncError", result.errors[0].slice(0, 180));
+  }
+  redirect(`/admin/week-status?${params.toString()}`);
+}
+
+/** Apply roster status refresh + injury Game Status sync. */
+export async function syncPlayerAvailabilityAction(formData: FormData) {
+  const admin = await assertAdmin();
+  const weekId = String(formData.get("weekId") || "");
+  const position = String(formData.get("position") || "ALL");
+  if (!weekId) throw new Error("weekId required");
+
+  const result = await syncPlayerAvailability({ weekId });
+
+  await logAdminAction({
+    adminUserId: admin.user.id,
+    action: "week_status.player_availability_synced",
+    entityType: "Week",
+    entityId: weekId,
+    metadata: {
+      ok: result.ok,
+      rosterUpdated: result.roster.updated,
+      rosterConflicts: result.roster.skippedConflicts,
+      injuryUpdated: result.injury.updated,
+      operatorMessage: result.operatorMessage,
+    },
+  });
+
+  revalidateWeekStatus(weekId);
+
+  const params = new URLSearchParams({
+    weekId,
+    position,
+    availSynced: result.ok ? "1" : "0",
+    rosterTeams: String(result.roster.teamCount),
+    rosterMatched: String(result.roster.matched),
+    rosterUpdated: String(result.roster.updated),
+    rosterConflicts: String(result.roster.skippedConflicts),
+    rosterSyncedAt: result.roster.syncedAt.toISOString(),
+    sourceRows: String(result.injury.sourceRowCount),
+    officialGs: String(result.injury.officialGameStatusCount),
+    blankGs: String(result.injury.blankGameStatusCount),
+    matched: String(result.injury.matched),
+    unmatched: String(result.injury.unmatched),
+    out: String(result.injury.out),
+    questionable: String(result.injury.questionable),
+    doubtful: String(result.injury.doubtful),
+    updated: String(result.injury.updated),
+    unchanged: String(result.injury.unchanged),
+    failed: String(result.injury.failed),
+    syncedAt: result.injury.syncedAt.toISOString(),
+    resolvedEligible: String(result.resolved.eligible),
+    resolvedRosterUnavail: String(result.resolved.rosterUnavailable),
+    resolvedWeeklyOut: String(result.resolved.weeklyOut),
+    resolvedNoOfficial: String(result.resolved.noOfficialStatus),
+  });
+  if (result.errors[0]) {
+    params.set("syncError", result.errors[0].slice(0, 180));
   }
   redirect(`/admin/week-status?${params.toString()}`);
 }

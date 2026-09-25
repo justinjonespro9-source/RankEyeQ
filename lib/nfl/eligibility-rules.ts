@@ -3,7 +3,7 @@
  * Editorial relevance must not gate eligibility — only data-integrity exclusions.
  */
 
-/** Statuses that remove a player from the weekly ranking field. */
+/** Statuses that remove a player from the weekly ranking field when still "on roster". */
 export const INELIGIBLE_NFL_STATUSES = new Set([
   "SUSPENDED",
   "PUP",
@@ -15,7 +15,12 @@ export const INELIGIBLE_NFL_STATUSES = new Set([
   "IR-LT",
   "COVID-19",
   "RETIRED",
-  "FA", // not on an eligible roster
+  "FA",
+  "CUT",
+  "PRACTICE_SQUAD",
+  "EXE",
+  "RSN",
+  "INACTIVE",
 ]);
 
 export function isSeasonPlayerEligibleForWeeklyField(input: {
