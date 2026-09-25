@@ -186,6 +186,21 @@ describe("PlayerWeekAvailability resolution", () => {
     expect(status.unavailableReason).toBe("PRACTICE_SQUAD");
   });
 
+  it("TRD and TRC are hard-unavailable like CUT/FA for stale-team context", () => {
+    for (const roster of ["TRD", "TRC"] as const) {
+      const status = resolvePlayerWeekStatus({
+        nflStatus: roster,
+        weekDesignation: "QUESTIONABLE",
+      });
+      expect(isRosterUnavailableStatus(roster)).toBe(true);
+      expect(status.selectable).toBe(false);
+      expect(status.rosterUnavailable).toBe(true);
+      expect(status.promotionUnavailable).toBe(true);
+      expect(status.effectiveEntryAvailability).toBe("FREE_AGENT");
+      expect(status.unavailableReason).toBe("FREE_AGENT");
+    }
+  });
+
   it("Admin override beats roster hard-unavailable", () => {
     const status = resolvePlayerWeekStatus({
       nflStatus: "IR",

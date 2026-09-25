@@ -7,6 +7,11 @@
  * - DEV / PRAC / E14 — practice squad / developmental
  * - IR / PUP / NFI* — injury reserve variants
  * - CUT / RLS / FA / UFA / … — not on this team's active roster
+ * - TRD / TRC / TRT — traded markers on a (often stale) team page;
+ *   activeOnNFLRoster=false; weekly eligibility treats as hard-unavailable
+ *   for that team context (like CUT/FA). A later ACT on another team may
+ *   still be eligible once identity/team reconciliation is safe — this
+ *   mapper does not migrate ContestEntry membership.
  * - EXE — commissioner's exempt list
  * - RSN — non-football injury / illness reserve
  * - SUS — suspended
@@ -121,6 +126,11 @@ export function mapNflComStatusToSeasonFields(
   }
   if (raw === "CUT" || raw === "RLS" || raw === "RELEASED") {
     return { nflStatus: "CUT", activeOnNFLRoster: false };
+  }
+
+  // Traded-away on this team page — keep code for audit; not active here.
+  if (raw === "TRD" || raw === "TRC" || raw === "TRT") {
+    return { nflStatus: raw, activeOnNFLRoster: false };
   }
 
   if (OFF_ACTIVE_ROSTER_STATUSES.has(raw)) {

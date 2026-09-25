@@ -269,7 +269,10 @@ export function isRosterUnavailableStatus(
     raw === "FREE_AGENT" ||
     raw === "CUT" ||
     raw === "RETIRED" ||
-    raw === "RELEASED"
+    raw === "RELEASED" ||
+    raw === "TRD" ||
+    raw === "TRC" ||
+    raw === "TRT"
   ) {
     return true;
   }
@@ -306,6 +309,9 @@ export function rosterUnavailableLabel(
   if (mapped && ROSTER_UNAVAILABLE_ENTRY.has(mapped)) return mapped;
   const raw = (nflStatus ?? "").trim().toUpperCase();
   if (raw === "FA" || raw === "CUT" || raw === "RELEASED") return "FREE_AGENT";
+  // Traded-away markers on a stale team roster — treat like CUT/FA for this
+  // ContestEntry/team context (not a permanent global ban).
+  if (raw === "TRD" || raw === "TRC" || raw === "TRT") return "FREE_AGENT";
   if (
     raw.startsWith("IR") ||
     raw === "RES" ||

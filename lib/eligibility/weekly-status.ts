@@ -83,7 +83,14 @@ export function mapNflStatusToAvailability(
   if (status === "PUP" || status.startsWith("PUP")) return "PUP";
   if (status.startsWith("NFI") || status === "RSN") return "IR";
   if (status === "SUSPENDED" || status === "SUS") return "SUSPENDED";
-  if (status === "FA" || status === "FREE_AGENT" || status === "CUT") {
+  if (
+    status === "FA" ||
+    status === "FREE_AGENT" ||
+    status === "CUT" ||
+    status === "TRD" ||
+    status === "TRC" ||
+    status === "TRT"
+  ) {
     return "FREE_AGENT";
   }
   if (status === "INACTIVE" || status === "INA") return "INACTIVE";

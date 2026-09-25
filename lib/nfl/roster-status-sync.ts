@@ -251,6 +251,116 @@ export async function loadSeasonRosterStatusPool(seasonId: string) {
   }));
 }
 
+/** Stable identity keys for conflict suppression (externalId first). */
+export function rosterIdentityKeys(entry: {
+  externalId?: string | null;
+  seasonPlayerId?: string | null;
+  rankableEntryId?: string | null;
+}): string[] {
+  const keys: string[] = [];
+  const ext = entry.externalId?.trim();
+  if (ext) keys.push(`ext:${ext}`);
+  if (entry.seasonPlayerId) keys.push(`sp:${entry.seasonPlayerId}`);
+  if (entry.rankableEntryId) keys.push(`re:${entry.rankableEntryId}`);
+  return keys;
+}
+
+function liveRowLabel(live: NormalizedRosterPlayer | null | undefined) {
+  if (!live) return "unknown";
+  return `${live.team}/${live.sourceStatus}`;
+}
+
+/**
+ * If ANY TEAM_CONFLICT (or same-externalId IDENTITY_CONFLICT) touches a
+ * canonical identity, suppress ALL roster-status writes for that identity.
+ *
+ * Name-only IDENTITY_CONFLICT against a different externalId must NOT suppress
+ * a clean match for another person.
+ */
+export function applyConflictWriteSuppression(
+  matches: RosterStatusMatch[],
+): RosterStatusMatch[] {
+  const conflictedKeys = new Set<string>();
+  const rowsByKey = new Map<string, string[]>();
+
+  const remember = (keys: string[], row: string) => {
+    for (const key of keys) {
+      conflictedKeys.add(key);
+      const list = rowsByKey.get(key) ?? [];
+      if (!list.includes(row)) list.push(row);
+      rowsByKey.set(key, list);
+    }
+  };
+
+  for (const m of matches) {
+    const row = liveRowLabel(m.live);
+    if (m.matchClass === "TEAM_CONFLICT") {
+      remember(
+        [
+          ...rosterIdentityKeys(m.pool),
+          ...(m.live?.externalId?.trim()
+            ? [`ext:${m.live.externalId.trim()}`]
+            : []),
+        ],
+        row,
+      );
+      continue;
+    }
+    // Same external ID on both sides without team agreement — treat as conflict.
+    if (
+      m.matchClass === "IDENTITY_CONFLICT" &&
+      m.live?.externalId?.trim() &&
+      m.pool.externalId?.trim() &&
+      m.live.externalId.trim() === m.pool.externalId.trim()
+    ) {
+      remember(rosterIdentityKeys(m.pool), row);
+    }
+  }
+
+  if (conflictedKeys.size === 0) return matches;
+
+  return matches.map((m) => {
+    const keys = [
+      ...rosterIdentityKeys(m.pool),
+      ...(m.live?.externalId?.trim()
+        ? [`ext:${m.live.externalId.trim()}`]
+        : []),
+    ];
+    const hit = keys.some((k) => conflictedKeys.has(k));
+    if (!hit) return m;
+
+    const conflictingRows = [
+      ...new Set(keys.flatMap((k) => rowsByKey.get(k) ?? [])),
+    ];
+    if (m.live) {
+      const self = liveRowLabel(m.live);
+      if (!conflictingRows.includes(self)) conflictingRows.unshift(self);
+    }
+
+    const reason = `SKIP — TEAM/IDENTITY CONFLICT. Conflicting live rows: ${conflictingRows.join("; ")}. No roster-status write.`;
+
+    // Non-MATCHED conflict rows keep class; MATCHED writes are suppressed.
+    if (m.matchClass !== "MATCHED") {
+      return {
+        ...m,
+        next: null,
+        changed: false,
+        reason: m.reason?.includes("SKIP — TEAM/IDENTITY CONFLICT")
+          ? m.reason
+          : reason,
+      };
+    }
+
+    return {
+      ...m,
+      matchClass: "TEAM_CONFLICT",
+      next: null,
+      changed: false,
+      reason,
+    };
+  });
+}
+
 export function buildRosterStatusMatches(
   pool: RosterStatusPoolEntry[],
   livePlayers: NormalizedRosterPlayer[],
@@ -322,7 +432,7 @@ export function buildRosterStatusMatches(
     });
   }
 
-  return matches;
+  return applyConflictWriteSuppression(matches);
 }
 
 export async function syncCurrentSeasonRosterStatusesFromNflCom(input: {

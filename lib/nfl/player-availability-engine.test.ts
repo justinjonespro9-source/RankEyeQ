@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapNflComStatusToSeasonFields } from "@/lib/nfl/roster-status";
 import {
+  applyConflictWriteSuppression,
   buildRosterStatusMatches,
   matchRosterPlayerToPool,
   type RosterStatusPoolEntry,
@@ -11,7 +12,17 @@ import {
   type PlayerAvailabilityEngineResult,
 } from "@/lib/nfl/player-availability-engine";
 import { partitionAiPromptPlayers } from "@/lib/admin/ai-prompt";
-import { resolvePlayerWeekStatus } from "@/lib/eligibility/player-week-availability";
+import {
+  isRosterUnavailableStatus,
+  resolvePlayerWeekStatus,
+} from "@/lib/eligibility/player-week-availability";
+import {
+  canNewlySelectPlayer,
+  isSelectableUiAvailability,
+  mapNflStatusToAvailability,
+} from "@/lib/eligibility/weekly-status";
+import { mapAvailability } from "@/lib/rankable-mappers";
+import { isPromotionUnavailable } from "@/lib/reserves/promotion-status";
 
 function poolEntry(
   overrides: Partial<RosterStatusPoolEntry> = {},
@@ -83,6 +94,263 @@ describe("incremental roster status matching", () => {
     );
     expect(result.matchClass).toBe("IDENTITY_CONFLICT");
     expect(result.poolEntry).toBeNull();
+  });
+
+  it("A: same externalId on two NFL.com teams suppresses all writes", () => {
+    const pool = [
+      poolEntry({
+        name: "Ihmir Smith-Marsette",
+        team: "ARI",
+        position: "WR",
+        externalId: "ihmir-smith-marsette",
+        nflStatus: "PRACTICE_SQUAD",
+        sourceNflStatus: "DEV",
+        activeOnNFLRoster: false,
+      }),
+    ];
+    const live = [
+      livePlayer({
+        externalId: "ihmir-smith-marsette",
+        name: "Ihmir Smith-Marsette",
+        team: "ARI",
+        sourceStatus: "TRD",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+      livePlayer({
+        externalId: "ihmir-smith-marsette",
+        name: "Ihmir Smith-Marsette",
+        team: "CAR",
+        sourceStatus: "DEV",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+    ];
+    const matches = buildRosterStatusMatches(pool, live);
+    expect(matches.every((m) => m.matchClass !== "MATCHED")).toBe(true);
+    expect(matches.every((m) => m.next === null && m.changed === false)).toBe(
+      true,
+    );
+    expect(
+      matches.some((m) => m.reason?.includes("SKIP — TEAM/IDENTITY CONFLICT")),
+    ).toBe(true);
+    expect(matches.some((m) => m.reason?.includes("ARI/TRD"))).toBe(true);
+    expect(matches.some((m) => m.reason?.includes("CAR/DEV"))).toBe(true);
+  });
+
+  it("B: exact MATCHED row is also SKIPPED when a TEAM_CONFLICT exists", () => {
+    const pool = [poolEntry()];
+    const live = [
+      livePlayer({ team: "NYG", sourceStatus: "RES" }),
+      livePlayer({ team: "DAL", sourceStatus: "ACT" }),
+    ];
+    const matches = buildRosterStatusMatches(pool, live);
+    const forDart = matches.filter((m) => m.pool.seasonPlayerId === "sp1");
+    expect(forDart.length).toBeGreaterThanOrEqual(2);
+    expect(forDart.every((m) => m.matchClass === "TEAM_CONFLICT")).toBe(true);
+    expect(forDart.every((m) => m.next === null)).toBe(true);
+  });
+
+  it("C: two different players with same normalized name stay independent", () => {
+    const pool = [
+      poolEntry({
+        rankableEntryId: "re-ari",
+        seasonPlayerId: "sp-ari",
+        name: "John Smith",
+        team: "ARI",
+        position: "WR",
+        externalId: "john-smith-ari",
+        nflStatus: "ACTIVE",
+        sourceNflStatus: "ACT",
+      }),
+      poolEntry({
+        rankableEntryId: "re-car",
+        seasonPlayerId: "sp-car",
+        name: "John Smith",
+        team: "CAR",
+        position: "WR",
+        externalId: "john-smith-car",
+        nflStatus: "PRACTICE_SQUAD",
+        sourceNflStatus: "DEV",
+        activeOnNFLRoster: false,
+      }),
+    ];
+    const live = [
+      livePlayer({
+        externalId: "john-smith-ari",
+        name: "John Smith",
+        team: "ARI",
+        sourceStatus: "RES",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+      livePlayer({
+        externalId: "john-smith-car",
+        name: "John Smith",
+        team: "CAR",
+        sourceStatus: "ACT",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+    ];
+    const matches = buildRosterStatusMatches(pool, live);
+    const ari = matches.find((m) => m.pool.seasonPlayerId === "sp-ari");
+    const car = matches.find((m) => m.pool.seasonPlayerId === "sp-car");
+    expect(ari?.matchClass).toBe("MATCHED");
+    expect(ari?.next?.nflStatus).toBe("IR");
+    expect(car?.matchClass).toBe("MATCHED");
+    expect(car?.next?.nflStatus).toBe("ACTIVE");
+  });
+
+  it("D: ordinary clean externalId + team match WOULD APPLY", () => {
+    const matches = buildRosterStatusMatches([poolEntry()], [livePlayer()]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.matchClass).toBe("MATCHED");
+    expect(matches[0]!.changed).toBe(true);
+    expect(matches[0]!.next?.nflStatus).toBe("IR");
+  });
+
+  it("name-only IDENTITY_CONFLICT does not suppress a different externalId MATCHED", () => {
+    const pool = [
+      poolEntry({
+        name: "Chris Moore",
+        team: "BAL",
+        position: "WR",
+        externalId: "chris-moore",
+        nflStatus: "PRACTICE_SQUAD",
+        sourceNflStatus: "DEV",
+        activeOnNFLRoster: false,
+      }),
+    ];
+    const live = [
+      livePlayer({
+        externalId: "chris-moore",
+        name: "Chris Moore",
+        team: "BAL",
+        sourceStatus: "ACT",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+      // Different person, same display name, no shared externalId
+      livePlayer({
+        externalId: "chris-moore-xfl",
+        name: "Chris Moore",
+        team: "DET",
+        sourceStatus: "DEV",
+        fantasyPosition: "WR",
+        sourcePosition: "WR",
+      }),
+    ];
+    const matches = buildRosterStatusMatches(pool, live);
+    const bal = matches.find(
+      (m) => m.live?.team === "BAL" && m.pool.externalId === "chris-moore",
+    );
+    expect(bal?.matchClass).toBe("MATCHED");
+    expect(bal?.next?.nflStatus).toBe("ACTIVE");
+    expect(
+      matches.some(
+        (m) => m.matchClass === "IDENTITY_CONFLICT" && m.live?.team === "DET",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("TRD / TRC hard-unavailable", () => {
+  for (const code of ["TRD", "TRC"] as const) {
+    it(`${code} maps off-roster and resolves hard-unavailable`, () => {
+      const mapped = mapNflComStatusToSeasonFields(code);
+      expect(mapped.nflStatus).toBe(code);
+      expect(mapped.activeOnNFLRoster).toBe(false);
+      expect(isRosterUnavailableStatus(mapped.nflStatus)).toBe(true);
+      expect(mapNflStatusToAvailability(mapped.nflStatus)).toBe("FREE_AGENT");
+
+      const resolved = resolvePlayerWeekStatus({
+        nflStatus: mapped.nflStatus,
+        weekDesignation: null,
+      });
+      expect(resolved.rosterUnavailable).toBe(true);
+      expect(resolved.selectable).toBe(false);
+      expect(resolved.promotionUnavailable).toBe(true);
+      expect(resolved.effectiveEntryAvailability).toBe("FREE_AGENT");
+      expect(isPromotionUnavailable(resolved.effectiveEntryAvailability)).toBe(
+        true,
+      );
+
+      const ui = mapAvailability(resolved.effectiveEntryAvailability);
+      expect(isSelectableUiAvailability(ui)).toBe(false);
+      expect(
+        canNewlySelectPlayer({
+          availability: resolved.effectiveEntryAvailability,
+        }),
+      ).toBe(false);
+
+      const { eligible, unavailable } = partitionAiPromptPlayers([
+        {
+          name: "Traded Player",
+          team: "ARI",
+          opponent: "vs X",
+          gameStartsAt: new Date("2026-09-27T17:00:00.000Z"),
+          availability: resolved.effectiveEntryAvailability,
+          designation: resolved.designation,
+          injuryDescription: null,
+          unavailableReason: resolved.unavailableReason,
+          rankableEntryId: "traded",
+        },
+      ]);
+      expect(eligible).toHaveLength(0);
+      expect(unavailable).toHaveLength(1);
+    });
+  }
+
+  it("clean non-conflicted TRD WOULD APPLY as hard-unavailable status", () => {
+    const matches = buildRosterStatusMatches(
+      [
+        poolEntry({
+          name: "Solo Trade Marker",
+          team: "ARI",
+          position: "WR",
+          externalId: "solo-trade",
+          nflStatus: "PRACTICE_SQUAD",
+          sourceNflStatus: "DEV",
+          activeOnNFLRoster: false,
+        }),
+      ],
+      [
+        livePlayer({
+          externalId: "solo-trade",
+          name: "Solo Trade Marker",
+          team: "ARI",
+          sourceStatus: "TRD",
+          fantasyPosition: "WR",
+          sourcePosition: "WR",
+        }),
+      ],
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.matchClass).toBe("MATCHED");
+    expect(matches[0]!.next).toEqual({
+      nflStatus: "TRD",
+      sourceNflStatus: "TRD",
+      activeOnNFLRoster: false,
+    });
+    const resolved = resolvePlayerWeekStatus({
+      nflStatus: matches[0]!.next!.nflStatus,
+    });
+    expect(resolved.selectable).toBe(false);
+  });
+});
+
+describe("conflict suppression helper", () => {
+  it("applyConflictWriteSuppression is idempotent on already-suppressed rows", () => {
+    const matches = buildRosterStatusMatches(
+      [poolEntry()],
+      [
+        livePlayer({ team: "NYG", sourceStatus: "RES" }),
+        livePlayer({ team: "DAL", sourceStatus: "ACT" }),
+      ],
+    );
+    const again = applyConflictWriteSuppression(matches);
+    expect(again.every((m) => m.matchClass !== "MATCHED")).toBe(true);
   });
 });
 
