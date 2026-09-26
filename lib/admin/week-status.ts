@@ -219,6 +219,7 @@ export async function loadWeekStatusBoard(input: {
       nflStatus,
       weekDesignation: weekAvail?.designation as WeeklyDesignation | undefined,
       injuryDescription: weekAvail?.injuryDescription,
+      practiceStatus: weekAvail?.practiceStatus,
       sourceType: weekAvail?.sourceType,
       sourceUrl: weekAvail?.sourceUrl,
       sourcePublishedAt: weekAvail?.sourcePublishedAt,
@@ -240,7 +241,10 @@ export async function loadWeekStatusBoard(input: {
     const presentation = presentWeeklyAvailability({
       resolved,
       hasWeekRecord,
-      practiceStatus: injury?.practiceStatus ?? null,
+      practiceStatus:
+        weekAvail?.practiceStatus ?? injury?.practiceStatus ?? null,
+      injuryDescription:
+        weekAvail?.injuryDescription ?? injury?.injury ?? null,
       onInjuryReportBlankGameStatus: Boolean(
         injury && injury.gameStatus == null,
       ),

@@ -8,13 +8,13 @@ import type {
   EntryAvailability,
 } from "@/lib/generated/prisma/client";
 import {
-  formatAvailabilityPromptParts,
+  formatPlayerInjuryPromptBlock,
   type WeeklyDesignation,
 } from "@/lib/eligibility/player-week-availability";
 import { isSelectableAvailability } from "@/lib/eligibility/weekly-status";
 
 /** Stable identifier for the weekly AI competition prompt. Bump when instructions change. */
-export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V5" as const;
+export const RANKEYEQ_AI_WEEKLY_PROMPT_VERSION = "RANKEYEQ_AI_WEEKLY_V6" as const;
 
 export type AiPromptPlayer = {
   name: string;
@@ -26,6 +26,10 @@ export type AiPromptPlayer = {
   /** Week-specific designation when known. */
   designation?: WeeklyDesignation | string;
   injuryDescription?: string | null;
+  /** Raw NFL.com practice status (informational only). */
+  practiceStatus?: string | null;
+  /** Whether the player may be newly selected. */
+  selectable?: boolean;
   /** Roster reason when excluded for IR/PUP/etc. */
   unavailableReason?: string | null;
   rankableEntryId?: string;
@@ -178,11 +182,17 @@ function formatPlayerLine(
   opts?: { forceStatus?: string | null; includeKickoff?: boolean },
 ) {
   const status = opts?.forceStatus ?? designationLabel(player);
-  const line = formatAvailabilityPromptParts({
+  const selectable =
+    player.selectable ??
+    (player.unavailableReason == null && playerIsSelectable(player));
+  const block = formatPlayerInjuryPromptBlock({
     name: player.name,
     team: player.team,
-    designation: status,
+    resolvedAvailabilityLabel: status,
+    selectable,
     injuryDescription: player.injuryDescription,
+    practiceStatus: player.practiceStatus,
+    designation: player.designation ?? status,
   });
   const extras: string[] = [];
   if (player.opponent) extras.push(player.opponent);
@@ -190,8 +200,8 @@ function formatPlayerLine(
     const kickoff = formatKickoff(player.gameStartsAt);
     if (kickoff) extras.push(kickoff);
   }
-  if (extras.length === 0) return `- ${line}`;
-  return `- ${line} — ${extras.join(" — ")}`;
+  if (extras.length === 0) return `- ${block}`;
+  return `- ${block}\n  Matchup: ${extras.join(" — ")}`;
 }
 
 /**
@@ -373,6 +383,9 @@ Contest:
 - OUT and INACTIVE players are not selectable
 - Roster-unavailable players (IR / PUP / SUSPENDED / FREE_AGENT) are not selectable
 - Players listed under KICKED OFF — CANNOT BE ADDED have already started and must not be newly selected
+- Injury Watch (DNP / Limited) and practice participation are risk/context signals only — never interpret DNP or Limited as OUT, QUESTIONABLE, or DOUBTFUL
+- Only the resolved availability / Selectable field determines whether a player is eligible
+- You may use legitimate injury body-part and practice information when deciding where to rank an otherwise eligible player
 - Rank reserves honestly as your next-best choices — do not treat them as throwaway picks
 - ${AI_WEEKLY_SCORING_RULES[0]}
 - ${AI_WEEKLY_SCORING_RULES[1]}
@@ -388,6 +401,8 @@ Make an independent football forecast considering:
 - projected workload/opportunity
 - snap share / routes / touches
 - injuries and depth-chart changes
+- official Game Status when issued (Questionable / Doubtful / Out)
+- Injury Watch / practice participation (DNP, Limited, Full) as context only — never as automatic outs
 - opponent and positional matchup
 - offensive line / defensive front
 - likely game script
@@ -416,6 +431,8 @@ QUESTIONABLE and DOUBTFUL players appear in the eligible pool and may be selecte
 OUT and INACTIVE players are not selectable.
 Roster-unavailable players are not selectable.
 Kicked-off players are not newly selectable (their games have started).
+DNP and Limited practice statuses are Injury Watch context only — do not treat them as OUT.
+Only resolved availability (Selectable: yes/no) determines eligibility.
 
 Return only the final ordered ranking as a numbered list (1 through ${depth}).
 

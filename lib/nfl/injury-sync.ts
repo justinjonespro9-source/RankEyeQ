@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type {
   ContestPosition,
   EntryAvailability,
+  WeeklyAvailabilityDesignation,
 } from "@/lib/generated/prisma/client";
 import {
   normalizePlayerName,
@@ -21,10 +22,17 @@ import {
 } from "@/lib/providers/nfl/nflcom/fetch-injuries";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 import {
+  derivePracticeTier,
   entryAvailabilityFromInjuryGameStatus,
+  PRESERVED_OFFICIAL_DESIGNATIONS,
   ROSTER_UNAVAILABLE_ENTRY,
+  type PracticeTier,
+  type WeeklyDesignation,
 } from "@/lib/eligibility/player-week-availability";
-import { upsertPlayerWeekAvailability } from "@/lib/eligibility/player-week-availability-store";
+import {
+  updateInjuryContextPreservingOverride,
+  upsertPlayerWeekAvailability,
+} from "@/lib/eligibility/player-week-availability-store";
 
 export type InjuryMatchCandidate = {
   id: string;
@@ -33,6 +41,17 @@ export type InjuryMatchCandidate = {
   position: ContestPosition;
   score: "exact" | "alias" | "fuzzy";
 };
+
+export type InjurySyncChangeKind =
+  | "designation"
+  | "practice_context"
+  | "injury_description"
+  | "unchanged"
+  | "unmatched"
+  | "ambiguous"
+  | "skipped_override_context"
+  | "skipped_kickoff"
+  | "skipped_manual";
 
 export type InjurySyncMatch =
   | {
@@ -45,16 +64,23 @@ export type InjurySyncMatch =
       changed: boolean;
       /** True when NFL.com listed the player but Game Status was blank. */
       missingGameStatus?: boolean;
+      /** Proposed PWA designation after blank-GS / official-GS rules. */
+      proposedDesignation?: WeeklyDesignation;
+      proposedPracticeStatus?: string | null;
+      proposedInjuryDescription?: string | null;
+      changeKind?: InjurySyncChangeKind;
     }
   | {
       status: "unmatched";
       row: ParsedInjuryRow;
       suggestions: InjuryMatchCandidate[];
+      changeKind?: InjurySyncChangeKind;
     }
   | {
       status: "ambiguous";
       row: ParsedInjuryRow;
       suggestions: InjuryMatchCandidate[];
+      changeKind?: InjurySyncChangeKind;
     };
 
 export type InjurySyncSummary = {
@@ -79,6 +105,11 @@ export type InjurySyncSummary = {
   out: number;
   unmatched: number;
   ambiguous: number;
+  /** Preview/Sync classification (proposed or applied). */
+  designationChanges: number;
+  practiceContextOnlyChanges: number;
+  injuryDescriptionOnlyChanges: number;
+  practiceTierCounts: Record<PracticeTier, number>;
   errors: string[];
   matches: InjurySyncMatch[];
   skippedNonFantasy: number;
@@ -109,8 +140,16 @@ export function formatInjurySyncOperatorMessage(
     `${summary.questionable} QUESTIONABLE`,
     `${summary.doubtful} DOUBTFUL`,
     "",
+    "Proposed / applied changes:",
+    `${summary.designationChanges} official designation changes`,
+    `${summary.practiceContextOnlyChanges} practice-context-only`,
+    `${summary.injuryDescriptionOnlyChanges} injury-description-only`,
+    `${summary.unchanged} unchanged`,
+    "",
+    "Practice tiers (matched fantasy):",
+    `DNP ${summary.practiceTierCounts.DNP} · Limited ${summary.practiceTierCounts.LIMITED} · Full ${summary.practiceTierCounts.FULL} · Unknown ${summary.practiceTierCounts.UNKNOWN}`,
+    "",
     `Updated: ${summary.updated}`,
-    `Unchanged: ${summary.unchanged}`,
     `Skipped kickoff: ${summary.skippedKickoff}`,
     `Skipped manual: ${summary.skippedManual}`,
     `Errors: ${summary.failed}`,
@@ -129,6 +168,14 @@ type RankableCandidate = {
   externalId: string;
   provider: string;
   adminNotes: string | null;
+};
+
+type ExistingPwa = {
+  designation: WeeklyAvailabilityDesignation;
+  injuryDescription: string | null;
+  practiceStatus: string | null;
+  manualOverride: boolean;
+  sourceType: string;
 };
 
 function candidatesForWeek(entries: RankableCandidate[]) {
@@ -186,6 +233,7 @@ function matchInjuryRow(
         position: entry.position,
         score: "exact" as const,
       })),
+      changeKind: "ambiguous",
     };
   }
 
@@ -212,6 +260,7 @@ function matchInjuryRow(
         position: entry.position,
         score: "alias" as const,
       })),
+      changeKind: "ambiguous",
     };
   }
 
@@ -232,7 +281,12 @@ function matchInjuryRow(
       score: "fuzzy" as const,
     }));
 
-  return { status: "unmatched", row, suggestions: fuzzy };
+  return {
+    status: "unmatched",
+    row,
+    suggestions: fuzzy,
+    changeKind: "unmatched",
+  };
 }
 
 function buildMatched(
@@ -243,9 +297,7 @@ function buildMatched(
     gameStatus: row.gameStatus,
     current: entry.availability,
   });
-  const missingGameStatus = row.gameStatus == null && next == null;
-  // Blank Game Status: do not invent AVAILABLE and do not overwrite existing
-  // designations — leave unchanged for operator/manual review.
+  const missingGameStatus = row.gameStatus == null;
   const changed = next != null && next !== entry.availability;
   return {
     status: "matched",
@@ -260,9 +312,58 @@ function buildMatched(
 }
 
 /**
+ * Resolve PWA designation for an injury row without inventing Q/D/OUT from practice.
+ * Blank Game Status never clears a stronger existing official designation.
+ */
+export function resolveInjurySyncDesignation(input: {
+  gameStatus: ParsedInjuryRow["gameStatus"];
+  existingDesignation: WeeklyDesignation | null;
+}): WeeklyDesignation {
+  if (input.gameStatus) {
+    return entryAvailabilityFromInjuryGameStatus(input.gameStatus);
+  }
+  // Blank GS: preserve stronger official designation if present.
+  if (
+    input.existingDesignation &&
+    PRESERVED_OFFICIAL_DESIGNATIONS.has(input.existingDesignation)
+  ) {
+    return input.existingDesignation;
+  }
+  return "UNKNOWN";
+}
+
+export function classifyInjuryContextChange(input: {
+  existing: ExistingPwa | null;
+  proposedDesignation: WeeklyDesignation;
+  proposedPractice: string | null;
+  proposedInjury: string | null;
+}): InjurySyncChangeKind {
+  const prevDes = input.existing?.designation ?? null;
+  const prevPractice = input.existing?.practiceStatus ?? null;
+  const prevInjury = input.existing?.injuryDescription ?? null;
+  // null/absent → UNKNOWN is practice-context persistence, not an official GS change.
+  const priorEffective = prevDes ?? "UNKNOWN";
+  const desChanged = priorEffective !== input.proposedDesignation;
+  const practiceChanged = prevPractice !== input.proposedPractice;
+  const injuryChanged = prevInjury !== input.proposedInjury;
+
+  if (!desChanged && !practiceChanged && !injuryChanged) return "unchanged";
+  if (desChanged) return "designation";
+  if (practiceChanged && !injuryChanged) return "practice_context";
+  if (injuryChanged && !practiceChanged) return "injury_description";
+  // Both practice + injury changed, designation same → practice_context bucket
+  // (primary V2.1 signal); injury-only is reserved for injury-only diffs.
+  return "practice_context";
+}
+
+/**
  * Sync weekly injury designations from NFL.com official injuries page only.
  * Third-party sources (including CBS) are not used.
  * Failed fetch/parse leaves existing designations and overrides unchanged.
+ *
+ * V2.1: blank Game Status may persist practiceStatus + injuryDescription with
+ * designation UNKNOWN (or preserved stronger designation). Practice never
+ * implies Q/D/OUT.
  */
 export async function syncWeekInjuriesFromNflCom(input: {
   weekId: string;
@@ -343,6 +444,27 @@ export async function syncWeekInjuriesFromNflCom(input: {
   }
   const pool = candidatesForWeek([...poolMap.values()]);
 
+  const existingRows = await prisma.playerWeekAvailability.findMany({
+    where: {
+      weekId: input.weekId,
+      rankableEntryId: { in: [...poolMap.keys()] },
+    },
+    select: {
+      rankableEntryId: true,
+      designation: true,
+      injuryDescription: true,
+      practiceStatus: true,
+      manualOverride: true,
+      sourceType: true,
+    },
+  });
+  const existingById = new Map(
+    existingRows.map((row) => [
+      row.rankableEntryId,
+      row as ExistingPwa & { rankableEntryId: string },
+    ]),
+  );
+
   const matches: InjurySyncMatch[] = workingRows.map((row) =>
     matchInjuryRow(row, pool),
   );
@@ -358,6 +480,15 @@ export async function syncWeekInjuriesFromNflCom(input: {
   let questionable = 0;
   let doubtful = 0;
   let out = 0;
+  let designationChanges = 0;
+  let practiceContextOnlyChanges = 0;
+  let injuryDescriptionOnlyChanges = 0;
+  const practiceTierCounts: Record<PracticeTier, number> = {
+    DNP: 0,
+    LIMITED: 0,
+    FULL: 0,
+    UNKNOWN: 0,
+  };
 
   for (const match of matches) {
     if (match.status === "unmatched") {
@@ -370,18 +501,86 @@ export async function syncWeekInjuriesFromNflCom(input: {
       continue;
     }
     matched += 1;
-    if (match.next === "QUESTIONABLE") questionable += 1;
-    if (match.next === "DOUBTFUL") doubtful += 1;
-    if (match.next === "OUT") out += 1;
 
-    // Blank Game Status: leave existing designation alone (UNKNOWN if none).
-    if (match.missingGameStatus || match.next == null) {
+    const existing = existingById.get(match.entryId) ?? null;
+    const proposedPractice = match.row.practiceStatus?.trim() || null;
+    const proposedInjury = match.row.injury?.trim() || null;
+    const proposedDesignation = resolveInjurySyncDesignation({
+      gameStatus: match.row.gameStatus,
+      existingDesignation: (existing?.designation as WeeklyDesignation) ?? null,
+    });
+
+    match.proposedDesignation = proposedDesignation;
+    match.proposedPracticeStatus = proposedPractice;
+    match.proposedInjuryDescription = proposedInjury;
+
+    const tier = derivePracticeTier(proposedPractice);
+    if (tier) practiceTierCounts[tier] += 1;
+
+    if (match.next === "QUESTIONABLE" || proposedDesignation === "QUESTIONABLE") {
+      if (match.row.gameStatus === "QUESTIONABLE") questionable += 1;
+    }
+    if (match.next === "DOUBTFUL" || proposedDesignation === "DOUBTFUL") {
+      if (match.row.gameStatus === "DOUBTFUL") doubtful += 1;
+    }
+    if (match.next === "OUT" || proposedDesignation === "OUT") {
+      if (match.row.gameStatus === "OUT") out += 1;
+    }
+
+    const changeKind = classifyInjuryContextChange({
+      existing,
+      proposedDesignation,
+      proposedPractice,
+      proposedInjury,
+    });
+    match.changeKind = changeKind;
+
+    if (changeKind === "unchanged") {
       unchanged += 1;
       continue;
     }
+    if (changeKind === "designation") designationChanges += 1;
+    if (changeKind === "practice_context") practiceContextOnlyChanges += 1;
+    if (changeKind === "injury_description") injuryDescriptionOnlyChanges += 1;
 
-    if (!match.changed) {
-      unchanged += 1;
+    // Admin override: never touch designation/provenance; optional context only.
+    if (existing?.manualOverride) {
+      if (!apply) {
+        skippedManual += 1;
+        match.changeKind = "skipped_override_context";
+        // Still count as proposed context refresh for Preview visibility.
+        updated += 1;
+        continue;
+      }
+      try {
+        const result = await updateInjuryContextPreservingOverride({
+          weekId: input.weekId,
+          rankableEntryId: match.entryId,
+          injuryDescription: proposedInjury,
+          practiceStatus: proposedPractice,
+          observedAt: syncedAt,
+        });
+        if (result.status === "updated_context_only") {
+          updated += 1;
+          match.changeKind = "skipped_override_context";
+        } else {
+          unchanged += 1;
+          // Roll back change bucket if nothing wrote.
+          if (changeKind === "designation") designationChanges -= 1;
+          if (changeKind === "practice_context") practiceContextOnlyChanges -= 1;
+          if (changeKind === "injury_description") {
+            injuryDescriptionOnlyChanges -= 1;
+          }
+        }
+        skippedManual += 1;
+      } catch (error) {
+        failed += 1;
+        errors.push(
+          error instanceof Error
+            ? `Failed context update ${match.entryName}: ${error.message}`
+            : `Failed context update ${match.entryName}`,
+        );
+      }
       continue;
     }
 
@@ -391,7 +590,9 @@ export async function syncWeekInjuriesFromNflCom(input: {
     }
 
     try {
-      if (ROSTER_UNAVAILABLE_ENTRY.has(match.next)) {
+      // Roster-unavailable EntryAvailability only when official GS maps to it
+      // (should not happen for Q/D/OUT path). Keep prior behavior for IR-as-GS.
+      if (match.next && ROSTER_UNAVAILABLE_ENTRY.has(match.next)) {
         await prisma.rankableEntry.update({
           where: { id: match.entryId },
           data: { availability: match.next },
@@ -400,24 +601,19 @@ export async function syncWeekInjuriesFromNflCom(input: {
         continue;
       }
 
-      const designation = entryAvailabilityFromInjuryGameStatus(match.next);
-      if (designation === "UNKNOWN") {
-        // Official Game Status missing after mapping — do not invent AVAILABLE.
-        unchanged += 1;
-        continue;
-      }
-
       const result = await upsertPlayerWeekAvailability({
         weekId: input.weekId,
         rankableEntryId: match.entryId,
-        designation,
-        injuryDescription: match.row.injury?.trim() || null,
+        designation: proposedDesignation,
+        injuryDescription: proposedInjury,
+        practiceStatus: proposedPractice,
         sourceUrl,
         sourcePublishedAt: syncedAt,
         observedAt: syncedAt,
         sourceType: "NFL_SYNC",
         respectManualOverride: true,
         skipAfterKickoff: true,
+        skipRankableMirrorWhenDesignationUnchanged: true,
         now: syncedAt,
       });
       if (result.status === "skipped_override") {
@@ -426,6 +622,7 @@ export async function syncWeekInjuriesFromNflCom(input: {
       }
       if (result.status === "skipped_kickoff") {
         skippedKickoff += 1;
+        match.changeKind = "skipped_kickoff";
         continue;
       }
       if (result.status === "unchanged") {
@@ -462,6 +659,10 @@ export async function syncWeekInjuriesFromNflCom(input: {
     out,
     unmatched,
     ambiguous,
+    designationChanges,
+    practiceContextOnlyChanges,
+    injuryDescriptionOnlyChanges,
+    practiceTierCounts,
     errors,
     matches,
     skippedNonFantasy,
@@ -492,6 +693,10 @@ function emptySummary(partial: {
     out: 0,
     unmatched: 0,
     ambiguous: 0,
+    designationChanges: 0,
+    practiceContextOnlyChanges: 0,
+    injuryDescriptionOnlyChanges: 0,
+    practiceTierCounts: { DNP: 0, LIMITED: 0, FULL: 0, UNKNOWN: 0 },
     matches: [],
     skippedNonFantasy: 0,
   };

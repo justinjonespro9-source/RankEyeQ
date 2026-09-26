@@ -65,7 +65,7 @@ describe("PlayerWeekAvailability resolution", () => {
     }
   });
 
-  it("presents practice-only as No official status yet", () => {
+  it("presents practice-only DNP as Injury Watch · DNP", () => {
     const resolved = resolvePlayerWeekStatus({
       nflStatus: "ACTIVE",
       weekDesignation: null,
@@ -74,12 +74,15 @@ describe("PlayerWeekAvailability resolution", () => {
       resolved,
       hasWeekRecord: false,
       practiceStatus: "Did Not Participate In Practice",
+      injuryDescription: "knee",
       onInjuryReportBlankGameStatus: true,
     });
-    expect(presentation.designationLabel).toBe("No official status yet");
+    expect(presentation.designationLabel).toBe("Injury Watch · DNP");
     expect(presentation.sourceKind).toBe("PRACTICE_ONLY");
     expect(presentation.practiceStatus).toMatch(/Did Not Participate/i);
     expect(presentation.officialGameStatusLabel).toBe("No official status yet");
+    expect(presentation.injuryContext.practiceTier).toBe("DNP");
+    expect(presentation.injuryContext.bodyPart).toBe("knee");
   });
 
   it("presents NFL_SYNC OUT with official game status badge", () => {
@@ -288,6 +291,21 @@ describe("PlayerWeekAvailability resolution", () => {
       }),
     ).toBe("Sam Darnold — SEA — OUT — hip/glute");
   });
+
+  it("formats DNP as Injury Watch without inventing OUT", () => {
+    expect(
+      formatAvailabilityPromptParts({
+        name: "Jayden Daniels",
+        team: "WAS",
+        designation: "UNKNOWN",
+        practiceStatus: "Did Not Participate In Practice",
+        injuryDescription: "knee",
+        selectable: true,
+      }),
+    ).toBe(
+      "Jayden Daniels — WAS — UNKNOWN — Injury Watch: DNP — knee",
+    );
+  });
 });
 
 describe("AI prompt weekly availability sections", () => {
@@ -370,18 +388,26 @@ describe("AI prompt weekly availability sections", () => {
 
     const prompt = buildAiRankingPrompt(contest, { generatedAt });
     expect(prompt).toContain("ELIGIBLE PLAYER POOL");
-    expect(prompt).toContain("Sam Player — SEA — QUESTIONABLE — ankle; limited Wednesday");
-    expect(prompt).toContain("Alex Player — DAL — AVAILABLE");
-    expect(prompt).toContain("Chris Player — MIA — DOUBTFUL — hamstring");
+    expect(prompt).toContain("Sam Player — SEA");
+    expect(prompt).toContain("QUESTIONABLE");
+    expect(prompt).toContain("Injury: ankle; limited Wednesday");
+    expect(prompt).toContain("Alex Player — DAL");
+    expect(prompt).toContain("AVAILABLE");
+    expect(prompt).toContain("Chris Player — MIA");
+    expect(prompt).toContain("DOUBTFUL");
+    expect(prompt).toContain("Injury: hamstring");
     expect(prompt).toContain("UNAVAILABLE — DO NOT SELECT");
-    expect(prompt).toContain("Sam Darnold — SEA — OUT — hip/glute");
-    expect(prompt).toContain("Example Player — MIN — IR");
+    expect(prompt).toContain("Sam Darnold — SEA");
+    expect(prompt).toContain("OUT");
+    expect(prompt).toContain("Example Player — MIN");
+    expect(prompt).toContain("IR");
     expect(prompt).toContain("Select players only from the ELIGIBLE PLAYER POOL");
     expect(prompt).toContain("Never select anyone listed under UNAVAILABLE");
     expect(prompt).toContain("QUESTIONABLE and DOUBTFUL players appear in the eligible pool");
+    expect(prompt).toContain("DNP and Limited practice statuses are Injury Watch context only");
     expect(prompt).toContain("Eligible pool count: 3");
     expect(prompt).toContain("Unavailable count: 2");
-    expect(prompt).toContain("RANKEYEQ_AI_WEEKLY_V5");
+    expect(prompt).toContain("RANKEYEQ_AI_WEEKLY_V6");
     expect(prompt).not.toContain("AI competitor:");
   });
 

@@ -692,6 +692,8 @@ model PlayerWeekAvailability {
   rankableEntryId   String
   designation       WeeklyAvailabilityDesignation @default(UNKNOWN)
   injuryDescription String?
+  /// Raw NFL.com Practice Status cell (informational only; never implies Q/D/OUT).
+  practiceStatus    String?
   sourceUrl         String?
   sourcePublishedAt DateTime?
   observedAt        DateTime                      @default(now())

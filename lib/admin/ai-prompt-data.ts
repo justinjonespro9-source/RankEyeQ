@@ -96,6 +96,8 @@ export async function loadAiPromptContest(
         entry.rankableEntry.availability,
       designation: resolved?.designation,
       injuryDescription: resolved?.injuryDescription,
+      practiceStatus: resolved?.practiceStatus,
+      selectable: resolved?.selectable,
       unavailableReason: resolved?.selectable
         ? null
         : resolved?.unavailableReason,

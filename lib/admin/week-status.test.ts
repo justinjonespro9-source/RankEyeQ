@@ -90,7 +90,7 @@ describe("week-status availability presentation contract", () => {
       practiceStatus: "Did Not Participate In Practice",
       onInjuryReportBlankGameStatus: true,
     });
-    expect(practiceOnly.designationLabel).toBe("No official status yet");
+    expect(practiceOnly.designationLabel).toBe("Injury Watch · DNP");
     expect(practiceOnly.sourceKind).toBe("PRACTICE_ONLY");
 
     const official = presentWeeklyAvailability({

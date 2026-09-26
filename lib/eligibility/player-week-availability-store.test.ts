@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   findUniqueAvail,
   upsertAvail,
+  updateAvail,
   updateRankable,
   findFirstSeason,
   findUniqueRankable,
 } = vi.hoisted(() => ({
   findUniqueAvail: vi.fn(),
   upsertAvail: vi.fn(),
+  updateAvail: vi.fn(),
   updateRankable: vi.fn(),
   findFirstSeason: vi.fn(),
   findUniqueRankable: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock("@/lib/db", () => ({
     playerWeekAvailability: {
       findUnique: findUniqueAvail,
       upsert: upsertAvail,
+      update: updateAvail,
     },
     rankableEntry: {
       findUnique: findUniqueRankable,
@@ -30,7 +33,10 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-import { upsertPlayerWeekAvailability } from "@/lib/eligibility/player-week-availability-store";
+import {
+  updateInjuryContextPreservingOverride,
+  upsertPlayerWeekAvailability,
+} from "@/lib/eligibility/player-week-availability-store";
 
 describe("PlayerWeekAvailability manual override precedence", () => {
   beforeEach(() => {
@@ -42,6 +48,7 @@ describe("PlayerWeekAvailability manual override precedence", () => {
     });
     findFirstSeason.mockResolvedValue({ nflStatus: "ACTIVE" });
     upsertAvail.mockResolvedValue({});
+    updateAvail.mockResolvedValue({});
     updateRankable.mockResolvedValue({});
   });
 
@@ -50,6 +57,7 @@ describe("PlayerWeekAvailability manual override precedence", () => {
       id: "pwa1",
       designation: "OUT",
       injuryDescription: "admin note",
+      practiceStatus: null,
       sourceUrl: null,
       sourcePublishedAt: null,
       manualOverride: true,
@@ -69,11 +77,46 @@ describe("PlayerWeekAvailability manual override precedence", () => {
     expect(updateRankable).not.toHaveBeenCalled();
   });
 
+  it("NFL practice-context update preserves admin override designation/authority", async () => {
+    findUniqueAvail.mockResolvedValue({
+      id: "pwa1",
+      designation: "OUT",
+      injuryDescription: "admin note",
+      practiceStatus: null,
+      sourceUrl: "https://admin.local",
+      sourcePublishedAt: null,
+      manualOverride: true,
+      sourceType: "MANUAL",
+      updatedByUserId: "admin1",
+    });
+
+    const result = await updateInjuryContextPreservingOverride({
+      weekId: "week1",
+      rankableEntryId: "player1",
+      practiceStatus: "Did Not Participate In Practice",
+      injuryDescription: "knee",
+      observedAt: new Date("2026-09-25T20:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("updated_context_only");
+    expect(updateAvail).toHaveBeenCalledWith({
+      where: { id: "pwa1" },
+      data: {
+        injuryDescription: "knee",
+        practiceStatus: "Did Not Participate In Practice",
+        observedAt: new Date("2026-09-25T20:00:00.000Z"),
+      },
+    });
+    expect(upsertAvail).not.toHaveBeenCalled();
+    expect(updateRankable).not.toHaveBeenCalled();
+  });
+
   it("clearing override permits later NFL_SYNC updates", async () => {
     findUniqueAvail.mockResolvedValue({
       id: "pwa1",
       designation: "OUT",
       injuryDescription: "admin note",
+      practiceStatus: null,
       sourceUrl: null,
       sourcePublishedAt: null,
       manualOverride: true,
@@ -99,6 +142,7 @@ describe("PlayerWeekAvailability manual override precedence", () => {
       id: "pwa1",
       designation: "OUT",
       injuryDescription: "admin note",
+      practiceStatus: null,
       sourceUrl: null,
       sourcePublishedAt: null,
       manualOverride: false,

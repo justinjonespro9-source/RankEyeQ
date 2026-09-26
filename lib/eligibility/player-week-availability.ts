@@ -108,15 +108,138 @@ export type WeeklyAvailabilitySourceKind =
   | "NO_SOURCE_ROW"
   | "NO_OFFICIAL_STATUS";
 
+/** Derived practice participation tier — never maps to Q/D/OUT. */
+export type PracticeTier = "DNP" | "LIMITED" | "FULL" | "UNKNOWN";
+
+/**
+ * Shared factual injury context for Human UI + AI prompts.
+ * Practice is informational only; official Game Status alone drives Q/D/OUT.
+ */
+export type InjuryContext = {
+  bodyPart: string | null;
+  practiceStatusRaw: string | null;
+  practiceTier: PracticeTier | null;
+  officialGameStatus: "QUESTIONABLE" | "DOUBTFUL" | "OUT" | null;
+};
+
+/** Designations that blank NFL Game Status must not erase. */
+export const PRESERVED_OFFICIAL_DESIGNATIONS = new Set<WeeklyDesignation>([
+  "QUESTIONABLE",
+  "DOUBTFUL",
+  "OUT",
+  "INACTIVE",
+  "AVAILABLE",
+]);
+
+export function derivePracticeTier(
+  practiceStatus: string | null | undefined,
+): PracticeTier | null {
+  const raw = (practiceStatus ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (
+    raw.includes("did not participate") ||
+    raw === "dnp" ||
+    raw.startsWith("dnp")
+  ) {
+    return "DNP";
+  }
+  if (raw.includes("limited") || raw === "lp" || raw.startsWith("limited")) {
+    return "LIMITED";
+  }
+  if (
+    raw.includes("full participation") ||
+    raw === "full" ||
+    raw === "fp" ||
+    raw.startsWith("full")
+  ) {
+    return "FULL";
+  }
+  return "UNKNOWN";
+}
+
+export function buildInjuryContext(input: {
+  injuryDescription?: string | null;
+  practiceStatus?: string | null;
+  designation?: WeeklyDesignation | string | null;
+  officialGameStatusFromReport?:
+    | "QUESTIONABLE"
+    | "DOUBTFUL"
+    | "OUT"
+    | null;
+}): InjuryContext {
+  const designation = String(input.designation ?? "")
+    .trim()
+    .toUpperCase();
+  let officialGameStatus: InjuryContext["officialGameStatus"] = null;
+  if (input.officialGameStatusFromReport) {
+    officialGameStatus = input.officialGameStatusFromReport;
+  } else if (
+    designation === "QUESTIONABLE" ||
+    designation === "DOUBTFUL" ||
+    designation === "OUT"
+  ) {
+    officialGameStatus = designation;
+  }
+  const practiceStatusRaw = input.practiceStatus?.trim() || null;
+  return {
+    bodyPart: input.injuryDescription?.trim() || null,
+    practiceStatusRaw,
+    practiceTier: derivePracticeTier(practiceStatusRaw),
+    officialGameStatus,
+  };
+}
+
+/** Primary human label from Injury Watch when no stronger status exists. */
+export function injuryWatchPrimaryLabel(
+  context: InjuryContext,
+): string | null {
+  if (context.officialGameStatus === "OUT") return "Out";
+  if (context.officialGameStatus === "QUESTIONABLE") return "Questionable";
+  if (context.officialGameStatus === "DOUBTFUL") return "Doubtful";
+  if (context.practiceTier === "DNP") return "Injury Watch · DNP";
+  if (context.practiceTier === "LIMITED") return "Injury Watch · Limited";
+  // Full / unknown practice: no prominent Injury Watch warning.
+  return null;
+}
+
+export function formatInjuryContextForAiPrompt(input: {
+  resolvedAvailabilityLabel: string;
+  selectable: boolean;
+  context: InjuryContext;
+}): string[] {
+  const lines = [input.resolvedAvailabilityLabel];
+  if (input.context.officialGameStatus) {
+    lines.push(
+      `Official Game Status: ${input.context.officialGameStatus}`,
+    );
+  } else {
+    lines.push("Official Game Status: not yet issued");
+  }
+  if (input.context.practiceTier === "DNP") {
+    lines.push("Injury Watch: DNP");
+  } else if (input.context.practiceTier === "LIMITED") {
+    lines.push("Injury Watch: Limited");
+  } else if (input.context.practiceStatusRaw) {
+    lines.push(`Practice: ${input.context.practiceStatusRaw}`);
+  }
+  if (input.context.bodyPart) {
+    lines.push(`Injury: ${input.context.bodyPart}`);
+  }
+  lines.push(`Selectable: ${input.selectable ? "yes" : "no"}`);
+  return lines;
+}
+
 export type WeeklyAvailabilityPresentation = {
   designation: WeeklyDesignation;
-  /** Operator-facing primary label (e.g. "No official status yet"). */
+  /** Operator-facing primary label (e.g. "Injury Watch · DNP"). */
   designationLabel: string;
   sourceKind: WeeklyAvailabilitySourceKind;
   /** Short badge under the designation. */
   sourceBadge: string;
   practiceStatus: string | null;
   officialGameStatusLabel: string;
+  /** Shared factual context (Human + AI). */
+  injuryContext: InjuryContext;
 };
 
 /**
@@ -127,13 +250,26 @@ export function presentWeeklyAvailability(input: {
   resolved: ResolvedPlayerWeekStatus;
   hasWeekRecord: boolean;
   practiceStatus?: string | null;
+  injuryDescription?: string | null;
   /** True when NFL.com listed the player with blank Game Status. */
   onInjuryReportBlankGameStatus?: boolean;
   /** True when NFL.com listed the player with a mapped official Game Status. */
   onInjuryReportOfficialGameStatus?: boolean;
 }): WeeklyAvailabilityPresentation {
   const { resolved } = input;
-  const practiceStatus = input.practiceStatus?.trim() || null;
+  const practiceStatus =
+    input.practiceStatus?.trim() ||
+    resolved.practiceStatus?.trim() ||
+    null;
+  const injuryDescription =
+    input.injuryDescription?.trim() ||
+    resolved.injuryDescription?.trim() ||
+    null;
+  const injuryContext = buildInjuryContext({
+    injuryDescription,
+    practiceStatus,
+    designation: resolved.designation,
+  });
 
   if (resolved.manualOverride && input.hasWeekRecord) {
     return {
@@ -143,6 +279,7 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: "Admin override",
       practiceStatus,
       officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      injuryContext,
     };
   }
 
@@ -156,6 +293,7 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: `Roster · ${resolved.unavailableReason ?? resolved.rosterStatus ?? "unavailable"}`,
       practiceStatus,
       officialGameStatusLabel: "—",
+      injuryContext,
     };
   }
 
@@ -175,6 +313,7 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: "NFL.com · official game status",
       practiceStatus,
       officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      injuryContext,
     };
   }
 
@@ -186,17 +325,20 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: "NFL.com · official game status",
       practiceStatus,
       officialGameStatusLabel: DESIGNATION_FULL_LABEL[resolved.designation],
+      injuryContext,
     };
   }
 
   if (input.onInjuryReportBlankGameStatus || practiceStatus) {
+    const watchLabel = injuryWatchPrimaryLabel(injuryContext);
     return {
       designation: "UNKNOWN",
-      designationLabel: "No official status yet",
+      designationLabel: watchLabel ?? "No official status yet",
       sourceKind: "PRACTICE_ONLY",
       sourceBadge: "NFL.com game status not published",
       practiceStatus,
       officialGameStatusLabel: "No official status yet",
+      injuryContext,
     };
   }
 
@@ -208,15 +350,21 @@ export function presentWeeklyAvailability(input: {
       sourceBadge: "No current-week injury row",
       practiceStatus,
       officialGameStatusLabel: "No official status yet",
+      injuryContext,
     };
   }
 
+  const watchLabel =
+    resolved.designation === "UNKNOWN"
+      ? injuryWatchPrimaryLabel(injuryContext)
+      : null;
   return {
     designation: resolved.designation,
     designationLabel:
-      resolved.designation === "UNKNOWN"
+      watchLabel ??
+      (resolved.designation === "UNKNOWN"
         ? "No official status yet"
-        : DESIGNATION_FULL_LABEL[resolved.designation],
+        : DESIGNATION_FULL_LABEL[resolved.designation]),
     sourceKind: "NO_OFFICIAL_STATUS",
     sourceBadge: "NFL.com game status not published",
     practiceStatus,
@@ -224,6 +372,7 @@ export function presentWeeklyAvailability(input: {
       resolved.designation === "UNKNOWN"
         ? "No official status yet"
         : DESIGNATION_FULL_LABEL[resolved.designation],
+    injuryContext,
   };
 }
 
@@ -341,6 +490,7 @@ export function rosterUnavailableLabel(
 export type ResolvedPlayerWeekStatus = {
   designation: WeeklyDesignation;
   injuryDescription: string | null;
+  practiceStatus: string | null;
   sourceType: WeeklyAvailabilitySourceType | null;
   sourceUrl: string | null;
   sourcePublishedAt: Date | null;
@@ -362,12 +512,15 @@ export type ResolvedPlayerWeekStatus = {
   unavailableReason: string | null;
   /** Short disclosure for eligible Q/D/UNKNOWN lines. */
   eligibleDisclosure: string | null;
+  /** Shared factual injury context for Human + AI. */
+  injuryContext: InjuryContext;
 };
 
 export type ResolvePlayerWeekStatusInput = {
   nflStatus?: string | null;
   weekDesignation?: WeeklyDesignation | null;
   injuryDescription?: string | null;
+  practiceStatus?: string | null;
   sourceType?: WeeklyAvailabilitySourceType | null;
   sourceUrl?: string | null;
   sourcePublishedAt?: Date | null;
@@ -425,6 +578,7 @@ export function resolvePlayerWeekStatus(
   }
 
   const note = input.injuryDescription?.trim() || null;
+  const practiceStatus = input.practiceStatus?.trim() || null;
   let eligibleDisclosure: string | null = null;
   if (selectable) {
     if (designation === "QUESTIONABLE" || designation === "DOUBTFUL") {
@@ -436,9 +590,16 @@ export function resolvePlayerWeekStatus(
     }
   }
 
+  const injuryContext = buildInjuryContext({
+    injuryDescription: note,
+    practiceStatus,
+    designation,
+  });
+
   return {
     designation,
     injuryDescription: note,
+    practiceStatus,
     sourceType: input.sourceType ?? null,
     sourceUrl: input.sourceUrl ?? null,
     sourcePublishedAt: input.sourcePublishedAt ?? null,
@@ -454,6 +615,7 @@ export function resolvePlayerWeekStatus(
     effectiveEntryAvailability,
     unavailableReason,
     eligibleDisclosure,
+    injuryContext,
   };
 }
 
@@ -463,6 +625,8 @@ export function formatAvailabilityPromptParts(input: {
   team: string;
   designation: WeeklyDesignation | string;
   injuryDescription?: string | null;
+  practiceStatus?: string | null;
+  selectable?: boolean;
   rosterUnavailableReason?: string | null;
 }): string {
   const parts = [input.name, input.team];
@@ -471,9 +635,51 @@ export function formatAvailabilityPromptParts(input: {
   } else {
     parts.push(String(input.designation));
   }
-  const note = input.injuryDescription?.trim();
-  if (note) parts.push(note);
+  const context = buildInjuryContext({
+    injuryDescription: input.injuryDescription,
+    practiceStatus: input.practiceStatus,
+    designation: input.rosterUnavailableReason
+      ? null
+      : String(input.designation),
+  });
+  const detailLines = formatInjuryContextForAiPrompt({
+    resolvedAvailabilityLabel: "",
+    selectable: input.selectable ?? true,
+    context,
+  }).filter((line) => line.length > 0);
+  // Keep compact single-line extras for legacy callers; prefer structured
+  // formatPlayerInjuryPromptBlock for multi-line AI presentation.
+  if (context.practiceTier === "DNP") parts.push("Injury Watch: DNP");
+  else if (context.practiceTier === "LIMITED") parts.push("Injury Watch: Limited");
+  else if (context.practiceStatusRaw && !context.officialGameStatus) {
+    parts.push(`Practice: ${context.practiceStatusRaw}`);
+  }
+  if (context.bodyPart) parts.push(context.bodyPart);
+  void detailLines;
   return parts.join(" — ");
+}
+
+/** Multi-line AI prompt block for one player (shared InjuryContext). */
+export function formatPlayerInjuryPromptBlock(input: {
+  name: string;
+  team: string;
+  resolvedAvailabilityLabel: string;
+  selectable: boolean;
+  injuryDescription?: string | null;
+  practiceStatus?: string | null;
+  designation?: WeeklyDesignation | string | null;
+}): string {
+  const context = buildInjuryContext({
+    injuryDescription: input.injuryDescription,
+    practiceStatus: input.practiceStatus,
+    designation: input.designation,
+  });
+  const lines = formatInjuryContextForAiPrompt({
+    resolvedAvailabilityLabel: input.resolvedAvailabilityLabel,
+    selectable: input.selectable,
+    context,
+  });
+  return [`${input.name} — ${input.team}`, ...lines].join("\n  ");
 }
 
 export function isSelectableResolvedStatus(

@@ -18,7 +18,7 @@ import {
   orderedMatchedIdsFromUniversalPaste,
 } from "@/lib/admin/ai-parser";
 
-describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V5)", () => {
+describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V6)", () => {
   const generatedAt = zonedLocalToUtc(2026, 9, 10, 9, 30);
 
   const qbContest: AiPromptContest = {
@@ -82,8 +82,8 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V5)", () => {
     ],
   };
 
-  it("uses RANKEYEQ_AI_WEEKLY_V5 with neutral intro and no profile identity", () => {
-    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V5");
+  it("uses RANKEYEQ_AI_WEEKLY_V6 with neutral intro and no profile identity", () => {
+    expect(RANKEYEQ_AI_WEEKLY_PROMPT_VERSION).toBe("RANKEYEQ_AI_WEEKLY_V6");
     const prompt = buildAiRankingPrompt(qbContest, {
       aiDisplayName: "Claude",
       generatedAt,
@@ -91,7 +91,7 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V5)", () => {
     expect(prompt).toContain(
       "You are competing in RankEyeQ, a weekly fantasy-football player-ranking competition.",
     );
-    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V5");
+    expect(prompt).toContain("Prompt version: RANKEYEQ_AI_WEEKLY_V6");
     expect(prompt).not.toContain("AI competitor:");
     expect(prompt).not.toContain("Claude");
     expect(prompt).not.toContain("Gemini");
@@ -267,7 +267,7 @@ describe("RankEyeQ AI weekly prompt (RANKEYEQ_AI_WEEKLY_V5)", () => {
     const bundle = buildAiPromptBundle(wrContest, { generatedAt });
     expect(bundle.meta.fieldSize).toBe(17);
     expect(bundle.meta.scoringDepth).toBe(15);
-    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V5");
+    expect(bundle.version).toBe("RANKEYEQ_AI_WEEKLY_V6");
     expect(bundle.prompt).not.toContain("AI competitor:");
   });
 });
