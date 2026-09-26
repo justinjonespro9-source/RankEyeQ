@@ -6,6 +6,7 @@ import {
   StandingStatusBadge,
   standingRowShellClass,
 } from "@/components/live/StandingStatus";
+import { ScoringBoardLegend } from "@/components/live/ScoringBoardLegend";
 import { LiveEyeqScore } from "@/components/live/LiveEyeqScore";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -208,6 +209,9 @@ export default async function PublicRankingBoardPage(
                 </p>
                 {board.boardCaption ? (
                   <p className="mb-3 text-sm text-muted">{board.boardCaption}</p>
+                ) : null}
+                {board.showingStoredScoringBoard ? (
+                  <ScoringBoardLegend />
                 ) : null}
                 <ol className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
                   {Array.from(
