@@ -22,6 +22,7 @@ import { scoreProvisionalEyeq } from "@/lib/live-provisional";
 import { provisionalRanksFromPoints } from "@/lib/live-rankiq";
 import { getMyRanksPositionDashboard } from "@/lib/my-ranks";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import type {
   ContestPosition,
   ContestStatus,
@@ -326,6 +327,15 @@ export async function listCompetitorLiveRoom(input: {
             rankableEntryId: true,
             fantasyPoints: true,
             actualRank: true,
+            game: {
+              select: {
+                id: true,
+                weekId: true,
+                homeTeam: true,
+                awayTeam: true,
+                startsAt: true,
+              },
+            },
           },
         }),
   ]);
@@ -428,9 +438,14 @@ export async function listCompetitorLiveRoom(input: {
               // incomplete board — leave EYEQ empty
             } else {
               const rankById = provisionalByContest.get(contest.id) ?? new Map();
+              const kickoffByEntryId = buildContestWeekKickoffMap({
+                weekId: input.weekId,
+                entries: entriesByContest.get(contest.id) ?? [],
+              });
               const effective = scoreableEffectivePicks({
                 picks: submission.picks,
                 scoringDepth: contest.rankingDepth,
+                kickoffByEntryId,
               });
               const summary = scoreProvisionalEyeq(
                 effective.map((pick) => ({

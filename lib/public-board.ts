@@ -33,6 +33,11 @@ import {
   type ProvisionalStandingStatus,
 } from "@/lib/live-provisional";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
+import {
+  buildOriginalBoardAudit,
+  reconstructStoredScoringBoard,
+} from "@/lib/reserves/stored-scoring-board";
 
 export type PublicBoardPick = {
   predictedRank: number;
@@ -49,6 +54,22 @@ export type PublicBoardPick = {
   standingStatus: ProvisionalStandingStatus;
   /** Final-only exact-hit celebration. */
   showExactHit: boolean;
+  /** Reserve slot when this row came from R1/R2 on the scoring board. */
+  fromReserve?: boolean;
+  reserveSlot?: number | null;
+  /** Original submitted rank (scoring-board rows only). */
+  originalPredictedRank?: number | null;
+};
+
+export type PublicBoardOriginalAuditPick = {
+  predictedRank: number;
+  name: string;
+  team: string;
+  isReserve: boolean;
+  reserveSlot: number | null;
+  scored: boolean;
+  wasUnavailableAtKickoff: boolean | null;
+  note: string | null;
 };
 
 export type PublicBoardLiveEyeq = {
@@ -75,7 +96,17 @@ export type PublicBoardView = {
   timingPhase: string;
   revealPreference: BoardRevealPreference | null;
   creatorEnabled: boolean;
+  /**
+   * Primary board shown next to EyeQ.
+   * FINAL/GRADED: stored scoring board (what produced normalizedScore).
+   * Live: original submitted order with live standings.
+   */
   picks: PublicBoardPick[];
+  /** Immutable original submission audit (FINAL only when graded detail exists). */
+  originalAuditPicks: PublicBoardOriginalAuditPick[];
+  /** True when `picks` is the stored scoring board, not the original submission. */
+  showingStoredScoringBoard: boolean;
+  boardCaption: string | null;
   capturedAt: Date | null;
   captureAttribution: string | null;
   publicBoardRestricted: boolean;
@@ -311,6 +342,9 @@ export async function getPublicProfileBoard(input: {
     revealPreference: submission?.revealPreference ?? null,
     creatorEnabled,
     picks: [],
+    originalAuditPicks: [],
+    showingStoredScoringBoard: false,
+    boardCaption: null,
     capturedAt: benchmarkSnapshot?.capturedAt ?? null,
     captureAttribution:
       profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
@@ -376,6 +410,15 @@ export async function getPublicProfileBoard(input: {
       rankableEntryId: true,
       fantasyPoints: true,
       actualRank: true,
+      game: {
+        select: {
+          id: true,
+          weekId: true,
+          homeTeam: true,
+          awayTeam: true,
+          startsAt: true,
+        },
+      },
     },
   });
 
@@ -391,42 +434,109 @@ export async function getPublicProfileBoard(input: {
       .map((entry) => [entry.rankableEntryId, entry.actualRank!]),
   );
 
-  const picks: PublicBoardPick[] = submission.picks.map((pick) => {
-    const currentActualRank = contestIsFinal
-      ? (finalActualById.get(pick.rankableEntryId) ?? null)
-      : (provisionalById.get(pick.rankableEntryId) ?? null);
-    const standingStatus = provisionalStandingStatus(
-      currentActualRank,
-      contest.rankingDepth,
-    );
-    const showExactHit =
-      contestIsFinal &&
-      currentActualRank != null &&
-      currentActualRank === pick.predictedRank &&
-      currentActualRank <= contest.rankingDepth;
+  const storedScoring =
+    contestIsFinal && submission.status === "GRADED"
+      ? reconstructStoredScoringBoard({
+          picks: submission.picks.map((pick) => ({
+            rankableEntryId: pick.rankableEntryId,
+            predictedRank: pick.predictedRank,
+            totalPoints: pick.totalPoints,
+            wasUnavailableAtKickoff: pick.wasUnavailableAtKickoff,
+            name: pick.rankableEntry.name,
+            team: pick.rankableEntry.team,
+            actualRank: pick.actualRank,
+          })),
+          scoringDepth: contest.rankingDepth,
+        })
+      : null;
 
-    return {
-      predictedRank: pick.predictedRank,
-      rankableEntryId: pick.rankableEntryId,
-      name: pick.rankableEntry.name,
-      team: pick.rankableEntry.team,
-      opponent: pick.rankableEntry.opponent,
-      slotLocked: pick.slotLocked,
-      lockedAt: pick.lockedAt,
-      lockedRank: pick.lockedRank,
-      committedAt: pick.committedAt,
-      currentActualRank,
-      standingStatus,
-      showExactHit,
-    };
-  });
+  const originalAuditPicks =
+    contestIsFinal && storedScoring
+      ? buildOriginalBoardAudit({
+          picks: submission.picks.map((pick) => ({
+            rankableEntryId: pick.rankableEntryId,
+            predictedRank: pick.predictedRank,
+            totalPoints: pick.totalPoints,
+            wasUnavailableAtKickoff: pick.wasUnavailableAtKickoff,
+            name: pick.rankableEntry.name,
+            team: pick.rankableEntry.team,
+          })),
+          scoringDepth: contest.rankingDepth,
+        })
+      : [];
+
+  const picks: PublicBoardPick[] =
+    storedScoring != null
+      ? storedScoring.map((row) => {
+          const currentActualRank =
+            finalActualById.get(row.rankableEntryId) ?? row.actualRank;
+          const standingStatus = provisionalStandingStatus(
+            currentActualRank,
+            contest.rankingDepth,
+          );
+          const showExactHit =
+            currentActualRank != null &&
+            currentActualRank === row.scoringRank &&
+            currentActualRank <= contest.rankingDepth;
+          return {
+            predictedRank: row.scoringRank,
+            rankableEntryId: row.rankableEntryId,
+            name: row.name,
+            team: row.team,
+            opponent: "",
+            slotLocked: false,
+            lockedAt: null,
+            lockedRank: null,
+            committedAt: null,
+            currentActualRank,
+            standingStatus,
+            showExactHit,
+            fromReserve: row.fromReserve,
+            reserveSlot: row.reserveSlot,
+            originalPredictedRank: row.originalPredictedRank,
+          };
+        })
+      : submission.picks.map((pick) => {
+          const currentActualRank = contestIsFinal
+            ? (finalActualById.get(pick.rankableEntryId) ?? null)
+            : (provisionalById.get(pick.rankableEntryId) ?? null);
+          const standingStatus = provisionalStandingStatus(
+            currentActualRank,
+            contest.rankingDepth,
+          );
+          const showExactHit =
+            contestIsFinal &&
+            currentActualRank != null &&
+            currentActualRank === pick.predictedRank &&
+            currentActualRank <= contest.rankingDepth;
+
+          return {
+            predictedRank: pick.predictedRank,
+            rankableEntryId: pick.rankableEntryId,
+            name: pick.rankableEntry.name,
+            team: pick.rankableEntry.team,
+            opponent: pick.rankableEntry.opponent,
+            slotLocked: pick.slotLocked,
+            lockedAt: pick.lockedAt,
+            lockedRank: pick.lockedRank,
+            committedAt: pick.committedAt,
+            currentActualRank,
+            standingStatus,
+            showExactHit,
+          };
+        });
 
   let liveEyeq: PublicBoardLiveEyeq | null = null;
   if (!contestIsFinal && submissionIsEligible(submission.status)) {
+    const kickoffByEntryId = buildContestWeekKickoffMap({
+      weekId: week.id,
+      entries: contestEntries,
+    });
     const summary = scoreProvisionalEyeq(
       scoreableEffectivePicks({
         picks: submission.picks,
         scoringDepth: contest.rankingDepth,
+        kickoffByEntryId,
       }).map((pick) => ({
         playerId: pick.playerId,
         playerName:
@@ -449,6 +559,12 @@ export async function getPublicProfileBoard(input: {
   return {
     ...base,
     picks,
+    originalAuditPicks,
+    showingStoredScoringBoard: storedScoring != null,
+    boardCaption:
+      storedScoring != null
+        ? "Scoring board — original ranking adjusted for confirmed unavailable players."
+        : null,
     liveEyeq,
     isLiveProvisional: !contestIsFinal,
     finalEyeqScore: submission.normalizedScore,

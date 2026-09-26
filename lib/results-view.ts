@@ -3,6 +3,7 @@ import { getContestConsensus } from "@/lib/consensus";
 import { getWeeklyLeaderboard } from "@/lib/leaderboards";
 import { getLeagueWeeklyResults } from "@/lib/player-research-queries";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import { scoreContest } from "@/lib/scoring";
 import type { ContestScoreSummary } from "@/types/scoring";
 import { opponentFromContestEntryGame } from "@/lib/week-scoped-opponent";
@@ -96,10 +97,16 @@ export async function getContestResultsView(
         });
       }
 
+      const kickoffByEntryId = buildContestWeekKickoffMap({
+        weekId: contest.weekId,
+        entries: contest.entries,
+      });
+
       userScore = scoreContest(
         scoreableEffectivePicks({
           picks: submission.picks,
           scoringDepth: contest.rankingDepth,
+          kickoffByEntryId,
         }).map((pick) => ({
           playerId: pick.playerId,
           playerName:

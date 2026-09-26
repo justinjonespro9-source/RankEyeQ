@@ -152,7 +152,23 @@ async function regradeSubmissionIfActualsExist(
     where: { id: submissionId },
     include: {
       picks: { orderBy: { predictedRank: "asc" } },
-      contest: { include: { entries: true } },
+      contest: {
+        include: {
+          entries: {
+            include: {
+              game: {
+                select: {
+                  id: true,
+                  weekId: true,
+                  homeTeam: true,
+                  awayTeam: true,
+                  startsAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
   if (!submission) return;
@@ -185,9 +201,17 @@ async function regradeSubmissionIfActualsExist(
   const { scoreableEffectivePicks } = await import(
     "@/lib/reserves/from-submission"
   );
+  const { buildContestWeekKickoffMap } = await import(
+    "@/lib/reserves/contest-week-kickoffs"
+  );
+  const kickoffByEntryId = buildContestWeekKickoffMap({
+    weekId: submission.contest.weekId,
+    entries: submission.contest.entries,
+  });
   const effective = scoreableEffectivePicks({
     picks: submission.picks,
     scoringDepth: submission.contest.rankingDepth,
+    kickoffByEntryId,
   });
   const scoreable: ScoreablePick[] = effective.map((pick) => {
     const result = actualByEntryId.get(pick.playerId);

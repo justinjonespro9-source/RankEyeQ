@@ -5,6 +5,7 @@ import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
 import { scoreProvisionalEyeq } from "@/lib/live-provisional";
 import { isScorablePickCount } from "@/lib/contest-defaults";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import type { ContestPosition, ProfileType } from "@/lib/generated/prisma/client";
 
 export type LiveRankerRow = {
@@ -90,7 +91,20 @@ export async function getLiveContestRankerBoard(contestId: string) {
   const contest = await prisma.rankIQContest.findUniqueOrThrow({
     where: { id: contestId },
     include: {
-      entries: { where: { excluded: false } },
+      entries: {
+        where: { excluded: false },
+        include: {
+          game: {
+            select: {
+              id: true,
+              weekId: true,
+              homeTeam: true,
+              awayTeam: true,
+              startsAt: true,
+            },
+          },
+        },
+      },
       submissions: {
         include: {
           picks: {
@@ -108,6 +122,11 @@ export async function getLiveContestRankerBoard(contestId: string) {
   const actualById = new Map(
     ranked.map((row) => [row.item.rankableEntryId, row.rank]),
   );
+
+  const kickoffByEntryId = buildContestWeekKickoffMap({
+    weekId: contest.weekId,
+    entries: contest.entries,
+  });
 
   const rows: Omit<LiveRankerRow, "rank">[] = [];
   for (const submission of contest.submissions) {
@@ -134,6 +153,7 @@ export async function getLiveContestRankerBoard(contestId: string) {
     const effective = scoreableEffectivePicks({
       picks: submission.picks,
       scoringDepth: contest.rankingDepth,
+      kickoffByEntryId,
     });
 
     const summary = scoreProvisionalEyeq(

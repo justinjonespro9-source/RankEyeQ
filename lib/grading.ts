@@ -6,6 +6,7 @@ import {
   isGradeablePickCount,
   submissionDepthFromScoring,
 } from "@/lib/contest-defaults";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import { logServerEvent } from "@/lib/log";
 
@@ -49,7 +50,19 @@ export async function gradeContest(
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {
-      entries: true,
+      entries: {
+        include: {
+          game: {
+            select: {
+              id: true,
+              weekId: true,
+              homeTeam: true,
+              awayTeam: true,
+              startsAt: true,
+            },
+          },
+        },
+      },
       submissions: {
         include: {
           picks: {
@@ -62,6 +75,13 @@ export async function gradeContest(
   });
 
   if (!contest) throw new GradingError("Contest not found");
+
+  // Historical + current grading: ContestEntry.game for this week only.
+  // Never RankableEntry.gameStartsAt (can be restamped to a later week).
+  const kickoffByEntryId = buildContestWeekKickoffMap({
+    weekId: contest.weekId,
+    entries: contest.entries,
+  });
 
   const reserveCount = contest.reserveCount ?? 0;
   const expectedSubmissionDepth = submissionDepthFromScoring(
@@ -130,6 +150,7 @@ export async function gradeContest(
       const effective = scoreableEffectivePicks({
         picks: submission.picks,
         scoringDepth: contest.rankingDepth,
+        kickoffByEntryId,
       });
 
       const scoreable: ScoreablePick[] = effective.map((pick) => {

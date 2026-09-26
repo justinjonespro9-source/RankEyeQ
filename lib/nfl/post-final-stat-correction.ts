@@ -34,6 +34,7 @@ import type {
 import { calculateLeagueActualFinishesForContest } from "@/lib/nfl/actual-finishes";
 import { gradeContest } from "@/lib/grading";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import { scoreContest } from "@/lib/scoring";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 
@@ -473,6 +474,19 @@ async function buildEyeqPreview(input: {
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: input.contestId },
     include: {
+      entries: {
+        include: {
+          game: {
+            select: {
+              id: true,
+              weekId: true,
+              homeTeam: true,
+              awayTeam: true,
+              startsAt: true,
+            },
+          },
+        },
+      },
       submissions: {
         where: { status: { in: ["SUBMITTED", "LOCKED", "GRADED"] } },
         include: {
@@ -486,6 +500,11 @@ async function buildEyeqPreview(input: {
   });
   if (!contest) return { changes: [], limited: true };
 
+  const kickoffByEntryId = buildContestWeekKickoffMap({
+    weekId: contest.weekId,
+    entries: contest.entries,
+  });
+
   const changes: EyeqChangePreview[] = [];
   for (const submission of contest.submissions) {
     if (!submissionIsEligible(submission.status)) continue;
@@ -493,6 +512,7 @@ async function buildEyeqPreview(input: {
       const effective = scoreableEffectivePicks({
         picks: submission.picks,
         scoringDepth: input.rankingDepth,
+        kickoffByEntryId,
       });
       const scoreable = effective.map((pick) => {
         const result = input.projectedActualById.get(pick.playerId);

@@ -199,67 +199,148 @@ export default async function PublicRankingBoardPage(
               }
             />
           ) : (
-            <ol className="divide-y divide-border rounded-lg border border-border bg-surface-elevated overflow-hidden">
-              {Array.from({ length: board.rankingDepth }, (_, index) => {
-                const pick = board.picks.find(
-                  (row) => row.predictedRank === index + 1,
-                );
-                const status = pick?.standingStatus ?? "PENDING";
-                return (
-                  <li
-                    key={index + 1}
-                    className={`flex items-center justify-between gap-3 px-4 py-3 ${standingRowShellClass(
-                      status,
-                      pick?.showExactHit ?? false,
-                    )}`}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="font-display w-6 font-semibold text-ink">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-ink">
-                          {pick?.showExactHit ? (
-                            <span className="mr-1 text-accent" aria-hidden="true">
-                              ★
+            <div className="space-y-6">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  {board.showingStoredScoringBoard
+                    ? "Scoring board"
+                    : "Ranking board"}
+                </p>
+                {board.boardCaption ? (
+                  <p className="mb-3 text-sm text-muted">{board.boardCaption}</p>
+                ) : null}
+                <ol className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
+                  {Array.from(
+                    {
+                      length: board.showingStoredScoringBoard
+                        ? Math.max(board.picks.length, board.rankingDepth)
+                        : board.rankingDepth,
+                    },
+                    (_, index) => {
+                      const pick = board.showingStoredScoringBoard
+                        ? board.picks[index]
+                        : board.picks.find(
+                            (row) => row.predictedRank === index + 1,
+                          );
+                      const status = pick?.standingStatus ?? "PENDING";
+                      return (
+                        <li
+                          key={index + 1}
+                          className={`flex items-center justify-between gap-3 px-4 py-3 ${standingRowShellClass(
+                            status,
+                            pick?.showExactHit ?? false,
+                          )}`}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="font-display w-6 font-semibold text-ink">
+                              {pick?.predictedRank ?? index + 1}
                             </span>
-                          ) : null}
-                          {pick?.name ?? "Empty slot"}
-                        </p>
-                        {pick ? (
-                          <p className="truncate text-xs text-muted">
-                            #{pick.predictedRank} predicted
-                            {pick.currentActualRank != null
-                              ? ` · Current ${board.position}${pick.currentActualRank}`
-                              : board.isLiveProvisional
-                                ? " · Pending"
-                                : ""}
-                            {` · ${pick.team}`}
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-ink">
+                                {pick?.showExactHit ? (
+                                  <span
+                                    className="mr-1 text-accent"
+                                    aria-hidden="true"
+                                  >
+                                    ★
+                                  </span>
+                                ) : null}
+                                {pick?.name ?? "Empty slot"}
+                              </p>
+                              {pick ? (
+                                <p className="truncate text-xs text-muted">
+                                  {board.showingStoredScoringBoard
+                                    ? pick.fromReserve
+                                      ? `Promoted from R${pick.reserveSlot} · Originally #${pick.originalPredictedRank}`
+                                      : `Scoring #${pick.predictedRank}${
+                                          pick.originalPredictedRank != null &&
+                                          pick.originalPredictedRank !==
+                                            pick.predictedRank
+                                            ? ` · Originally #${pick.originalPredictedRank}`
+                                            : ""
+                                        }`
+                                    : `#${pick.predictedRank} predicted`}
+                                  {pick.currentActualRank != null
+                                    ? ` · Current ${board.position}${pick.currentActualRank}`
+                                    : board.isLiveProvisional
+                                      ? " · Pending"
+                                      : ""}
+                                  {` · ${pick.team}`}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            {pick ? (
+                              <StandingStatusBadge
+                                status={status}
+                                fieldSize={board.rankingDepth}
+                                currentRank={pick.currentActualRank}
+                                position={board.position}
+                                compact
+                              />
+                            ) : null}
+                            {pick?.fromReserve ? (
+                              <Badge tone="success">
+                                R{pick.reserveSlot} promoted
+                              </Badge>
+                            ) : null}
+                            {!board.showingStoredScoringBoard &&
+                            pick?.slotLocked ? (
+                              <Badge tone="warning">
+                                Early lock
+                                {pick.lockedRank ? ` #${pick.lockedRank}` : ""}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    },
+                  )}
+                </ol>
+              </div>
+
+              {board.originalAuditPicks.length > 0 ? (
+                <details className="rounded-lg border border-border bg-surface px-4 py-3">
+                  <summary className="cursor-pointer text-sm font-medium text-ink">
+                    View original ranking
+                  </summary>
+                  <p className="mt-2 text-xs text-muted">
+                    Immutable submitted board. Unavailable players were removed
+                    from the scoring board above; predicted ranks were not
+                    rewritten.
+                  </p>
+                  <ol className="mt-3 divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-elevated">
+                    {board.originalAuditPicks.map((row) => (
+                      <li
+                        key={`orig-${row.predictedRank}`}
+                        className="flex items-start justify-between gap-3 px-3 py-2.5 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-ink">
+                            <span className="mr-2 font-display text-muted">
+                              {row.isReserve
+                                ? `R${row.reserveSlot}`
+                                : row.predictedRank}
+                            </span>
+                            {row.name}
+                            <span className="ml-1 text-xs text-muted">
+                              · {row.team}
+                            </span>
                           </p>
+                          {row.note ? (
+                            <p className="mt-0.5 text-xs text-muted">{row.note}</p>
+                          ) : null}
+                        </div>
+                        {!row.scored ? (
+                          <Badge tone="warning">Not scored</Badge>
                         ) : null}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {pick ? (
-                        <StandingStatusBadge
-                          status={status}
-                          fieldSize={board.rankingDepth}
-                          currentRank={pick.currentActualRank}
-                          position={board.position}
-                          compact
-                        />
-                      ) : null}
-                      {pick?.slotLocked ? (
-                        <Badge tone="warning">
-                          Early lock
-                          {pick.lockedRank ? ` #${pick.lockedRank}` : ""}
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              ) : null}
+            </div>
           )}
         </div>
       )}

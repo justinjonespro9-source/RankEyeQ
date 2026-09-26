@@ -19,6 +19,7 @@ import {
 import {
   deriveEffectiveBoardFromPicks,
 } from "@/lib/reserves/from-submission";
+import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import type { EffectiveBoardResult } from "@/lib/reserves/effective-board";
 import { isPromotionUnavailable } from "@/lib/reserves/promotion-status";
 import { getSubmissionForProfile } from "@/lib/submissions";
@@ -560,6 +561,10 @@ export async function getMyRanksPositionDashboard(input: {
   const effectiveBoard = deriveEffectiveBoardFromPicks({
     picks: submission.picks,
     scoringDepth: rankingDepth,
+    kickoffByEntryId: buildContestWeekKickoffMap({
+      weekId: week.id,
+      entries: contestEntries,
+    }),
   });
 
   const gameByEntryId = new Map(

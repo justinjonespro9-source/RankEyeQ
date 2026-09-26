@@ -1,3 +1,12 @@
+/**
+ * Helpers to derive effective boards from RankingSubmission picks.
+ *
+ * Kickoff timing for contest/week evaluation must be supplied via
+ * `kickoffByEntryId` from ContestEntry.game (see buildContestWeekKickoffMap).
+ * Falling back to RankableEntry.gameStartsAt is only for callers that have
+ * already stamped week-correct denormalized fields (e.g. unit tests); production
+ * grading / My Ranks / live paths must pass the contest-week map.
+ */
 import type { EntryAvailability } from "@/lib/generated/prisma/client";
 import {
   deriveEffectiveBoard,
