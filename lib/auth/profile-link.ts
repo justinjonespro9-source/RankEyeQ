@@ -107,10 +107,11 @@ export async function updateOwnedUniversalProfile(input: ProfileEditInput) {
   }
   if (
     user.universalProfile.profileType !== "HUMAN" &&
-    user.universalProfile.profileType !== "CREATOR"
+    user.universalProfile.profileType !== "CREATOR" &&
+    user.universalProfile.profileType !== "BENCHMARK"
   ) {
     throw new ProfileLinkError(
-      "AI and Expert profiles are admin-managed and cannot sign in.",
+      "AI profiles are admin-managed and cannot sign in.",
     );
   }
 

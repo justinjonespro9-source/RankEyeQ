@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { trackEvent } from "@/lib/analytics";
 import { getAuthContext } from "@/lib/auth/session";
-import { assertClientProfileMatchesSession } from "@/lib/auth/participation";
+import {
+  assertClientProfileMatchesSession,
+  canSubmitFromRankingWorkspace,
+} from "@/lib/auth/participation";
 import { logServerEvent } from "@/lib/log";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
@@ -38,10 +41,7 @@ async function resolveParticipantProfileId() {
       code: "NEEDS_SETUP" as const,
     };
   }
-  if (
-    ctx.universalProfile.profileType !== "HUMAN" &&
-    ctx.universalProfile.profileType !== "CREATOR"
-  ) {
+  if (!canSubmitFromRankingWorkspace(ctx.universalProfile.profileType)) {
     return {
       ok: false as const,
       error: "AI and Expert profiles cannot submit from the ranking workspace",

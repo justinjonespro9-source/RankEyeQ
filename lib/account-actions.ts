@@ -61,11 +61,40 @@ export async function updateAccountProfileAction(formData: FormData) {
   }
 
   try {
-    // Username / display name only — photo is managed by upload/remove actions.
-    const profile = await updateOwnedUniversalProfile({
+    const { updateOwnedProfileContent } = await import("@/lib/profile-content");
+    const profile = await updateOwnedProfileContent({
       userId: ctx.user.id,
       username: String(formData.get("username") || ""),
       displayName: String(formData.get("displayName") || ""),
+      headline: formData.has("headline")
+        ? String(formData.get("headline") || "")
+        : undefined,
+      bio: formData.has("bio") ? String(formData.get("bio") || "") : undefined,
+      affiliation: formData.has("affiliation")
+        ? String(formData.get("affiliation") || "")
+        : undefined,
+      websiteUrl: formData.has("websiteUrl")
+        ? String(formData.get("websiteUrl") || "")
+        : undefined,
+      xUrl: formData.has("xUrl") ? String(formData.get("xUrl") || "") : undefined,
+      youtubeUrl: formData.has("youtubeUrl")
+        ? String(formData.get("youtubeUrl") || "")
+        : undefined,
+      instagramUrl: formData.has("instagramUrl")
+        ? String(formData.get("instagramUrl") || "")
+        : undefined,
+      tiktokUrl: formData.has("tiktokUrl")
+        ? String(formData.get("tiktokUrl") || "")
+        : undefined,
+      podcastUrl: formData.has("podcastUrl")
+        ? String(formData.get("podcastUrl") || "")
+        : undefined,
+      featuredLinkTitle: formData.has("featuredLinkTitle")
+        ? String(formData.get("featuredLinkTitle") || "")
+        : undefined,
+      featuredLinkUrl: formData.has("featuredLinkUrl")
+        ? String(formData.get("featuredLinkUrl") || "")
+        : undefined,
     });
     revalidatePath("/account");
     revalidatePath(`/profile/${profile.username}`);

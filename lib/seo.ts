@@ -83,10 +83,12 @@ export function publicPageMetadata(input: {
   title: string;
   description: string;
   path: string;
+  /** Bypass the root " · RankEyeQ" title template (title already includes brand). */
+  absoluteTitle?: boolean;
 }): Metadata {
   const canonical = canonicalizePath(input.path);
   return {
-    title: input.title,
+    title: input.absoluteTitle ? { absolute: input.title } : input.title,
     description: input.description,
     ...PUBLIC_INDEX,
     ...canonicalMetadata(canonical),

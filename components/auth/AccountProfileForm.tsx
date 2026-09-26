@@ -8,8 +8,23 @@ import {
   uploadProfilePhotoAction,
 } from "@/lib/account-actions";
 import { ProfilePhotoField } from "@/components/auth/ProfilePhotoField";
+import { ProfilePresentationFields } from "@/components/account/ProfilePresentationFields";
 import { Button } from "@/components/ui/Button";
 import { resolveAvatarUrl } from "@/lib/avatar";
+
+export type AccountProfileContentDefaults = {
+  headline: string | null;
+  bio: string | null;
+  affiliation: string | null;
+  websiteUrl: string | null;
+  xUrl: string | null;
+  youtubeUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
+  podcastUrl: string | null;
+  featuredLinkTitle: string | null;
+  featuredLinkUrl: string | null;
+};
 
 export function AccountProfileForm({
   username,
@@ -17,12 +32,16 @@ export function AccountProfileForm({
   avatarUrl,
   oauthImageUrl,
   uploadEnabled,
+  content,
+  usernameLocked = false,
 }: {
   username: string;
   displayName: string;
   avatarUrl: string | null;
   oauthImageUrl: string | null;
   uploadEnabled: boolean;
+  content?: AccountProfileContentDefaults | null;
+  usernameLocked?: boolean;
 }) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
@@ -36,6 +55,7 @@ export function AccountProfileForm({
     oauthImageUrl,
   });
   const canRemove = Boolean(currentAvatarUrl);
+  const showContent = Boolean(content);
 
   return (
     <div className="space-y-5 rounded-lg border border-border bg-surface-elevated p-5">
@@ -80,12 +100,17 @@ export function AccountProfileForm({
       >
         <label className="block text-sm">
           <span className="font-medium text-ink">Username</span>
-          <p className="mt-0.5 text-xs text-muted">Your unique RankEyeQ handle.</p>
+          <p className="mt-0.5 text-xs text-muted">
+            {usernameLocked
+              ? "Locked — your public profile URL stays stable for claimed Expert/Creator profiles."
+              : "Your unique RankEyeQ handle."}
+          </p>
           <input
             name="username"
             required
             defaultValue={username}
-            className="mt-1.5 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink"
+            readOnly={usernameLocked}
+            className="mt-1.5 w-full rounded-md border border-border bg-surface px-3 py-2 text-ink read-only:opacity-70"
             pattern="[a-z0-9_]{3,24}"
             autoComplete="username"
           />
@@ -106,6 +131,11 @@ export function AccountProfileForm({
             autoComplete="nickname"
           />
         </label>
+
+        {showContent && content ? (
+          <ProfilePresentationFields content={content} />
+        ) : null}
+
         <p className="text-xs text-muted">
           Profile type, contest history, and EYEQ scores cannot be changed here.
         </p>

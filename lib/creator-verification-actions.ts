@@ -5,17 +5,21 @@ import { redirect } from "next/navigation";
 import { assertAdmin, requireUniversalProfile } from "@/lib/auth/session";
 import {
   CreatorVerificationError,
-  approveCreatorClaimLink,
   approveCreatorVerificationInPlace,
   rejectCreatorVerification,
   requestCreatorVerification,
 } from "@/lib/creator-verification";
+import {
+  ProfileClaimError,
+  approveProfileClaimLink,
+  rejectProfileClaim,
+} from "@/lib/profile-claim";
 import { logServerEvent } from "@/lib/log";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
 
 export async function requestCreatorVerificationAction(formData: FormData) {
-  const { universalProfile } = await requireUniversalProfile();
+  const { user, universalProfile } = await requireUniversalProfile();
 
   const limited = rateLimit({
     key: await rateLimitKey("creator-claim", universalProfile.id),
@@ -46,13 +50,15 @@ export async function requestCreatorVerificationAction(formData: FormData) {
         route: "/account",
         profileId: universalProfile.id,
         step: "request",
+        userId: user.id,
       },
       "warn",
     );
     return {
       ok: false as const,
       error:
-        error instanceof CreatorVerificationError
+        error instanceof CreatorVerificationError ||
+        error instanceof ProfileClaimError
           ? error.message
           : "Unable to submit Creator verification request.",
     };
@@ -67,14 +73,30 @@ export async function requestCreatorVerificationAction(formData: FormData) {
 export async function approveCreatorVerificationAction(formData: FormData) {
   const admin = await assertAdmin();
   const requestingProfileId = String(formData.get("requestingProfileId") || "");
+  const profileClaimRequestId = String(
+    formData.get("profileClaimRequestId") || "",
+  ).trim();
   const targetCreatorProfileId = String(
     formData.get("targetCreatorProfileId") || "",
   ).trim();
   const verificationNotes =
     String(formData.get("verificationNotes") || "") || null;
+  const acknowledgeCollisions =
+    String(formData.get("acknowledgeCollisions") || "") === "1";
 
   try {
-    if (targetCreatorProfileId) {
+    if (profileClaimRequestId) {
+      await approveProfileClaimLink({
+        claimRequestId: profileClaimRequestId,
+        adminUserId: admin.user.id,
+        verificationNotes,
+        acknowledgeCollisions,
+      });
+    } else if (targetCreatorProfileId) {
+      // Legacy CreatorCompetitorProfile link path — prefer ProfileClaimRequest.
+      const { approveCreatorClaimLink } = await import(
+        "@/lib/creator-verification"
+      );
       await approveCreatorClaimLink({
         requestingProfileId,
         targetCreatorProfileId,
@@ -93,13 +115,18 @@ export async function approveCreatorVerificationAction(formData: FormData) {
       "creator.verification_approve_failed",
       {
         route: "/admin/creators/verification",
-        step: targetCreatorProfileId ? "approve_link" : "approve_inplace",
+        step: profileClaimRequestId
+          ? "approve_profile_claim"
+          : targetCreatorProfileId
+            ? "approve_link"
+            : "approve_inplace",
       },
       "warn",
     );
     redirect(
       `/admin/creators/verification?error=${encodeURIComponent(
-        error instanceof CreatorVerificationError
+        error instanceof CreatorVerificationError ||
+          error instanceof ProfileClaimError
           ? error.message
           : "Approval failed",
       )}`,
@@ -112,26 +139,38 @@ export async function approveCreatorVerificationAction(formData: FormData) {
   revalidatePath("/account");
   redirect(
     "/admin/creators/verification?notice=" +
-      encodeURIComponent("Creator verification approved."),
+      encodeURIComponent("Profile claim / verification approved."),
   );
 }
 
 export async function rejectCreatorVerificationAction(formData: FormData) {
   const admin = await assertAdmin();
   const requestingProfileId = String(formData.get("requestingProfileId") || "");
+  const profileClaimRequestId = String(
+    formData.get("profileClaimRequestId") || "",
+  ).trim();
   const verificationNotes =
     String(formData.get("verificationNotes") || "") || null;
 
   try {
-    await rejectCreatorVerification({
-      requestingProfileId,
-      adminUserId: admin.user.id,
-      verificationNotes,
-    });
+    if (profileClaimRequestId) {
+      await rejectProfileClaim({
+        claimRequestId: profileClaimRequestId,
+        adminUserId: admin.user.id,
+        verificationNotes,
+      });
+    } else {
+      await rejectCreatorVerification({
+        requestingProfileId,
+        adminUserId: admin.user.id,
+        verificationNotes,
+      });
+    }
   } catch (error) {
     redirect(
       `/admin/creators/verification?error=${encodeURIComponent(
-        error instanceof CreatorVerificationError
+        error instanceof CreatorVerificationError ||
+          error instanceof ProfileClaimError
           ? error.message
           : "Rejection failed",
       )}`,
@@ -142,6 +181,6 @@ export async function rejectCreatorVerificationAction(formData: FormData) {
   revalidatePath("/account");
   redirect(
     "/admin/creators/verification?notice=" +
-      encodeURIComponent("Creator verification rejected."),
+      encodeURIComponent("Claim / verification rejected."),
   );
 }

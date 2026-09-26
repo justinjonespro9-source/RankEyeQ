@@ -82,6 +82,7 @@ export type PublicBoardView = {
   allowed: boolean;
   gatedPremium: boolean;
   reason: string | null;
+  profileId: string;
   username: string;
   displayName: string;
   profileType: ProfileType;
@@ -109,6 +110,11 @@ export type PublicBoardView = {
   boardCaption: string | null;
   capturedAt: Date | null;
   captureAttribution: string | null;
+  /**
+   * RankEyeQ-captured weekly provenance URL (BenchmarkSnapshot.sourceUrl).
+   * Not owner-editable; omit CTA when null.
+   */
+  weeklySourceUrl: string | null;
   publicBoardRestricted: boolean;
   /** Live/unofficial mode (contest not graded final). */
   isLiveProvisional: boolean;
@@ -259,6 +265,7 @@ export async function getPublicProfileBoard(input: {
             capturedAt: true,
             publicBoardAllowed: true,
             status: true,
+            sourceUrl: true,
           },
         })
       : null;
@@ -327,6 +334,7 @@ export async function getPublicProfileBoard(input: {
           : timing.fullBoardLocked
             ? "This board is not available to you yet."
             : "Current-week rankings stay private until Sunday lock.",
+    profileId: profile.id,
     username: profile.username,
     displayName: profile.displayName,
     profileType: profile.profileType,
@@ -346,6 +354,7 @@ export async function getPublicProfileBoard(input: {
     showingStoredScoringBoard: false,
     boardCaption: null,
     capturedAt: benchmarkSnapshot?.capturedAt ?? null,
+    weeklySourceUrl: benchmarkSnapshot?.sourceUrl?.trim() || null,
     captureAttribution:
       profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
         ? "Source ranking captured by RankEYEQ"

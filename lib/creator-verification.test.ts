@@ -1,13 +1,15 @@
 import { isCreatorVerified } from "@/lib/creator-verification-shared";
 import {
   CreatorVerificationError,
-  approveCreatorClaimLink,
   approveCreatorVerificationInPlace,
   rejectCreatorVerification,
   requestCreatorVerification,
   validatePublicHttpUrl,
 } from "@/lib/creator-verification";
-import { canAuthenticateAsParticipant } from "@/lib/auth/participation";
+import {
+  canAuthenticateAsParticipant,
+  canSubmitFromRankingWorkspace,
+} from "@/lib/auth/participation";
 import { competitorIdentityChip } from "@/lib/profile-labels";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
@@ -48,11 +50,18 @@ describe("creator verification helpers", () => {
     ).toBe(true);
   });
 
-  it("allows HUMAN and CREATOR to authenticate as participants", () => {
+  it("allows HUMAN, CREATOR, and claimed Expert (BENCHMARK) to authenticate as participants", () => {
     expect(canAuthenticateAsParticipant("HUMAN")).toBe(true);
     expect(canAuthenticateAsParticipant("CREATOR")).toBe(true);
+    expect(canAuthenticateAsParticipant("BENCHMARK")).toBe(true);
     expect(canAuthenticateAsParticipant("AI")).toBe(false);
-    expect(canAuthenticateAsParticipant("BENCHMARK")).toBe(false);
+  });
+
+  it("claimed Experts cannot submit rankings from the workspace (competitive records stay RankEyeQ-captured)", () => {
+    expect(canSubmitFromRankingWorkspace("HUMAN")).toBe(true);
+    expect(canSubmitFromRankingWorkspace("CREATOR")).toBe(true);
+    expect(canSubmitFromRankingWorkspace("BENCHMARK")).toBe(false);
+    expect(canSubmitFromRankingWorkspace("AI")).toBe(false);
   });
 
   it("validates public http(s) URLs and rejects unsafe schemes", () => {
@@ -145,7 +154,7 @@ describe("creator verification request + admin review", () => {
       publicProofUrl: "https://example.com/proof",
       brandName: "Grid Fan Show",
     });
-    expect(row.claimStatus).toBe("REQUESTED");
+    expect("claimStatus" in row && row.claimStatus).toBe("REQUESTED");
 
     const profile = await prisma.universalProfile.findUniqueOrThrow({
       where: { id: profileId },
@@ -243,6 +252,7 @@ describe("creator claim link to tracked profile", () => {
   let humanId = "";
   let trackedId = "";
   let adminId = "";
+  let claimRequestId = "";
 
   beforeAll(async () => {
     const user = await prisma.user.create({
@@ -286,6 +296,14 @@ describe("creator claim link to tracked profile", () => {
   });
 
   afterAll(async () => {
+    await prisma.profileClaimRequest.deleteMany({
+      where: {
+        OR: [
+          { claimantProfileId: humanId },
+          { targetProfileId: trackedId },
+        ],
+      },
+    });
     await prisma.creatorCompetitorProfile.deleteMany({
       where: { universalProfileId: { in: [humanId, trackedId] } },
     });
@@ -300,17 +318,19 @@ describe("creator claim link to tracked profile", () => {
   });
 
   it("admin link moves auth onto tracked creator and verifies it", async () => {
-    await requestCreatorVerification({
+    const { approveProfileClaimLink } = await import("@/lib/profile-claim");
+
+    const claim = await requestCreatorVerification({
       profileId: humanId,
       creatorSiteUrl: "https://example.com/creator",
       socialHandle: "importer",
       publicProofUrl: "https://example.com/rankiq-mention",
       claimTargetUsername: `c_${linkSuffix}`.slice(0, 24),
     });
+    claimRequestId = (claim as { id: string }).id;
 
-    await approveCreatorClaimLink({
-      requestingProfileId: humanId,
-      targetCreatorProfileId: trackedId,
+    await approveProfileClaimLink({
+      claimRequestId,
       adminUserId: adminId,
     });
 
@@ -323,11 +343,23 @@ describe("creator claim link to tracked profile", () => {
     });
     expect(tracked.profileType).toBe("CREATOR");
     expect(tracked.creatorCompetitor?.claimStatus).toBe("VERIFIED");
+    expect(tracked.ownershipVerifiedAt).not.toBeNull();
 
     const orphan = await prisma.universalProfile.findUniqueOrThrow({
       where: { id: humanId },
     });
     expect(orphan.status).toBe("SUSPENDED");
     expect(orphan.publicVisible).toBe(false);
+
+    // Claimed Creator owner can edit allowed presentation metadata.
+    const { updateOwnedProfileContent } = await import("@/lib/profile-content");
+    const edited = await updateOwnedProfileContent({
+      userId,
+      headline: "Creator headline",
+      youtubeUrl: "https://youtube.com/@importshow",
+    });
+    expect(edited.id).toBe(trackedId);
+    expect(edited.profileType).toBe("CREATOR");
+    expect(edited.youtubeUrl).toBe("https://youtube.com/@importshow");
   });
 });

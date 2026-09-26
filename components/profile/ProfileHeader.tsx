@@ -4,6 +4,11 @@ import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
 import { BadgeRack } from "@/components/badges/BadgeRack";
+import {
+  ProfileFeaturedContent,
+  ProfileSocialLinks,
+} from "@/components/profile/ProfileOutboundLinks";
+import { ProfileClaimCta } from "@/components/profile/ProfileClaimCta";
 import { benchmarkAffiliationDisclaimer } from "@/lib/benchmark-sources";
 import {
   formatCreatorAffiliationBadge,
@@ -13,12 +18,19 @@ import {
   formatExpertAffiliationBadge,
   formatExpertPrimaryName,
 } from "@/lib/expert-identity";
+import {
+  buildPublicSocialLinks,
+  resolveFeaturedLink,
+} from "@/lib/profile-links";
 import type { EarnedBadge } from "@/lib/badges/types";
 import type { UniversalProfile } from "@/types/user";
+import type { ProfileType } from "@/lib/generated/prisma/client";
 
 export function ProfileHeader({
   profile,
+  profileId,
   isOwner = false,
+  signedIn = false,
   followerCount = 0,
   followingCount = 0,
   follow,
@@ -26,9 +38,13 @@ export function ProfileHeader({
   badges = [],
   scoringDisclosure = null,
   expertSourceKind = null,
+  showClaimCta = false,
 }: {
   profile: UniversalProfile;
+  profileId: string;
+  profileType: ProfileType;
   isOwner?: boolean;
+  signedIn?: boolean;
   followerCount?: number;
   followingCount?: number;
   follow?: {
@@ -45,6 +61,7 @@ export function ProfileHeader({
   /** Benchmark scoring disclosure (publisher consensus / expert sources). */
   scoringDisclosure?: string | null;
   expertSourceKind?: string | null;
+  showClaimCta?: boolean;
 }) {
   const expertPrimary = profile.isBenchmark
     ? formatExpertPrimaryName({
@@ -80,6 +97,27 @@ export function ProfileHeader({
   const disclaimerSource =
     profile.expertPublicationName?.trim() || profile.displayName;
   const isAuthFree = Boolean(profile.isBenchmark || profile.isCreator);
+  const ownershipVerified = Boolean(
+    profile.ownershipVerified || profile.creatorVerified,
+  );
+  const affiliation =
+    profile.affiliation?.trim() ||
+    (profile.isBenchmark ? profile.expertPublicationName : null) ||
+    (profile.isCreator ? profile.creatorBrandName : null);
+  const socialLinks = buildPublicSocialLinks({
+    websiteUrl: profile.websiteUrl,
+    xUrl: profile.xUrl,
+    youtubeUrl: profile.youtubeUrl,
+    instagramUrl: profile.instagramUrl,
+    tiktokUrl: profile.tiktokUrl,
+    podcastUrl: profile.podcastUrl,
+  });
+  const showOwnerBio = Boolean(profile.bio?.trim());
+  const featured = resolveFeaturedLink({
+    featuredLinkTitle: profile.featuredLinkTitle,
+    featuredLinkUrl: profile.featuredLinkUrl,
+  });
+  const claimable = showClaimCta;
 
   return (
     <header className="rounded-lg border border-border bg-surface-elevated px-5 py-6 sm:px-7">
@@ -98,45 +136,51 @@ export function ProfileHeader({
               {expertPrimary}
             </h1>
             <p className="mt-1 text-muted">@{profile.username}</p>
-            {profile.isBenchmark &&
-            profile.expertPublicationName &&
-            profile.expertAnalystName ? (
-              <p className="mt-1 text-sm text-muted">
-                {profile.expertPublicationName}
+            {profile.headline?.trim() ? (
+              <p className="mt-2 text-sm font-medium text-ink">
+                {profile.headline.trim()}
+                {affiliation ? (
+                  <span className="font-normal text-muted">
+                    {" "}
+                    · {affiliation}
+                  </span>
+                ) : null}
+              </p>
+            ) : affiliation ? (
+              <p className="mt-2 text-sm text-muted">{affiliation}</p>
+            ) : null}
+            {showOwnerBio ? (
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
+                {profile.bio}
               </p>
             ) : null}
-            {profile.isCreator && profile.creatorBrandName ? (
-              <p className="mt-1 text-sm text-muted">{profile.creatorBrandName}</p>
+            <ProfileSocialLinks profileId={profileId} links={socialLinks} />
+            {featured ? (
+              <ProfileFeaturedContent
+                profileId={profileId}
+                title={featured.title}
+                url={featured.url}
+              />
             ) : null}
-            {profile.isBenchmark ? (
+            {profile.isBenchmark && !ownershipVerified ? (
               <div className="mt-3 max-w-2xl space-y-2 text-sm leading-relaxed text-muted">
                 <p>{benchmarkAffiliationDisclaimer(disclaimerSource)}</p>
                 {scoringDisclosure ? <p>{scoringDisclosure}</p> : null}
               </div>
-            ) : profile.isCreator ? (
+            ) : profile.isCreator && !ownershipVerified ? (
               <div className="mt-3 space-y-2">
-                {profile.creatorVerified ? (
-                  <p className="inline-flex items-center rounded-md border border-accent/40 bg-accent-soft/60 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-accent-ink">
-                    Verified Creator
-                  </p>
-                ) : null}
                 <p className="max-w-2xl text-sm leading-relaxed text-muted">
-                  {profile.creatorVerified
-                    ? "Verified Creator on RankEyeQ. Brand affiliation is shown for context and is not an endorsement or partnership."
-                    : "Tracked creator profiles may include rankings publicly posted before kickoff. Tracking does not imply endorsement or partnership."}
+                  Tracked creator profiles may include rankings publicly posted
+                  before kickoff. Tracking does not imply endorsement or
+                  partnership.
                 </p>
               </div>
-            ) : (
+            ) : !isAuthFree ? (
               <p className="mt-3 text-sm text-muted">
                 <strong className="font-display text-ink">{followerCount}</strong>{" "}
                 followers ·{" "}
                 <strong className="font-display text-ink">{followingCount}</strong>{" "}
                 following
-              </p>
-            )}
-            {profile.bio && !isAuthFree ? (
-              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
-                {profile.bio}
               </p>
             ) : null}
             {isOwner ? (
@@ -146,6 +190,13 @@ export function ProfileHeader({
               >
                 Edit profile
               </Link>
+            ) : null}
+            {claimable ? (
+              <ProfileClaimCta
+                displayName={expertPrimary}
+                username={profile.username}
+                signedIn={signedIn}
+              />
             ) : null}
           </div>
         </div>
@@ -168,9 +219,9 @@ export function ProfileHeader({
                     ? `AI · ${expertPrimary}`
                     : "PUBLIC"}
             </Badge>
-            {profile.isCreator && profile.creatorVerified ? (
+            {ownershipVerified ? (
               <Badge tone="accent" className="text-[10px] sm:text-xs">
-                Verified Creator
+                Verified
               </Badge>
             ) : null}
             {!isAuthFree ? (

@@ -8,22 +8,49 @@ import {
   CREATOR_TRACKED_DISCLAIMER,
   CREATOR_VERIFICATION_CRITERIA,
 } from "@/lib/creator-verification-shared";
-import type { CreatorClaimStatus } from "@/lib/generated/prisma/client";
+import type {
+  CreatorClaimStatus,
+  ProfileType,
+} from "@/lib/generated/prisma/client";
 import { Button } from "@/components/ui/Button";
 
 export function CreatorVerificationSection({
   profileType,
   claimStatus,
   creatorBrandName,
+  ownershipVerifiedAt,
+  defaultClaimUsername,
+  pendingProfileClaim,
 }: {
   profileType: "HUMAN" | "AI" | "BENCHMARK" | "CREATOR";
   claimStatus: CreatorClaimStatus | null;
   creatorBrandName?: string | null;
+  ownershipVerifiedAt?: Date | null;
+  defaultClaimUsername?: string | null;
+  pendingProfileClaim?: {
+    targetUsername: string;
+    targetDisplayName: string;
+    targetType: ProfileType;
+  } | null;
 }) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  if (profileType === "BENCHMARK" && ownershipVerifiedAt) {
+    return (
+      <section className="mt-10 rounded-lg border border-accent/30 bg-accent-soft/40 p-5">
+        <h2 className="font-display text-xl font-semibold text-ink">
+          Verified Expert
+        </h2>
+        <p className="mt-2 text-sm text-muted">
+          You own this Expert profile. Edit presentation fields above — rankings,
+          scores, and weekly source links stay RankEyeQ-controlled.
+        </p>
+      </section>
+    );
+  }
 
   if (profileType === "CREATOR" && claimStatus === "VERIFIED") {
     return (
@@ -45,6 +72,24 @@ export function CreatorVerificationSection({
     return null;
   }
 
+  if (pendingProfileClaim) {
+    const kind =
+      pendingProfileClaim.targetType === "BENCHMARK" ? "Expert" : "Creator";
+    return (
+      <section className="mt-10 rounded-lg border border-border bg-surface-elevated p-5">
+        <h2 className="font-display text-xl font-semibold text-ink">
+          {kind} claim requested
+        </h2>
+        <p className="mt-2 text-sm text-muted">
+          Claiming @{pendingProfileClaim.targetUsername} (
+          {pendingProfileClaim.targetDisplayName}). RankEyeQ reviews claims
+          manually — ownership is not automatic.
+        </p>
+        <p className="mt-3 text-xs text-muted">{CREATOR_CLAIM_REVIEW_COPY}</p>
+      </section>
+    );
+  }
+
   if (claimStatus === "REQUESTED") {
     return (
       <section className="mt-10 rounded-lg border border-border bg-surface-elevated p-5">
@@ -60,14 +105,19 @@ export function CreatorVerificationSection({
     );
   }
 
+  const claimPrefill = defaultClaimUsername?.trim() || "";
+
   return (
     <section className="mt-10 rounded-lg border border-border bg-surface-elevated p-5">
       <h2 className="font-display text-xl font-semibold text-ink">
-        Are you a fantasy creator?
+        {claimPrefill
+          ? "Claim this Expert or Creator profile"
+          : "Are you a fantasy creator or expert?"}
       </h2>
       <p className="mt-1 text-sm text-muted">
-        Request Creator verification. {CREATOR_CLAIM_REVIEW_COPY} PUBLIC remains
-        the default until an admin approves.
+        {claimPrefill
+          ? "Request ownership of an existing tracked profile. Admin approval is required. Claiming controls presentation only — rankings and scores stay on the tracked identity."
+          : `Request Creator verification, or claim an existing tracked Expert/Creator. ${CREATOR_CLAIM_REVIEW_COPY} PUBLIC remains the default until an admin approves.`}
       </p>
 
       {claimStatus === "REJECTED" ? (
@@ -101,13 +151,13 @@ export function CreatorVerificationSection({
               setError(result.error);
               return;
             }
-            setMessage("Creator verification requested");
+            setMessage("Claim / verification requested");
             router.refresh();
           });
         }}
       >
         <label className="block text-sm">
-          <span className="font-medium text-ink">Creator / content URL</span>
+          <span className="font-medium text-ink">Site / content URL</span>
           <input
             name="creatorSiteUrl"
             type="url"
@@ -145,23 +195,27 @@ export function CreatorVerificationSection({
           <input
             name="brandName"
             type="text"
-            placeholder="Shown as CREATOR · brand after approval"
+            placeholder="Shown as CREATOR · brand after in-place approval"
             className="mt-1 w-full min-h-11 rounded-md border border-border bg-surface px-3 py-2 text-ink"
           />
         </label>
         <label className="block text-sm">
           <span className="font-medium text-ink">
-            Existing tracked Creator username (optional)
+            Tracked Expert / Creator username
+            {claimPrefill ? "" : " (optional)"}
           </span>
           <input
             name="claimTargetUsername"
             type="text"
-            placeholder="Only if RankEyeQ already tracks you"
+            defaultValue={claimPrefill}
+            required={Boolean(claimPrefill)}
+            placeholder="justin-boone"
             className="mt-1 w-full min-h-11 rounded-md border border-border bg-surface px-3 py-2 text-ink"
           />
           <span className="mt-1 block text-xs text-muted">
-            Leave blank to request a new Creator identity on this account. Admin
-            manually links tracked profiles — no automatic matching.
+            Fill this to claim an existing BENCHMARK (Expert) or CREATOR
+            profile. Leave blank only to request a new Creator identity on this
+            account.
           </span>
         </label>
         <label className="block text-sm">
@@ -187,7 +241,11 @@ export function CreatorVerificationSection({
         ) : null}
 
         <Button type="submit" disabled={pending} className="min-h-11 w-full sm:w-auto">
-          {pending ? "Submitting…" : "Request Creator verification"}
+          {pending
+            ? "Submitting…"
+            : claimPrefill
+              ? "Request profile claim"
+              : "Request verification / claim"}
         </Button>
       </form>
     </section>

@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { normalizeUsername } from "@/lib/username";
 import {
   CREATOR_CLAIM_REVIEW_COPY,
   CREATOR_TRACKED_DISCLAIMER,
@@ -8,6 +7,10 @@ import {
   sanitizeSocialHandle,
   validatePublicHttpUrl,
 } from "@/lib/creator-verification-shared";
+import {
+  ProfileClaimError,
+  requestProfileClaim,
+} from "@/lib/profile-claim";
 
 export {
   CREATOR_CLAIM_REVIEW_COPY,
@@ -71,6 +74,14 @@ export async function requestCreatorVerification(
       "Creator verification is already requested. RankEyeQ reviews requests manually.",
     );
   }
+  const pendingClaim = await prisma.profileClaimRequest.findFirst({
+    where: { claimantProfileId: profile.id, status: "REQUESTED" },
+  });
+  if (pendingClaim) {
+    throw new CreatorVerificationError(
+      "A profile claim is already awaiting RankEyeQ review.",
+    );
+  }
 
   const site = validatePublicHttpUrl(input.creatorSiteUrl, "Creator content URL");
   if (!site.ok) throw new CreatorVerificationError(site.error);
@@ -89,39 +100,31 @@ export async function requestCreatorVerification(
     throw new CreatorVerificationError("Note is too long.");
   }
 
-  let brandName = input.brandName?.trim() || null;
+  const brandName = input.brandName?.trim() || null;
   if (brandName && brandName.length > MAX_BRAND_LENGTH) {
     throw new CreatorVerificationError("Brand / show name is too long.");
   }
 
-  let claimTargetProfileId: string | null = null;
+  const claimTargetProfileId: string | null = null;
   const targetUsername = input.claimTargetUsername?.trim();
   if (targetUsername) {
-    const username = normalizeUsername(targetUsername);
-    const target = await prisma.universalProfile.findUnique({
-      where: { username },
-      include: { creatorCompetitor: true, authUser: true },
-    });
-    if (!target || target.profileType !== "CREATOR") {
-      throw new CreatorVerificationError(
-        "Claim target must be an existing tracked Creator profile username.",
-      );
+    // Link claims for Expert/Creator use ProfileClaimRequest (safer ownership model).
+    try {
+      return await requestProfileClaim({
+        claimantUserId: profile.authUser.id,
+        claimantProfileId: profile.id,
+        targetUsername,
+        creatorSiteUrl: input.creatorSiteUrl,
+        socialHandle: input.socialHandle,
+        publicProofUrl: input.publicProofUrl,
+        claimNote: input.claimNote,
+      });
+    } catch (error) {
+      if (error instanceof ProfileClaimError) {
+        throw new CreatorVerificationError(error.message);
+      }
+      throw error;
     }
-    if (target.authUser) {
-      throw new CreatorVerificationError(
-        "That Creator profile is already linked to an account.",
-      );
-    }
-    if (target.creatorCompetitor?.claimStatus === "VERIFIED") {
-      throw new CreatorVerificationError(
-        "That Creator profile is already verified.",
-      );
-    }
-    claimTargetProfileId = target.id;
-    brandName =
-      brandName ||
-      target.creatorCompetitor?.brandName ||
-      target.displayName;
   }
 
   const data = {

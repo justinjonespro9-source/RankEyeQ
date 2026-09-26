@@ -10,6 +10,7 @@ import { getAvatarUploadAvailability } from "@/lib/account-actions";
 import { getActiveSeasonAndWeek } from "@/lib/leaderboards";
 import { evaluateProfileQualification } from "@/lib/social/creator";
 import { prisma } from "@/lib/db";
+import { isUsernameLocked } from "@/lib/profile-content";
 
 import { privatePageMetadata } from "@/lib/seo";
 
@@ -18,14 +19,21 @@ export const metadata: Metadata = privatePageMetadata(
   "Manage your RankEyeQ UniversalProfile public fields.",
 );
 
-export default async function AccountPage() {
+export default async function AccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ claim?: string }>;
+}) {
   const ctx = await requireAuthContext();
   if (!ctx.universalProfile) {
     redirect("/account/setup");
   }
 
+  const params = await searchParams;
+  const claimUsername = params.claim?.trim() || null;
+
   const profile = ctx.universalProfile;
-  const [qualification, context, uploadEnabled, competitorMeta] =
+  const [qualification, context, uploadEnabled, competitorMeta, pendingClaim] =
     await Promise.all([
       evaluateProfileQualification(profile.id),
       getActiveSeasonAndWeek(),
@@ -36,6 +44,19 @@ export default async function AccountPage() {
           claimStatus: true,
           brandName: true,
         },
+      }),
+      prisma.profileClaimRequest.findFirst({
+        where: {
+          claimantUserId: ctx.user.id,
+          status: "REQUESTED",
+        },
+        select: {
+          id: true,
+          targetProfile: {
+            select: { username: true, displayName: true, profileType: true },
+          },
+        },
+        orderBy: { requestedAt: "desc" },
       }),
     ]);
 
@@ -49,6 +70,10 @@ export default async function AccountPage() {
         orderBy: { contest: { position: "asc" } },
       })
     : [];
+
+  // HUMAN account form stays unchanged; presentation fields are for claimed Expert/Creator owners.
+  const canEditContent =
+    profile.profileType === "CREATOR" || profile.profileType === "BENCHMARK";
 
   return (
     <Container className="py-12 sm:py-16">
@@ -77,12 +102,41 @@ export default async function AccountPage() {
             avatarUrl={profile.avatarUrl ?? null}
             oauthImageUrl={ctx.user.image ?? null}
             uploadEnabled={uploadEnabled}
+            usernameLocked={isUsernameLocked(profile)}
+            content={
+              canEditContent
+                ? {
+                    headline: profile.headline ?? null,
+                    bio: profile.bio ?? null,
+                    affiliation: profile.affiliation ?? null,
+                    websiteUrl: profile.websiteUrl ?? null,
+                    xUrl: profile.xUrl ?? null,
+                    youtubeUrl: profile.youtubeUrl ?? null,
+                    instagramUrl: profile.instagramUrl ?? null,
+                    tiktokUrl: profile.tiktokUrl ?? null,
+                    podcastUrl: profile.podcastUrl ?? null,
+                    featuredLinkTitle: profile.featuredLinkTitle ?? null,
+                    featuredLinkUrl: profile.featuredLinkUrl ?? null,
+                  }
+                : null
+            }
           />
         </div>
         <CreatorVerificationSection
           profileType={profile.profileType}
           claimStatus={competitorMeta?.claimStatus ?? null}
           creatorBrandName={competitorMeta?.brandName ?? null}
+          ownershipVerifiedAt={profile.ownershipVerifiedAt ?? null}
+          defaultClaimUsername={claimUsername}
+          pendingProfileClaim={
+            pendingClaim
+              ? {
+                  targetUsername: pendingClaim.targetProfile.username,
+                  targetDisplayName: pendingClaim.targetProfile.displayName,
+                  targetType: pendingClaim.targetProfile.profileType,
+                }
+              : null
+          }
         />
         {profile.profileType === "HUMAN" ? (
           <CreatorAccountSection

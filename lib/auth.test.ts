@@ -63,7 +63,7 @@ describe("participation + profile spoofing guards", () => {
         universalProfileId: "p1",
         profileType: "BENCHMARK",
       }),
-    ).toBe("needs-setup");
+    ).toBe("ready");
   });
 
   it("rejects submitting as another UniversalProfile", () => {

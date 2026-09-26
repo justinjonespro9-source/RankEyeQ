@@ -15,7 +15,8 @@ export type AnalyticsEventName =
   | "leaderboard_shared"
   | "share_clicked"
   | "sponsor_click"
-  | "sponsor_impression";
+  | "sponsor_impression"
+  | "outbound_link_clicked";
 
 export type AnalyticsProps = Record<string, string | number | boolean | null>;
 

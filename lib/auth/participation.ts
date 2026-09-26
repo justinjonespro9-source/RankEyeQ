@@ -2,11 +2,15 @@ import type { ProfileType } from "@/lib/generated/prisma/client";
 
 export type ParticipationState = "signed-out" | "needs-setup" | "ready";
 
-/** HUMAN and claimed/verified CREATOR accounts may participate when signed in. */
+/** HUMAN, claimed CREATOR, and claimed Expert (BENCHMARK) may participate when signed in. */
 export function canAuthenticateAsParticipant(
   profileType: ProfileType | null | undefined,
 ): boolean {
-  return profileType === "HUMAN" || profileType === "CREATOR";
+  return (
+    profileType === "HUMAN" ||
+    profileType === "CREATOR" ||
+    profileType === "BENCHMARK"
+  );
 }
 
 export function resolveParticipationState(input: {
@@ -42,6 +46,16 @@ export function isAiProfileWithoutAuth(profileType: ProfileType) {
 
 export function isBenchmarkProfileWithoutAuth(profileType: ProfileType) {
   return profileType === "BENCHMARK";
+}
+
+/**
+ * Ranking-workspace submissions. Claimed Experts (BENCHMARK) may sign in to
+ * edit presentation, but their competitive boards stay RankEyeQ-captured.
+ */
+export function canSubmitFromRankingWorkspace(
+  profileType: ProfileType | null | undefined,
+): boolean {
+  return profileType === "HUMAN" || profileType === "CREATOR";
 }
 
 /**

@@ -95,12 +95,24 @@ export async function generateMetadata(
     ? "Publisher Consensus"
     : visibility?.profileType === "BENCHMARK"
       ? "Expert"
-      : null;
+      : visibility?.profileType === "CREATOR"
+        ? "Creator"
+        : null;
+  const headline = view.headline?.trim();
+  const verified =
+    view.ownershipVerified || view.creatorVerified
+      ? "Verified "
+      : "";
+  const identityBit = headline
+    ? headline
+    : classLabel
+      ? `${verified}${classLabel}`
+      : "fantasy rankings competitor";
+
   return publicPageMetadata({
-    title: `${name} Fantasy Rankings & EYEQ Score`,
-    description: classLabel
-      ? `${name} on RankEyeQ — ${classLabel} weekly fantasy rankings, EYEQ Score, and contest results.`
-      : `${name} on RankEyeQ — weekly fantasy rankings, EYEQ Score, and contest results versus the Public, Experts, Creators, and AI.`,
+    title: `${name} — RankEyeQ`,
+    absoluteTitle: true,
+    description: `${name} on RankEyeQ — ${identityBit}. Weekly fantasy rankings, Season EyeQ, and contest results versus the Public, Experts, Creators, and AI.`,
     path: `/profile/${view.username}`,
   });
 }
@@ -111,11 +123,11 @@ export default async function ProfilePage(
   const { username } = await props.params;
   const searchParams = await props.searchParams;
   const tabParam = searchParams?.tab;
-  const initialTab =
+  const requestedTab =
     typeof tabParam === "string" &&
     ["overview", "rankiq", "handicap-hero", "fantasytrack"].includes(tabParam)
       ? (tabParam as ProductKey)
-      : "overview";
+      : null;
 
   const authCtx = await getAuthContext();
   const includeTest = resolveIncludeTestWeeks({
@@ -193,7 +205,19 @@ export default async function ProfilePage(
     creatorPersonName: view.creatorPersonName,
     creatorBrandName: view.creatorBrandName,
     creatorVerified: view.creatorVerified,
+    ownershipVerified: view.ownershipVerified,
+    headline: view.headline,
+    affiliation: view.affiliation,
+    websiteUrl: view.websiteUrl,
+    xUrl: view.xUrl,
+    youtubeUrl: view.youtubeUrl,
+    instagramUrl: view.instagramUrl,
+    tiktokUrl: view.tiktokUrl,
+    podcastUrl: view.podcastUrl,
+    featuredLinkTitle: view.featuredLinkTitle,
+    featuredLinkUrl: view.featuredLinkUrl,
     bio:
+      view.bio ??
       profileRecord?.bio ??
       (view.status === "SUSPENDED"
         ? "This profile is unavailable."
@@ -208,6 +232,19 @@ export default async function ProfilePage(
               : undefined),
     rankiq: view.stats,
   };
+
+  const showClaimCta =
+    !isOwner &&
+    (view.profileType === "BENCHMARK" || view.profileType === "CREATOR") &&
+    !view.hasAuthUser &&
+    !view.ownershipVerified;
+
+  // Expert / Creator: RankEyeQ performance is the centerpiece by default.
+  const initialTab: ProductKey =
+    requestedTab ??
+    (view.profileType === "BENCHMARK" || view.profileType === "CREATOR"
+      ? "rankiq"
+      : "overview");
 
   const overview = await buildProfileOverview({
     profileId: view.profileId,
@@ -225,7 +262,11 @@ export default async function ProfilePage(
     <Container className="py-12 sm:py-16">
       <ProfileHeader
         profile={profile}
+        profileId={view.profileId}
+        profileType={view.profileType}
         isOwner={isOwner}
+        signedIn={Boolean(authCtx)}
+        showClaimCta={showClaimCta}
         followerCount={followCounts.followers}
         followingCount={followCounts.following}
         scoringDisclosure={scoringDisclosure}

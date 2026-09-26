@@ -170,6 +170,14 @@ enum CreatorClaimStatus {
   REJECTED
 }
 
+/// Generalized ownership claim for tracked BENCHMARK (Expert) or CREATOR profiles.
+/// Distinct from CreatorCompetitorProfile in-place HUMAN→CREATOR promotion.
+enum ProfileClaimStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
 model UniversalProfile {
   id              String        @id @default(cuid())
   /// Future cross-platform Handicap Hero / FantasyTrack mapping key.
@@ -178,6 +186,20 @@ model UniversalProfile {
   displayName     String
   avatarUrl       String?
   bio             String?
+  /// Owner-controlled short title (e.g. "Fantasy Football Analyst").
+  headline        String?
+  /// Owner-controlled affiliation / organization display string.
+  affiliation     String?
+  websiteUrl      String?
+  xUrl            String?
+  youtubeUrl      String?
+  instagramUrl    String?
+  tiktokUrl       String?
+  podcastUrl      String?
+  featuredLinkTitle String?
+  featuredLinkUrl   String?
+  /// Set when Admin approves ownership claim (Expert or Creator link).
+  ownershipVerifiedAt DateTime?
   /// When false, profile page returns not-found for non-owners/admins.
   publicVisible   Boolean       @default(true)
   profileType     ProfileType   @default(HUMAN)
@@ -201,6 +223,9 @@ model UniversalProfile {
   creatorCompetitor CreatorCompetitorProfile?
   /// Incoming claim requests that name this profile as the tracked creator to claim.
   creatorClaimTargets CreatorCompetitorProfile[] @relation("CreatorClaimTarget")
+  /// Generalized Expert/Creator ownership claim requests naming this profile.
+  profileClaimTargets ProfileClaimRequest[] @relation("ProfileClaimTarget")
+  profileClaimsFiled  ProfileClaimRequest[] @relation("ProfileClaimClaimant")
   entitlementsViewed BoardEntitlement[] @relation("EntitlementViewer")
   entitlementsGranted BoardEntitlement[] @relation("EntitlementCreator")
   unlocksViewed    BoardUnlockEvent[]   @relation("UnlockViewer")
@@ -211,6 +236,37 @@ model UniversalProfile {
   publicFromWeek   Week?                @relation("ProfilePublicFromWeek", fields: [publicFromWeekId], references: [id], onDelete: SetNull)
 
   @@index([publicFromWeekId])
+}
+
+/// Ownership claim: authenticated HUMAN → existing unclaimed BENCHMARK or CREATOR.
+/// Does not rewrite competitive submissions on the target identity.
+model ProfileClaimRequest {
+  id                   String             @id @default(cuid())
+  claimantUserId       String
+  claimantProfileId    String
+  targetProfileId      String
+  status               ProfileClaimStatus @default(REQUESTED)
+  creatorSiteUrl       String?
+  socialHandle         String?
+  socialUrl            String?
+  publicProofUrl       String?
+  claimNote            String?
+  verificationNotes    String?
+  reviewedByUserId     String?
+  reviewedAt           DateTime?
+  requestedAt          DateTime           @default(now())
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  claimantUser    User             @relation("ProfileClaimClaimantUser", fields: [claimantUserId], references: [id], onDelete: Cascade)
+  claimantProfile UniversalProfile @relation("ProfileClaimClaimant", fields: [claimantProfileId], references: [id], onDelete: Cascade)
+  targetProfile   UniversalProfile @relation("ProfileClaimTarget", fields: [targetProfileId], references: [id], onDelete: Cascade)
+  reviewedByUser  User?            @relation("ProfileClaimReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, requestedAt])
+  @@index([targetProfileId])
+  @@index([claimantProfileId])
+  @@index([claimantUserId])
 }
 
 /// Persistent expert / third-party ranking source identity (profileType BENCHMARK).
@@ -405,6 +461,8 @@ model User {
   manualImports    ManualImportLog[]
   policyAcceptances PolicyAcceptance[]
   creatorVerifications CreatorCompetitorProfile[] @relation("CreatorVerifiedBy")
+  profileClaimsFiled   ProfileClaimRequest[] @relation("ProfileClaimClaimantUser")
+  profileClaimsReviewed ProfileClaimRequest[] @relation("ProfileClaimReviewedBy")
   playerWeekAvailabilityUpdates PlayerWeekAvailability[] @relation("PlayerWeekAvailabilityUpdatedBy")
 }
 

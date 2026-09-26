@@ -38,6 +38,17 @@ export type UniversalProfile = {
   isCreator?: boolean;
   suspended?: boolean;
   bio?: string;
+  headline?: string | null;
+  affiliation?: string | null;
+  websiteUrl?: string | null;
+  xUrl?: string | null;
+  youtubeUrl?: string | null;
+  instagramUrl?: string | null;
+  tiktokUrl?: string | null;
+  podcastUrl?: string | null;
+  featuredLinkTitle?: string | null;
+  featuredLinkUrl?: string | null;
+  ownershipVerified?: boolean;
   /** Expert analyst name when different from displayName. */
   expertAnalystName?: string | null;
   /** Expert publisher affiliation (Yahoo Fantasy, ESPN, …). */

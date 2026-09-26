@@ -32,6 +32,19 @@ export type RankIQProfileView = {
   status: "ACTIVE" | "SUSPENDED";
   universalUserId: string | null;
   avatarUrl: string | null;
+  bio: string | null;
+  headline: string | null;
+  affiliation: string | null;
+  websiteUrl: string | null;
+  xUrl: string | null;
+  youtubeUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
+  podcastUrl: string | null;
+  featuredLinkTitle: string | null;
+  featuredLinkUrl: string | null;
+  ownershipVerified: boolean;
+  hasAuthUser: boolean;
   expertAnalystName: string | null;
   expertPublicationName: string | null;
   expertSourceKind: string | null;
@@ -301,6 +314,25 @@ export async function getRankIQProfileView(
       avatarUrl: profile.avatarUrl,
       oauthImageUrl: profile.authUser?.image,
     }),
+    bio: profile.bio,
+    headline: profile.headline,
+    affiliation: profile.affiliation,
+    websiteUrl: profile.websiteUrl,
+    xUrl: profile.xUrl,
+    youtubeUrl: profile.youtubeUrl,
+    instagramUrl: profile.instagramUrl,
+    tiktokUrl: profile.tiktokUrl,
+    podcastUrl: profile.podcastUrl,
+    featuredLinkTitle: profile.featuredLinkTitle,
+    featuredLinkUrl: profile.featuredLinkUrl,
+    ownershipVerified: Boolean(
+      profile.ownershipVerifiedAt ||
+        isCreatorVerified({
+          profileType: profile.profileType,
+          claimStatus: profile.creatorCompetitor?.claimStatus ?? null,
+        }),
+    ),
+    hasAuthUser: Boolean(profile.authUser),
     expertAnalystName: profile.expertSource?.analystName ?? null,
     expertPublicationName: profile.expertSource?.publicationName ?? null,
     expertSourceKind: profile.expertSource?.sourceKind ?? null,

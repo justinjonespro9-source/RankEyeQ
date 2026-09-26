@@ -17,6 +17,7 @@ import { getBoardIndexability } from "@/lib/board-privacy";
 import { getPublicProfileBoard } from "@/lib/public-board";
 import { formatRankIqScore } from "@/lib/scoring";
 import { NO_INDEX, PUBLIC_INDEX } from "@/lib/seo";
+import { WeeklySourceLink } from "@/components/profile/WeeklySourceLink";
 import { competitorClassLabel } from "@/lib/profile-labels";
 import { formatInChicago } from "@/lib/timing/chicago";
 
@@ -164,6 +165,12 @@ export default async function PublicRankingBoardPage(
                 : ""}
               . RankEyeQ Top {board.rankingDepth} only.
             </p>
+          ) : null}
+          {board.weeklySourceUrl ? (
+            <WeeklySourceLink
+              profileId={board.profileId}
+              sourceUrl={board.weeklySourceUrl}
+            />
           ) : null}
 
           {board.isLiveProvisional && board.liveEyeq ? (
