@@ -15,7 +15,7 @@ import {
   isScorablePickCount,
 } from "@/lib/contest-defaults";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
-import { freezeUnavailableAtKickoff } from "@/lib/reserves/from-submission";
+import { freezeUnavailableFromWeekStatus } from "@/lib/reserves/kickoff-freeze";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import {
   WeekMatchupNotStampedError,
@@ -184,6 +184,7 @@ async function loadKickoffMap(contestId: string) {
   const names = new Map<string, string>();
   const availabilityByEntryId = new Map<string, string>();
   const reasonByEntryId = new Map<string, string>();
+  const promotionUnavailableByEntryId = new Map<string, boolean>();
 
   const resolved =
     contest != null
@@ -210,6 +211,10 @@ async function loadKickoffMap(contestId: string) {
       entry.rankableEntryId,
       status?.effectiveEntryAvailability ?? entry.rankableEntry.availability,
     );
+    promotionUnavailableByEntryId.set(
+      entry.rankableEntryId,
+      status ? freezeUnavailableFromWeekStatus(status) : false,
+    );
     if (status && !status.selectable && status.unavailableReason) {
       reasonByEntryId.set(entry.rankableEntryId, status.unavailableReason);
     }
@@ -219,6 +224,7 @@ async function loadKickoffMap(contestId: string) {
     playerNamesById: names,
     availabilityByEntryId,
     reasonByEntryId,
+    promotionUnavailableByEntryId,
   };
 }
 
@@ -323,6 +329,7 @@ export async function saveSubmissionPicks(input: {
     playerNamesById,
     availabilityByEntryId,
     reasonByEntryId,
+    promotionUnavailableByEntryId,
   } = await loadKickoffMap(input.contestId);
   const lockCheck = validatePartialLockEdit({
     previous: previous.map((pick) => ({
@@ -400,8 +407,8 @@ export async function saveSubmissionPicks(input: {
       let wasUnavailableAtKickoff = prior?.wasUnavailableAtKickoff ?? null;
 
       if (slotLocked && wasUnavailableAtKickoff == null) {
-        const availability = availabilityByEntryId.get(row.rankableEntryId);
-        wasUnavailableAtKickoff = freezeUnavailableAtKickoff(availability);
+        wasUnavailableAtKickoff =
+          promotionUnavailableByEntryId.get(row.rankableEntryId) ?? false;
       }
 
       if (

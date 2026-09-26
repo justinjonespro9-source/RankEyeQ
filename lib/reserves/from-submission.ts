@@ -14,7 +14,10 @@ import {
   type EffectiveBoardPickInput,
   type EffectiveBoardResult,
 } from "@/lib/reserves/effective-board";
-import { isPromotionUnavailable } from "@/lib/reserves/promotion-status";
+export {
+  freezeUnavailableAtKickoff,
+  freezeUnavailableFromWeekStatus,
+} from "@/lib/reserves/kickoff-freeze";
 
 export type DbishReservePick = {
   id?: string;
@@ -100,10 +103,4 @@ export function scoreableEffectivePicks(input: {
     scoringDepth: input.scoringDepth,
     now: input.now,
   });
-}
-
-export function freezeUnavailableAtKickoff(
-  availability: EntryAvailability | string | null | undefined,
-): boolean {
-  return isPromotionUnavailable(availability);
 }
