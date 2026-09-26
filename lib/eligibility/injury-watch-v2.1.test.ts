@@ -96,8 +96,50 @@ describe("Player Availability V2.1 Injury Watch", () => {
       injuryDescription: "shoulder",
       designation: "UNKNOWN",
     });
-    expect(ai).toContain("Practice: Full Participation in Practice");
+    expect(ai).toContain("Practice: Full");
     expect(ai).not.toContain("Injury Watch:");
+  });
+
+  it("official Q/D/OUT use Practice: labels, never Injury Watch", () => {
+    const q = formatPlayerInjuryPromptBlock({
+      name: "Q Player",
+      team: "BUF",
+      resolvedAvailabilityLabel: "QUESTIONABLE",
+      selectable: true,
+      practiceStatus: "Limited Participation in Practice",
+      injuryDescription: "hamstring",
+      designation: "QUESTIONABLE",
+    });
+    expect(q).toContain("Official Game Status: QUESTIONABLE");
+    expect(q).toContain("Practice: Limited");
+    expect(q).toContain("Injury: hamstring");
+    expect(q).toContain("Selectable: yes");
+    expect(q).not.toContain("Injury Watch:");
+
+    const d = formatPlayerInjuryPromptBlock({
+      name: "D Player",
+      team: "LAR",
+      resolvedAvailabilityLabel: "DOUBTFUL",
+      selectable: true,
+      practiceStatus: "Did Not Participate In Practice",
+      injuryDescription: "ankle",
+      designation: "DOUBTFUL",
+    });
+    expect(d).toContain("Practice: DNP");
+    expect(d).not.toContain("Injury Watch:");
+
+    const o = formatPlayerInjuryPromptBlock({
+      name: "O Player",
+      team: "WAS",
+      resolvedAvailabilityLabel: "OUT",
+      selectable: false,
+      practiceStatus: "Did Not Participate In Practice",
+      injuryDescription: "knee",
+      designation: "OUT",
+    });
+    expect(o).toContain("Practice: DNP");
+    expect(o).toContain("Selectable: no");
+    expect(o).not.toContain("Injury Watch:");
   });
 
   it("4. official QUESTIONABLE → Q primary + selectable", () => {

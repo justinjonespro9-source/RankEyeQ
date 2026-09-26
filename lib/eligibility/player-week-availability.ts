@@ -215,18 +215,36 @@ export function formatInjuryContextForAiPrompt(input: {
   } else {
     lines.push("Official Game Status: not yet issued");
   }
-  if (input.context.practiceTier === "DNP") {
-    lines.push("Injury Watch: DNP");
-  } else if (input.context.practiceTier === "LIMITED") {
-    lines.push("Injury Watch: Limited");
-  } else if (input.context.practiceStatusRaw) {
-    lines.push(`Practice: ${input.context.practiceStatusRaw}`);
-  }
+  const practiceLine = formatPracticeContextLine(input.context);
+  if (practiceLine) lines.push(practiceLine);
   if (input.context.bodyPart) {
     lines.push(`Injury: ${input.context.bodyPart}`);
   }
   lines.push(`Selectable: ${input.selectable ? "yes" : "no"}`);
   return lines;
+}
+
+/**
+ * Practice participation line for AI/Human shared context.
+ * Blank official GS: DNP/Limited → "Injury Watch:"; Full → "Practice: Full".
+ * Official Q/D/OUT: always "Practice:" (never Injury Watch).
+ */
+export function formatPracticeContextLine(
+  context: InjuryContext,
+): string | null {
+  const tier = context.practiceTier;
+  if (!tier || tier === "UNKNOWN") {
+    if (!context.practiceStatusRaw) return null;
+    return `Practice: ${context.practiceStatusRaw}`;
+  }
+  const short =
+    tier === "DNP" ? "DNP" : tier === "LIMITED" ? "Limited" : "Full";
+  if (context.officialGameStatus) {
+    return `Practice: ${short}`;
+  }
+  if (tier === "DNP") return "Injury Watch: DNP";
+  if (tier === "LIMITED") return "Injury Watch: Limited";
+  return "Practice: Full";
 }
 
 export type WeeklyAvailabilityPresentation = {
@@ -642,20 +660,11 @@ export function formatAvailabilityPromptParts(input: {
       ? null
       : String(input.designation),
   });
-  const detailLines = formatInjuryContextForAiPrompt({
-    resolvedAvailabilityLabel: "",
-    selectable: input.selectable ?? true,
-    context,
-  }).filter((line) => line.length > 0);
   // Keep compact single-line extras for legacy callers; prefer structured
   // formatPlayerInjuryPromptBlock for multi-line AI presentation.
-  if (context.practiceTier === "DNP") parts.push("Injury Watch: DNP");
-  else if (context.practiceTier === "LIMITED") parts.push("Injury Watch: Limited");
-  else if (context.practiceStatusRaw && !context.officialGameStatus) {
-    parts.push(`Practice: ${context.practiceStatusRaw}`);
-  }
+  const practiceLine = formatPracticeContextLine(context);
+  if (practiceLine) parts.push(practiceLine);
   if (context.bodyPart) parts.push(context.bodyPart);
-  void detailLines;
   return parts.join(" — ");
 }
 
