@@ -10,9 +10,6 @@ export const COMPETITOR_BADGE_THRESHOLDS = {
   /** Exact Hit / Podium Call require at least one lifetime graded hit */
   minExactHits: 1,
   minPodiumCalls: 1,
-  /** Hot Streak: consecutive weeks with weekly mean EYEQ at/above this */
-  hotStreakMinWeeks: 3,
-  hotStreakMinEyeq: 80,
 } as const;
 
 export const ATHLETE_BADGE_THRESHOLDS = {

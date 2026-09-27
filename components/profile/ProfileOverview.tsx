@@ -1,5 +1,4 @@
 import type { ProfileOverviewData } from "@/lib/profile-modules";
-import { EYEQ_SCORE_LABEL } from "@/lib/brand";
 import { formatRankIqScore } from "@/lib/scoring";
 import type { RankIQProfileStats } from "@/types/user";
 import Link from "next/link";
@@ -55,34 +54,10 @@ export function ProfileOverview({
           <h3 className="font-display text-lg font-semibold text-ink">
             RankEyeQ summary
           </h3>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-3">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">
-                Season rank
-              </dt>
-              <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">
-                {stats.overallRank ?? "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">
-                Avg {EYEQ_SCORE_LABEL}
-              </dt>
-              <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">
-                {stats.averageRankingScore == null
-                  ? "—"
-                  : formatRankIqScore(stats.averageRankingScore)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted">
-                Contests
-              </dt>
-              <dd className="mt-1 font-display text-2xl font-semibold tabular-nums text-ink">
-                {contestsPlayed}
-              </dd>
-            </div>
-          </dl>
+          <p className="mt-1 text-sm text-muted">
+            {contestsPlayed} graded {contestsPlayed === 1 ? "contest" : "contests"}.
+            Season standing and Trophy Case are shown above.
+          </p>
           <p className="mt-3 text-sm">
             <Link
               href="?tab=rankiq"

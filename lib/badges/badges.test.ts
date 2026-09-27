@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  detectHotStreak,
   detectThreeWeekHeater,
   evaluateAthleteBadges,
   evaluateCompetitorBadges,
@@ -175,15 +174,15 @@ describe("competitor badge evaluation", () => {
     );
   });
 
-  it("detects Hot Streak across consecutive weeks", () => {
-    const history: ProfileContestHistoryItem[] = [
-      hist(1, 82),
-      hist(2, 85),
-      hist(3, 81),
-      hist(5, 90), // broken streak
-    ];
-    expect(detectHotStreak(history).earned).toBe(true);
-    expect(detectHotStreak([hist(1, 82), hist(2, 70)]).earned).toBe(false);
+  it("does not award Hot Streak from EYEQ alone (Trophy Case owns streaks)", () => {
+    const earned = evaluateCompetitorBadges({
+      profileId: "x",
+      stats: emptyStats,
+      history: [hist(1, 95), hist(2, 95), hist(3, 95)],
+      overallBoard: [],
+      positionBoards: {},
+    });
+    expect(earned.map((badge) => badge.id)).not.toContain("HOT_STREAK");
   });
 });
 

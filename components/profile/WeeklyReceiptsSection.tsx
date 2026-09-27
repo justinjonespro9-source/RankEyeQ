@@ -44,7 +44,11 @@ export function WeeklyReceiptsSection({
       </p>
       <div className="mt-4 space-y-4">
         {weeks.map((week) => (
-          <div key={week.weekNumber} className="space-y-2">
+          <div
+            key={week.weekNumber}
+            id={`week-${week.weekNumber}`}
+            className="scroll-mt-24 space-y-2"
+          >
             <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">
               {week.weekLabel}
             </h4>

@@ -10,10 +10,11 @@ import {
   formatActualFinishLabel,
 } from "@/lib/profile-receipt";
 import {
-  getSeasonLeaderboard,
-  getWeeklyLeaderboard,
+  filterLeaderboardRows,
   type LeaderboardRow,
+  type SeasonBoardSet,
 } from "@/lib/leaderboards";
+import { getCachedSeasonBoardSet } from "@/lib/competitive-resume-data";
 import type {
   ContestPosition,
   ProfileType,
@@ -160,6 +161,7 @@ export async function getRankIQProfileView(
   let topNOpportunities = 0;
   let exactHits = 0;
   let numberOneHits = 0;
+  let numberOneCalls = 0;
   let podiumHits = 0;
 
   for (const submission of submissions) {
@@ -181,6 +183,7 @@ export async function getRankIQProfileView(
         exactHits += 1;
       }
       if (pick.actualRank === 1) numberOneHits += 1;
+      if (pick.actualRank === 1 && pick.predictedRank === 1) numberOneCalls += 1;
       if (
         pick.predictedRank <= 3 &&
         pick.actualRank != null &&
@@ -201,7 +204,19 @@ export async function getRankIQProfileView(
     def: null,
   };
 
-  if (activeSeason) {
+  const includeTest = Boolean(options?.includeTest);
+  const seasonIds = new Set(submissions.map((s) => s.contest.seasonId));
+  if (activeSeason) seasonIds.add(activeSeason.id);
+  const boardSets = new Map<string, SeasonBoardSet>();
+  await Promise.all(
+    [...seasonIds].map(async (seasonId) => {
+      const set = await getCachedSeasonBoardSet(seasonId, includeTest);
+      if (set) boardSets.set(seasonId, set);
+    }),
+  );
+
+  const activeSet = activeSeason ? boardSets.get(activeSeason.id) : undefined;
+  if (activeSet) {
     const classFilter =
       profile.profileType === "BENCHMARK"
         ? "EXPERT"
@@ -210,37 +225,26 @@ export async function getRankIQProfileView(
           : profile.profileType === "AI"
             ? "AI"
             : "ALL";
-    const overall = await getSeasonLeaderboard({
-      seasonId: activeSeason.id,
-      filter: classFilter,
-      includeTest: options?.includeTest,
-    });
-    overallRank = rankOnBoard(overall, profile.id);
+    overallRank = rankOnBoard(
+      filterLeaderboardRows(activeSet.seasonOverall, classFilter),
+      profile.id,
+    );
 
     for (const position of ["QB", "RB", "WR", "TE", "DEF"] as ContestPosition[]) {
-      const board = await getSeasonLeaderboard({
-        seasonId: activeSeason.id,
-        position,
-        filter: classFilter,
-        includeTest: options?.includeTest,
-      });
-      positionRanks[toUiPosition(position)] = rankOnBoard(board, profile.id);
+      positionRanks[toUiPosition(position)] = rankOnBoard(
+        filterLeaderboardRows(activeSet.seasonByPosition[position] ?? [], classFilter),
+        profile.id,
+      );
     }
   }
 
-  const weekRankCache = new Map<string, LeaderboardRow[]>();
-
   const history: ProfileContestHistoryItem[] = [];
   for (const submission of submissions) {
-    let weekly = weekRankCache.get(submission.contest.weekId);
-    if (!weekly) {
-      weekly = await getWeeklyLeaderboard({
-        weekId: submission.contest.weekId,
-        filter: "ALL",
-        includeTest: options?.includeTest,
-      });
-      weekRankCache.set(submission.contest.weekId, weekly);
-    }
+    const weekly: LeaderboardRow[] =
+      boardSets
+        .get(submission.contest.seasonId)
+        ?.weeks.find((week) => week.weekId === submission.contest.weekId)
+        ?.overall ?? [];
 
     const depth = submission.contest.rankingDepth;
     let topN = 0;
@@ -351,6 +355,7 @@ export async function getRankIQProfileView(
         topNOpportunities === 0 ? null : topNHits / topNOpportunities,
       exactRankingHits: exactHits,
       numberOneHits,
+      numberOneCalls,
       podiumHits,
       bestWeek,
       currentStreak: null,

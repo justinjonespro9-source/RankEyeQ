@@ -299,6 +299,151 @@ function accumulate(
 /** Minimum contests concept for future filtering — currently informational only. */
 export const DEFAULT_MIN_CONTESTS = 1;
 
+/** Same qualification + ranking pipeline as the weekly / season leaderboards. */
+function buildLeaderboardRows(
+  submissions: Awaited<ReturnType<typeof loadGradedSubmissions>>,
+): LeaderboardRow[] {
+  return toRows(accumulate(submissions));
+}
+
+/**
+ * In-memory mirror of `profileWhereForFilter` for rows that were loaded with
+ * the unfiltered ("ALL") query. Ranking a filtered subset of canonical rows
+ * yields the same order as querying that filter directly.
+ */
+export function leaderboardRowMatchesFilter(
+  row: Pick<LeaderboardRow, "profileType" | "expertSourceKind">,
+  filter: LeaderboardFilter,
+): boolean {
+  if (filter === "ALL") return true;
+  if (filter === "HUMAN") return row.profileType === "HUMAN";
+  if (filter === "AI") return row.profileType === "AI";
+  if (filter === "CREATOR") return row.profileType === "CREATOR";
+  if (filter === "EXPERT") {
+    return (
+      row.profileType === "BENCHMARK" &&
+      (row.expertSourceKind == null ||
+        row.expertSourceKind === EXPERT_SOURCE_KIND.ANALYST)
+    );
+  }
+  return (
+    row.profileType === "BENCHMARK" &&
+    (row.expertSourceKind === EXPERT_SOURCE_KIND.PUBLISHER_CONSENSUS ||
+      row.expertSourceKind === EXPERT_SOURCE_KIND.SITE_CONSENSUS)
+  );
+}
+
+/** Re-rank a canonical row list restricted to one class filter. */
+export function filterLeaderboardRows(
+  rows: LeaderboardRow[],
+  filter: LeaderboardFilter,
+): LeaderboardRow[] {
+  if (filter === "ALL") return rows;
+  return rows
+    .filter((row) => leaderboardRowMatchesFilter(row, filter))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+const BOARD_POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
+
+export type SeasonBoardSetWeek = {
+  weekId: string;
+  weekNumber: number;
+  weekLabel: string;
+  overall: LeaderboardRow[];
+  byPosition: Partial<Record<ContestPosition, LeaderboardRow[]>>;
+};
+
+export type SeasonBoardSet = {
+  seasonId: string;
+  seasonYear: number;
+  seasonActive: boolean;
+  contests: Array<{
+    id: string;
+    weekId: string;
+    weekNumber: number;
+    position: ContestPosition;
+    status: string;
+  }>;
+  seasonOverall: LeaderboardRow[];
+  seasonByPosition: Partial<Record<ContestPosition, LeaderboardRow[]>>;
+  weeks: SeasonBoardSetWeek[];
+};
+
+/**
+ * Every canonical ("ALL" filter) weekly + season board for one season from a
+ * single graded-submission load. Equivalent to calling getWeeklyLeaderboard /
+ * getSeasonLeaderboard per week and position, without N+1 queries.
+ */
+export async function getSeasonBoardSet(input: {
+  seasonId: string;
+  includeTest?: boolean;
+}): Promise<SeasonBoardSet | null> {
+  const [season, contests, submissions] = await Promise.all([
+    prisma.season.findUnique({ where: { id: input.seasonId } }),
+    prisma.rankIQContest.findMany({
+      where: {
+        seasonId: input.seasonId,
+        week: input.includeTest ? undefined : { isTest: false },
+      },
+      select: {
+        id: true,
+        weekId: true,
+        position: true,
+        status: true,
+        week: { select: { weekNumber: true } },
+      },
+    }),
+    loadGradedSubmissions({
+      seasonId: input.seasonId,
+      includeTest: input.includeTest,
+    }),
+  ]);
+  if (!season) return null;
+
+  const byWeek = new Map<string, typeof submissions>();
+  for (const submission of submissions) {
+    const list = byWeek.get(submission.contest.weekId) ?? [];
+    list.push(submission);
+    byWeek.set(submission.contest.weekId, list);
+  }
+
+  const byPosition = (list: typeof submissions) => {
+    const out: Partial<Record<ContestPosition, LeaderboardRow[]>> = {};
+    for (const position of BOARD_POSITIONS) {
+      const subset = list.filter((s) => s.contest.position === position);
+      if (subset.length > 0) out[position] = buildLeaderboardRows(subset);
+    }
+    return out;
+  };
+
+  const weeks: SeasonBoardSetWeek[] = [...byWeek.entries()]
+    .map(([weekId, list]) => ({
+      weekId,
+      weekNumber: list[0].contest.week.weekNumber,
+      weekLabel: list[0].contest.week.label,
+      overall: buildLeaderboardRows(list),
+      byPosition: byPosition(list),
+    }))
+    .sort((a, b) => a.weekNumber - b.weekNumber);
+
+  return {
+    seasonId: season.id,
+    seasonYear: season.year,
+    seasonActive: season.active,
+    contests: contests.map((c) => ({
+      id: c.id,
+      weekId: c.weekId,
+      weekNumber: c.week.weekNumber,
+      position: c.position,
+      status: c.status,
+    })),
+    seasonOverall: buildLeaderboardRows(submissions),
+    seasonByPosition: byPosition(submissions),
+    weeks,
+  };
+}
+
 export async function getWeeklyLeaderboard(input: {
   weekId: string;
   position?: ContestPosition;

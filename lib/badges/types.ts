@@ -35,8 +35,7 @@ export type CompetitorBadgeId =
   | "TOP_5_DEF"
   | "TOP_10_DEF"
   | "EXACT_HIT"
-  | "PODIUM_CALL"
-  | "HOT_STREAK";
+  | "PODIUM_CALL";
 
 export type AthleteBadgeId =
   | "POSITION_WINNER"

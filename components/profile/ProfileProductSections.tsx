@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FantasyTrackScoringRules } from "@/components/fantasy/FantasyTrackScoringRules";
-import { RankEyeQResumeSummary } from "@/components/profile/RankEyeQResumeSummary";
 import { WeeklyReceiptsSection } from "@/components/profile/WeeklyReceiptsSection";
 import { ProfileOverview } from "./ProfileOverview";
-import { buildRankEyeQResume } from "@/lib/profile-resume";
 import type { ProfileOverviewData } from "@/lib/profile-modules";
 import type { ProfileContestHistoryItem } from "@/types/profile";
 import type { ProfileBoardAccessSummary } from "@/lib/public-board";
@@ -92,12 +90,7 @@ export function ProfileProductSections({
           />
         ) : active === "rankiq" ? (
           profile.rankiq ? (
-            <RankEyeQTab
-              profile={profile}
-              history={history}
-              contestsPlayed={contestsPlayed}
-              weekBoards={weekBoards}
-            />
+            <RankEyeQTab profile={profile} history={history} />
           ) : (
             <EmptyProduct label="RankEyeQ" />
           )
@@ -116,91 +109,22 @@ export function ProfileProductSections({
 function RankEyeQTab({
   profile,
   history,
-  contestsPlayed,
-  weekBoards,
 }: {
   profile: UniversalProfile;
   history: ProfileContestHistoryItem[];
-  contestsPlayed: number;
-  weekBoards: ProfileBoardAccessSummary[];
 }) {
-  const resume = buildRankEyeQResume({
-    stats: profile.rankiq!,
-    history,
-    contestsPlayed,
-  });
-  const stats = profile.rankiq!;
-
   return (
     <>
       <h2 className="font-display text-xl font-semibold text-ink">
         RankEyeQ performance
       </h2>
-      <p className="mt-1 mb-6 text-sm text-muted">
-        Fantasy ranking résumé from graded weekly contests — not season-long
-        projections.
+      <p className="mt-1 text-sm text-muted">
+        Graded weekly contests — season standing, trophies, and résumé stats
+        are summarized above.
       </p>
-
-      <RankEyeQResumeSummary
-        resume={resume}
-        currentWeekSubmitted={weekBoards.length > 0}
-        rankScopeLabel={
-          profile.isBenchmark
-            ? "Overall rank among Experts"
-            : profile.isCreator
-              ? "Overall rank among Creators"
-              : profile.isBot
-                ? "AI season rank"
-                : "Season leaderboard rank"
-        }
-      />
-
-      {resume.hasGradedHistory ? (
-        <div className="mt-8">
-          <h3 className="font-display text-lg font-semibold text-ink">
-            Hit metrics
-          </h3>
-          <p className="mt-1 text-sm text-muted">
-            From the production EYEQ engine. Podium Hits are Top 3 picks that
-            finished actual Top 3.
-          </p>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <HitCard
-              label="Top-N Hit Rate"
-              value={
-                stats.topHitRate == null
-                  ? "—"
-                  : `${Math.round(stats.topHitRate * 100)}%`
-              }
-            />
-            <HitCard
-              label="Exact Hits"
-              value={String(stats.exactRankingHits ?? "—")}
-            />
-            <HitCard label="#1 Hits" value={String(stats.numberOneHits ?? "—")} />
-            <HitCard
-              label="Podium Hits"
-              value={String(stats.podiumHits ?? "—")}
-            />
-          </dl>
-        </div>
-      ) : null}
 
       <WeeklyReceiptsSection username={profile.username} history={history} />
     </>
-  );
-}
-
-function HitCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface px-4 py-4">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-muted">
-        {label}
-      </dt>
-      <dd className="mt-2 font-display text-2xl font-semibold tabular-nums text-ink">
-        {value}
-      </dd>
-    </div>
   );
 }
 

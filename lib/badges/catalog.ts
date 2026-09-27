@@ -101,16 +101,6 @@ const COMPETITOR_CATALOG: BadgeDefinition[] = [
       "Ranked a player in your Top 3 who finished in the actual Top 3.",
     phase: 1,
   },
-  {
-    id: "HOT_STREAK",
-    family: "competitor",
-    category: "streak",
-    label: "Hot Streak",
-    shortLabel: "Streak",
-    description:
-      "Three consecutive NFL weeks with strong average EYEQ on graded boards.",
-    phase: 1,
-  },
 ];
 
 const ATHLETE_CATALOG: BadgeDefinition[] = [

@@ -3,7 +3,6 @@ import { Badge } from "@/components/ui/Badge";
 import { ProfileAvatar } from "@/components/ui/ProfileAvatar";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
-import { BadgeRack } from "@/components/badges/BadgeRack";
 import {
   ProfileFeaturedContent,
   ProfileSocialLinks,
@@ -22,7 +21,6 @@ import {
   buildPublicSocialLinks,
   resolveFeaturedLink,
 } from "@/lib/profile-links";
-import type { EarnedBadge } from "@/lib/badges/types";
 import type { UniversalProfile } from "@/types/user";
 import type { ProfileType } from "@/lib/generated/prisma/client";
 
@@ -35,7 +33,6 @@ export function ProfileHeader({
   followingCount = 0,
   follow,
   creator,
-  badges = [],
   scoringDisclosure = null,
   expertSourceKind = null,
   showClaimCta = false,
@@ -57,7 +54,6 @@ export function ProfileHeader({
     enabled: boolean;
     qualified: boolean;
   };
-  badges?: EarnedBadge[];
   /** Benchmark scoring disclosure (publisher consensus / expert sources). */
   scoringDisclosure?: string | null;
   expertSourceKind?: string | null;
@@ -256,13 +252,6 @@ export function ProfileHeader({
           ) : null}
         </div>
       </div>
-
-      <BadgeRack
-        badges={badges}
-        title="RankEyeQ badges"
-        emptyLabel="Badges unlock with qualified season EYEQ, Exact Hits, Podium Calls, and hot streaks."
-        size="sm"
-      />
     </header>
   );
 }

@@ -23,7 +23,6 @@ export {
   qualifyLeaderboardRows,
 } from "@/lib/badges/percentile";
 export {
-  detectHotStreak,
   evaluateCompetitorBadges,
   evaluateCompetitorHitAndStreakBadges,
   evaluatePercentileBadges,

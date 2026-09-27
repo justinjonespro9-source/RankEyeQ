@@ -16,6 +16,8 @@ export type RankIQProfileStats = {
   topHitRate: number | null;
   exactRankingHits: number | null;
   numberOneHits: number | null;
+  /** Predicted #1 that finished actual #1 (display only; not a scoring input). */
+  numberOneCalls?: number | null;
   podiumHits: number | null;
   bestWeek: string | null;
   currentStreak: number | null;

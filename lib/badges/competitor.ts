@@ -41,64 +41,6 @@ function earn(
   return { id: definition.id, definition, detail, earnedAtLabel };
 }
 
-/**
- * Hot Streak: ≥3 consecutive weekNumbers where mean EYEQ that week ≥ threshold.
- */
-export function detectHotStreak(
-  history: ProfileContestHistoryItem[],
-  options?: {
-    minWeeks?: number;
-    minEyeq?: number;
-  },
-): { earned: boolean; detail: string | null } {
-  const minWeeks =
-    options?.minWeeks ?? COMPETITOR_BADGE_THRESHOLDS.hotStreakMinWeeks;
-  const minEyeq =
-    options?.minEyeq ?? COMPETITOR_BADGE_THRESHOLDS.hotStreakMinEyeq;
-
-  const byWeek = new Map<number, number[]>();
-  for (const item of history) {
-    if (item.normalizedScore == null) continue;
-    const scores = byWeek.get(item.weekNumber) ?? [];
-    scores.push(item.normalizedScore);
-    byWeek.set(item.weekNumber, scores);
-  }
-
-  const weeks = [...byWeek.entries()]
-    .map(([weekNumber, scores]) => ({
-      weekNumber,
-      average: scores.reduce((sum, value) => sum + value, 0) / scores.length,
-    }))
-    .sort((a, b) => a.weekNumber - b.weekNumber);
-
-  let streak = 0;
-  let bestStreak = 0;
-  let prevWeek: number | null = null;
-
-  for (const week of weeks) {
-    const consecutive =
-      prevWeek != null && week.weekNumber === prevWeek + 1;
-    if (week.average >= minEyeq && (streak === 0 || consecutive)) {
-      streak = consecutive ? streak + 1 : 1;
-      bestStreak = Math.max(bestStreak, streak);
-    } else if (week.average >= minEyeq) {
-      streak = 1;
-      bestStreak = Math.max(bestStreak, streak);
-    } else {
-      streak = 0;
-    }
-    prevWeek = week.weekNumber;
-  }
-
-  if (bestStreak < minWeeks) {
-    return { earned: false, detail: null };
-  }
-  return {
-    earned: true,
-    detail: `${bestStreak} consecutive weeks averaging ${minEyeq}+ EYEQ`,
-  };
-}
-
 export function evaluatePercentileBadges(input: {
   profileId: string;
   overallBoard: LeaderboardRow[];
@@ -203,12 +145,6 @@ export function evaluateCompetitorHitAndStreakBadges(input: {
         input.stats.podiumHits === 1 ? "" : "s"
       }`,
     );
-    if (badge) earned.push(badge);
-  }
-
-  const streak = detectHotStreak(input.history);
-  if (streak.earned) {
-    const badge = earn("HOT_STREAK", streak.detail);
     if (badge) earned.push(badge);
   }
 

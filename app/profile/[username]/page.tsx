@@ -3,13 +3,15 @@ import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ProfileProductSections } from "@/components/profile/ProfileProductSections";
 import { CurrentWeekBoardsSection } from "@/components/profile/CurrentWeekBoardsSection";
+import { SeasonStanding } from "@/components/profile/SeasonStanding";
+import { TrophyCase } from "@/components/profile/TrophyCase";
+import { ResumeStats } from "@/components/profile/ResumeStats";
 import { trackEvent } from "@/lib/analytics";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
 import {
   isAdminTestPreviewRequested,
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
-import { getCompetitorBadgesForProfile } from "@/lib/badges";
 import { isOfficialBenchmarkUsername } from "@/lib/benchmark-sources";
 import {
   NO_INDEX,
@@ -21,6 +23,7 @@ import {
   isPublisherConsensusSource,
 } from "@/lib/expert-identity";
 import { getRankIQProfileView } from "@/lib/profile-stats";
+import { getCompetitiveResume } from "@/lib/competitive-resume-data";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
 import { getFollowCounts, isFollowing } from "@/lib/social/follows";
@@ -159,7 +162,7 @@ export default async function ProfilePage(
   }
 
   trackEvent("ranker_profile_viewed", { contestsPlayed: view.contestsPlayed });
-  const [followCounts, viewerIsFollowing, qualification, weekBoards, badges] =
+  const [followCounts, viewerIsFollowing, qualification, weekBoards, competitive] =
     await Promise.all([
       getFollowCounts(view.profileId),
       viewerProfile
@@ -173,12 +176,11 @@ export default async function ProfilePage(
           isAdmin: authCtx?.user.role === "ADMIN",
         },
       }),
-      getCompetitorBadgesForProfile({
+      getCompetitiveResume({
         profileId: view.profileId,
+        username: view.username,
         profileType: view.profileType,
         expertSourceKind: view.expertSourceKind,
-        stats: view.stats,
-        history: view.history,
         includeTest,
       }),
     ]);
@@ -288,7 +290,14 @@ export default async function ProfilePage(
             qualification.status === "ELIGIBLE" ||
             qualification.status === "ENABLED",
         }}
-        badges={badges}
+      />
+
+      <SeasonStanding standing={competitive.standing} />
+      <TrophyCase trophyCase={competitive.trophyCase} />
+      <ResumeStats
+        stats={view.stats}
+        counts={competitive.trophyCase.counts}
+        contestsPlayed={view.contestsPlayed}
       />
 
       <CurrentWeekBoardsSection
