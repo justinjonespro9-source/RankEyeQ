@@ -71,9 +71,30 @@ function kickoffForRankable(
   return null;
 }
 
+async function weekScopedKickoffForEntry(
+  weekId: string,
+  rankableEntryId: string,
+): Promise<Date | null> {
+  const entry = await prisma.rankableEntry.findUnique({
+    where: { id: rankableEntryId },
+    select: {
+      gameStartsAt: true,
+      game: { select: { startsAt: true, weekId: true } },
+      contestEntries: {
+        where: { contest: { weekId } },
+        take: 1,
+        select: { game: { select: { startsAt: true, weekId: true } } },
+      },
+    },
+  });
+  return entry ? kickoffForRankable(entry, weekId) : null;
+}
+
 /**
  * NFL_SYNC may refresh factual practice/injury fields on an ADMIN_OVERRIDE row
  * without touching designation, manualOverride, sourceType, or sourceUrl.
+ * Skipped after the player's kickoff so the row's persisted write time stays
+ * valid kickoff-time evidence for the availability freeze.
  */
 export async function updateInjuryContextPreservingOverride(input: {
   weekId: string;
@@ -81,11 +102,13 @@ export async function updateInjuryContextPreservingOverride(input: {
   injuryDescription?: string | null;
   practiceStatus?: string | null;
   observedAt?: Date;
+  now?: Date;
 }): Promise<
   | { status: "updated_context_only" }
   | { status: "unchanged" }
   | { status: "not_override" }
   | { status: "missing" }
+  | { status: "skipped_kickoff" }
 > {
   const existing = await prisma.playerWeekAvailability.findUnique({
     where: {
@@ -97,6 +120,14 @@ export async function updateInjuryContextPreservingOverride(input: {
   });
   if (!existing) return { status: "missing" };
   if (!existing.manualOverride) return { status: "not_override" };
+
+  const kickoff = await weekScopedKickoffForEntry(
+    input.weekId,
+    input.rankableEntryId,
+  );
+  if (kickoffHasPassed(kickoff, input.now ?? new Date())) {
+    return { status: "skipped_kickoff" };
+  }
 
   const injuryDescription =
     input.injuryDescription === undefined
@@ -158,23 +189,12 @@ export async function upsertPlayerWeekAvailability(
   }
 
   if (skipAfterKickoff) {
-    const entry = await prisma.rankableEntry.findUnique({
-      where: { id: input.rankableEntryId },
-      select: {
-        gameStartsAt: true,
-        game: { select: { startsAt: true, weekId: true } },
-        contestEntries: {
-          where: { contest: { weekId: input.weekId } },
-          take: 1,
-          select: { game: { select: { startsAt: true, weekId: true } } },
-        },
-      },
-    });
-    if (entry) {
-      const kickoff = kickoffForRankable(entry, input.weekId);
-      if (kickoffHasPassed(kickoff, now)) {
-        return { status: "skipped_kickoff" };
-      }
+    const kickoff = await weekScopedKickoffForEntry(
+      input.weekId,
+      input.rankableEntryId,
+    );
+    if (kickoffHasPassed(kickoff, now)) {
+      return { status: "skipped_kickoff" };
     }
   }
 

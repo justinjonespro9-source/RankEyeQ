@@ -111,6 +111,34 @@ describe("PlayerWeekAvailability manual override precedence", () => {
     expect(updateRankable).not.toHaveBeenCalled();
   });
 
+  it("override context refresh is skipped after kickoff so the row stays kickoff-time evidence", async () => {
+    findUniqueAvail.mockResolvedValue({
+      id: "pwa1",
+      designation: "OUT",
+      injuryDescription: "admin note",
+      practiceStatus: null,
+      manualOverride: true,
+      sourceType: "MANUAL",
+    });
+    findUniqueRankable.mockResolvedValue({
+      gameStartsAt: null,
+      game: null,
+      contestEntries: [
+        { game: { startsAt: new Date("2026-09-27T17:00:00.000Z"), weekId: "week1" } },
+      ],
+    });
+
+    const result = await updateInjuryContextPreservingOverride({
+      weekId: "week1",
+      rankableEntryId: "player1",
+      practiceStatus: "Did Not Participate In Practice",
+      now: new Date("2026-09-27T21:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("skipped_kickoff");
+    expect(updateAvail).not.toHaveBeenCalled();
+  });
+
   it("clearing override permits later NFL_SYNC updates", async () => {
     findUniqueAvail.mockResolvedValue({
       id: "pwa1",

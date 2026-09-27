@@ -15,7 +15,11 @@ import {
   isScorablePickCount,
 } from "@/lib/contest-defaults";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
-import { freezeUnavailableFromWeekStatus } from "@/lib/reserves/kickoff-freeze";
+import {
+  loadKickoffFreezeEvidence,
+  resolveKickoffFreezeFromEvidence,
+  type KickoffFreezeEvidenceMap,
+} from "@/lib/reserves/kickoff-freeze-evidence-store";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import {
   WeekMatchupNotStampedError,
@@ -184,16 +188,22 @@ async function loadKickoffMap(contestId: string) {
   const names = new Map<string, string>();
   const availabilityByEntryId = new Map<string, string>();
   const reasonByEntryId = new Map<string, string>();
-  const promotionUnavailableByEntryId = new Map<string, boolean>();
 
-  const resolved =
+  const [resolved, freezeEvidence] =
     contest != null
-      ? await loadResolvedStatusesForWeek({
-          weekId: contest.weekId,
-          seasonId: contest.week.seasonId,
-          rankableEntryIds: entries.map((e) => e.rankableEntryId),
-        })
-      : new Map();
+      ? await Promise.all([
+          loadResolvedStatusesForWeek({
+            weekId: contest.weekId,
+            seasonId: contest.week.seasonId,
+            rankableEntryIds: entries.map((e) => e.rankableEntryId),
+          }),
+          loadKickoffFreezeEvidence({
+            weekId: contest.weekId,
+            seasonId: contest.week.seasonId,
+            rankableEntryIds: entries.map((e) => e.rankableEntryId),
+          }),
+        ])
+      : [new Map(), new Map() as KickoffFreezeEvidenceMap];
 
   for (const entry of entries) {
     map.set(
@@ -211,10 +221,6 @@ async function loadKickoffMap(contestId: string) {
       entry.rankableEntryId,
       status?.effectiveEntryAvailability ?? entry.rankableEntry.availability,
     );
-    promotionUnavailableByEntryId.set(
-      entry.rankableEntryId,
-      status ? freezeUnavailableFromWeekStatus(status) : false,
-    );
     if (status && !status.selectable && status.unavailableReason) {
       reasonByEntryId.set(entry.rankableEntryId, status.unavailableReason);
     }
@@ -224,7 +230,7 @@ async function loadKickoffMap(contestId: string) {
     playerNamesById: names,
     availabilityByEntryId,
     reasonByEntryId,
-    promotionUnavailableByEntryId,
+    freezeEvidence,
   };
 }
 
@@ -329,7 +335,7 @@ export async function saveSubmissionPicks(input: {
     playerNamesById,
     availabilityByEntryId,
     reasonByEntryId,
-    promotionUnavailableByEntryId,
+    freezeEvidence,
   } = await loadKickoffMap(input.contestId);
   const lockCheck = validatePartialLockEdit({
     previous: previous.map((pick) => ({
@@ -406,9 +412,18 @@ export async function saveSubmissionPicks(input: {
           : undefined;
       let wasUnavailableAtKickoff = prior?.wasUnavailableAtKickoff ?? null;
 
-      if (slotLocked && wasUnavailableAtKickoff == null) {
-        wasUnavailableAtKickoff =
-          promotionUnavailableByEntryId.get(row.rankableEntryId) ?? false;
+      // Freeze only after this player's own kickoff, from kickoff-time evidence.
+      if (
+        slotLocked &&
+        wasUnavailableAtKickoff == null &&
+        kickoff &&
+        now >= kickoff
+      ) {
+        wasUnavailableAtKickoff = resolveKickoffFreezeFromEvidence(
+          freezeEvidence,
+          row.rankableEntryId,
+          kickoff,
+        ).unavailable;
       }
 
       if (

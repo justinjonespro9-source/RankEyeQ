@@ -8,6 +8,11 @@ import {
 } from "@/lib/contest-defaults";
 import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
+import {
+  stampKickoffFreezesForContest,
+  summarizeKickoffFreezeStamp,
+  type KickoffFreezeStampSummary,
+} from "@/lib/reserves/stamp-kickoff-freezes";
 import { logServerEvent } from "@/lib/log";
 
 export class GradingError extends Error {
@@ -35,6 +40,7 @@ export type GradeContestResult = {
   graded: number;
   skipped: number;
   skips: GradeSkipDiagnostic[];
+  kickoffFreezes: KickoffFreezeStampSummary | null;
 };
 
 /**
@@ -47,6 +53,22 @@ export type GradeContestResult = {
 export async function gradeContest(
   contestId: string,
 ): Promise<GradeContestResult> {
+  // Kickoff-time freezes must exist before scoring, whether or not an owner
+  // ever opened the board. FINAL / ARCHIVED contests are report-only.
+  const freezeStamp = await stampKickoffFreezesForContest(contestId);
+  const kickoffFreezes = freezeStamp
+    ? summarizeKickoffFreezeStamp(freezeStamp)
+    : null;
+  if (kickoffFreezes && kickoffFreezes.candidates > 0) {
+    logServerEvent(
+      kickoffFreezes.mode === "report_only"
+        ? "contest.kickoff_freezes_missing_report_only"
+        : "contest.kickoff_freezes_stamped",
+      kickoffFreezes,
+      kickoffFreezes.mode === "report_only" ? "warn" : "info",
+    );
+  }
+
   const contest = await prisma.rankIQContest.findUnique({
     where: { id: contestId },
     include: {
@@ -272,5 +294,6 @@ export async function gradeContest(
     graded,
     skipped: skips.length,
     skips,
+    kickoffFreezes,
   };
 }

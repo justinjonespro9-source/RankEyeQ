@@ -4,8 +4,10 @@ import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 import { captureContestPregameSnapshotsForWeek } from "@/lib/consensus-snapshot";
 import { isStalePregameSnapshot } from "@/lib/consensus-snapshot-rebuild";
 import { snapshotReservePredecessors } from "@/lib/reserves/effective-board";
-import { freezeUnavailableFromWeekStatus } from "@/lib/reserves/kickoff-freeze";
-import { loadResolvedStatusesForWeek } from "@/lib/eligibility/player-week-availability-store";
+import {
+  loadKickoffFreezeEvidence,
+  resolveKickoffFreezeFromEvidence,
+} from "@/lib/reserves/kickoff-freeze-evidence-store";
 import { logServerEvent } from "@/lib/log";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -14,9 +16,10 @@ import { Prisma } from "@/lib/generated/prisma/client";
  * Persist slot locks when kickoff/full-lock has occurred.
  * Does not grade and does not convert drafts into competitors.
  *
- * Kickoff freeze uses week-scoped resolvePlayerWeekStatus (PWA OUT/INACTIVE +
- * roster hard-unavailable + Admin override). Never RankableEntry.availability
- * alone. Already non-null freezes are immutable during normal locking.
+ * Full-board lock locks slots/ranks, but wasUnavailableAtKickoff is only
+ * stamped once that player's own week-scoped kickoff has passed, from
+ * kickoff-time evidence (resolveKickoffFreeze). Already non-null freezes are
+ * immutable during normal locking; FINAL / ARCHIVED contests are never stamped.
  */
 export async function applyKickoffLocksToSubmission(
   submissionId: string,
@@ -70,7 +73,11 @@ export async function applyKickoffLocksToSubmission(
 
   const scoringDepth = submission.contest.rankingDepth;
 
-  const weekStatuses = await loadResolvedStatusesForWeek({
+  const historicalContest =
+    submission.contest.status === "FINAL" ||
+    submission.contest.status === "ARCHIVED";
+
+  const freezeEvidence = await loadKickoffFreezeEvidence({
     weekId: week.id,
     seasonId: week.seasonId,
     rankableEntryIds: submission.picks.map((pick) => pick.rankableEntryId),
@@ -82,8 +89,8 @@ export async function applyKickoffLocksToSubmission(
       weekId: week.id,
       contestGame: gameByEntry.get(pick.rankableEntryId) ?? null,
     });
-    const lockNow =
-      timing.fullBoardLocked || kickoffHasPassed(kickoff, now);
+    const ownKickoffPassed = kickoffHasPassed(kickoff, now);
+    const lockNow = timing.fullBoardLocked || ownKickoffPassed;
 
     // Clear premature locks (e.g. stale RankableEntry / wrong-week kickoffs) on
     // every authenticated read. Preserve ordering; only unlock when the
@@ -114,8 +121,13 @@ export async function applyKickoffLocksToSubmission(
     const isReserve = pick.predictedRank > scoringDepth;
     const needsPredecessorSnapshot =
       isReserve && pick.reserveEligiblePredecessorIds == null;
-    // Immutable once stamped — only fill null during normal locking.
-    const needsUnavailableFreeze = pick.wasUnavailableAtKickoff == null;
+    // Immutable once stamped — only fill null, and only after this player's
+    // own kickoff (full-board lock alone must not freeze later games).
+    const needsUnavailableFreeze =
+      kickoff != null &&
+      ownKickoffPassed &&
+      !historicalContest &&
+      pick.wasUnavailableAtKickoff == null;
     if (pick.slotLocked && !needsPredecessorSnapshot && !needsUnavailableFreeze) {
       continue;
     }
@@ -128,8 +140,6 @@ export async function applyKickoffLocksToSubmission(
         })
       : undefined;
 
-    const weekStatus = weekStatuses.get(pick.rankableEntryId);
-
     await prisma.rankingPick.update({
       where: { id: pick.id },
       data: {
@@ -141,11 +151,13 @@ export async function applyKickoffLocksToSubmission(
             : (kickoff ?? now),
         lockedRank: pick.lockedRank ?? pick.predictedRank,
         committedAt: pick.committedAt ?? pick.lockedAt ?? now,
-        ...(needsUnavailableFreeze
+        ...(needsUnavailableFreeze && kickoff
           ? {
-              wasUnavailableAtKickoff: weekStatus
-                ? freezeUnavailableFromWeekStatus(weekStatus)
-                : false,
+              wasUnavailableAtKickoff: resolveKickoffFreezeFromEvidence(
+                freezeEvidence,
+                pick.rankableEntryId,
+                kickoff,
+              ).unavailable,
             }
           : {}),
         ...(predecessorIds

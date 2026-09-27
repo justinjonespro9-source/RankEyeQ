@@ -559,10 +559,20 @@ export async function syncWeekInjuriesFromNflCom(input: {
           injuryDescription: proposedInjury,
           practiceStatus: proposedPractice,
           observedAt: syncedAt,
+          now: syncedAt,
         });
         if (result.status === "updated_context_only") {
           updated += 1;
           match.changeKind = "skipped_override_context";
+        } else if (result.status === "skipped_kickoff") {
+          skippedKickoff += 1;
+          match.changeKind = "skipped_kickoff";
+          if (changeKind === "designation") designationChanges -= 1;
+          if (changeKind === "practice_context") practiceContextOnlyChanges -= 1;
+          if (changeKind === "injury_description") {
+            injuryDescriptionOnlyChanges -= 1;
+          }
+          continue;
         } else {
           unchanged += 1;
           // Roll back change bucket if nothing wrote.
