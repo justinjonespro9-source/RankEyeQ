@@ -19,6 +19,7 @@ function historyItem(
   return {
     contestId: "c1",
     weekLabel: `Week ${partial.weekNumber}`,
+    seasonYear: 2026,
     rankingDepth: partial.position === "WR" ? 15 : 10,
     normalizedScore: 80,
     rawScore: 100,
@@ -237,6 +238,19 @@ describe("RankEyeQ résumé aggregates", () => {
     ]);
     expect(groups.map((g) => g.weekNumber)).toEqual([3, 1]);
     expect(groups[0].items).toHaveLength(2);
+  });
+
+  it("keeps same-numbered weeks from different seasons apart", () => {
+    const groups = groupReceiptsByWeek([
+      historyItem({ submissionId: "a", weekNumber: 4, position: "WR", seasonYear: 2026 }),
+      historyItem({ submissionId: "b", weekNumber: 4, position: "WR", seasonYear: 2027 }),
+      historyItem({ submissionId: "c", weekNumber: 9, position: "QB", seasonYear: 2026 }),
+    ]);
+    expect(groups.map((g) => `${g.seasonYear}-${g.weekNumber}`)).toEqual([
+      "2027-4",
+      "2026-9",
+      "2026-4",
+    ]);
   });
 });
 

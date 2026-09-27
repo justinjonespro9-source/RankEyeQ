@@ -7,6 +7,7 @@ import {
   groupReceiptsByWeek,
   formatEyeqOrDash,
 } from "@/lib/profile-resume";
+import { profileBoardHref, weeklyReceiptsAnchorId } from "@/lib/board-routes";
 import type { ProfileContestHistoryItem } from "@/types/profile";
 import type { ReceiptPickLine } from "@/lib/profile-receipt";
 
@@ -18,6 +19,7 @@ export function WeeklyReceiptsSection({
   history: ProfileContestHistoryItem[];
 }) {
   const weeks = groupReceiptsByWeek(history);
+  const multiSeason = new Set(weeks.map((week) => week.seasonYear)).size > 1;
 
   if (weeks.length === 0) {
     return (
@@ -45,12 +47,12 @@ export function WeeklyReceiptsSection({
       <div className="mt-4 space-y-4">
         {weeks.map((week) => (
           <div
-            key={week.weekNumber}
-            id={`week-${week.weekNumber}`}
+            key={`${week.seasonYear}-${week.weekNumber}`}
+            id={weeklyReceiptsAnchorId(week.seasonYear, week.weekNumber)}
             className="scroll-mt-24 space-y-2"
           >
             <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">
-              {week.weekLabel}
+              {multiSeason ? `${week.seasonYear} · ${week.weekLabel}` : week.weekLabel}
             </h4>
             <ul className="space-y-2">
               {week.items.map((item) => (
@@ -77,7 +79,7 @@ function ReceiptCard({
 }) {
   const [open, setOpen] = useState(false);
   const eyeq = formatEyeqOrDash(item.normalizedScore);
-  const href = `/profile/${username}/rankings/${item.weekNumber}/${item.position.toLowerCase()}`;
+  const href = profileBoardHref(username, item.seasonYear, item.weekNumber, item.position);
 
   return (
     <li className="rounded-lg border border-border bg-surface overflow-hidden">

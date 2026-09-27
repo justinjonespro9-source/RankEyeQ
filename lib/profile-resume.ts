@@ -100,18 +100,26 @@ function buildRecentForm(history: ProfileContestHistoryItem[]) {
 }
 
 /** Group graded receipts by week number (desc) for expandable UI. */
+/** Receipts grouped by (season, week), newest first — week numbers repeat across seasons. */
 export function groupReceiptsByWeek(history: ProfileContestHistoryItem[]) {
   const map = new Map<
-    number,
-    { weekNumber: number; weekLabel: string; items: ProfileContestHistoryItem[] }
+    string,
+    {
+      seasonYear: number;
+      weekNumber: number;
+      weekLabel: string;
+      items: ProfileContestHistoryItem[];
+    }
   >();
 
   for (const item of history) {
-    const existing = map.get(item.weekNumber);
+    const key = `${item.seasonYear}-${item.weekNumber}`;
+    const existing = map.get(key);
     if (existing) {
       existing.items.push(item);
     } else {
-      map.set(item.weekNumber, {
+      map.set(key, {
+        seasonYear: item.seasonYear,
         weekNumber: item.weekNumber,
         weekLabel: item.weekLabel,
         items: [item],
@@ -119,7 +127,9 @@ export function groupReceiptsByWeek(history: ProfileContestHistoryItem[]) {
     }
   }
 
-  return [...map.values()].sort((a, b) => b.weekNumber - a.weekNumber);
+  return [...map.values()].sort(
+    (a, b) => b.seasonYear - a.seasonYear || b.weekNumber - a.weekNumber,
+  );
 }
 
 export function formatEyeqOrDash(value: number | null | undefined) {

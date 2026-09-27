@@ -10,8 +10,8 @@ function scopeLabel(scope: SeasonStandingCell["scope"]) {
   return scope === "OVERALL" ? "Overall" : scope;
 }
 
-function podiumPlace(rank: number | null): 1 | 2 | 3 | null {
-  return rank === 1 || rank === 2 || rank === 3 ? rank : null;
+function podiumPlace(placement: number | null): 1 | 2 | 3 | null {
+  return placement === 1 || placement === 2 || placement === 3 ? placement : null;
 }
 
 const PODIUM_RING: Record<1 | 2 | 3, string> = {
@@ -84,7 +84,7 @@ function OverallCell({
   cell: SeasonStandingCell;
   classRank: SeasonStandingData["classRank"];
 }) {
-  const place = podiumPlace(cell.rank);
+  const place = podiumPlace(cell.placement);
   return (
     <div
       className={`rounded-lg border px-4 py-4 ${
@@ -103,7 +103,10 @@ function OverallCell({
             <p className="font-display text-4xl font-semibold tabular-nums text-ink">
               #{cell.rank}
             </p>
-            <p className="self-end pb-1 text-sm text-muted">of {cell.fieldSize}</p>
+            <p className="self-end pb-1 text-sm text-muted">
+              of {cell.fieldSize}
+              {cell.tied ? " · tied" : ""}
+            </p>
           </div>
           <p className="mt-1 text-sm text-ink">
             <span className="font-display font-semibold tabular-nums">
@@ -133,7 +136,7 @@ function PositionCell({
   cell: SeasonStandingCell;
   strongest: boolean;
 }) {
-  const place = podiumPlace(cell.rank);
+  const place = podiumPlace(cell.placement);
   const ranked = cell.rank != null;
   return (
     <li
@@ -163,7 +166,10 @@ function PositionCell({
               #{cell.rank}
             </p>
           </div>
-          <p className="text-[11px] text-muted sm:text-xs">of {cell.fieldSize}</p>
+          <p className="text-[11px] text-muted sm:text-xs">
+            of {cell.fieldSize}
+            {cell.tied ? " · T" : ""}
+          </p>
           <p className="mt-1 font-display text-sm font-semibold tabular-nums text-ink">
             {cell.averageScore == null ? "—" : formatRankIqScore(cell.averageScore)}
           </p>

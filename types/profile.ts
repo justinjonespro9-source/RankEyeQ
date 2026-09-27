@@ -4,6 +4,7 @@ export type ProfileContestHistoryItem = {
   submissionId: string;
   contestId: string;
   weekLabel: string;
+  seasonYear: number;
   weekNumber: number;
   position: "QB" | "RB" | "WR" | "TE" | "DEF";
   rankingDepth: number;

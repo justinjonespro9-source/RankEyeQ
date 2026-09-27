@@ -131,11 +131,14 @@ import {
   buildSeasonStanding,
   classFilterForStanding,
   deriveTrophyCase,
+  isNumberOneCall,
   isWeeklyTopTen,
-  positionBoardHref,
-  weeklyReceiptsHref,
+  type SeasonChampionshipEligibility,
+  type TrophyCase,
 } from "@/lib/competitive-resume";
+import { profileBoardHref, weeklyReceiptsHref } from "@/lib/board-routes";
 import {
+  competitiveRanks,
   filterLeaderboardRows,
   getSeasonBoardSet,
   getSeasonLeaderboard,
@@ -355,27 +358,58 @@ describe("season standing", () => {
   });
 });
 
-describe("weekly championships", () => {
-  it("awards Weekly Overall Champion and Position Weekly Champion with receipt links", async () => {
+const titles = (tc: TrophyCase) => tc.trophies.map((t) => t.title);
+const derive = async (id: string, ...seasons: SeasonWorld[]) =>
+  deriveTrophyCase({
+    profileId: id,
+    username: id,
+    sets: await Promise.all(seasons.map(boardSet)),
+  });
+
+describe("weekly podium placements", () => {
+  it("awards Overall and Position Champion / Runner-Up / Third Place with receipts", async () => {
     const s = season({ weeks: [3] });
     const me = profile("me");
     const rivals = field("r", 9);
-    fillWeek(s, 3, "WR", [me, ...rivals], 95); // #1 WR
-    fillWeek(s, 3, "QB", [...rivals.slice(0, 1), me, ...rivals.slice(1)], 70); // #2 QB
-    const tc = deriveTrophyCase({ profileId: me.id, username: "me", sets: [await boardSet(s)] });
+    fillWeek(s, 3, "WR", [me, ...rivals], 95); // WR #1
+    fillWeek(s, 3, "QB", [rivals[0], me, ...rivals.slice(1)], 70); // QB #2
+    fillWeek(s, 3, "TE", [rivals[0], rivals[1], me, ...rivals.slice(2)], 60); // TE #3
+    fillWeek(s, 3, "RB", [...rivals.slice(0, 3), me, ...rivals.slice(3)], 60); // RB #4
+    const tc = await derive("me", s);
 
-    const overall = tc.trophies.find((t) => t.kind === "WEEKLY_OVERALL_CHAMPION");
-    expect(overall).toMatchObject({
-      title: "Week 3 Overall Champion",
-      href: weeklyReceiptsHref("me", 3),
-    });
-    expect(overall?.href).toBe("/profile/me?tab=rankiq#week-3");
+    // Overall: me avg 69.75 / best 95 edges r01 (avg 69.75 / best 93) for #2.
+    expect(titles(tc)).toEqual([
+      "Week 3 WR Champion",
+      "Week 3 Overall Runner-Up",
+      "Week 3 QB Runner-Up",
+      "Week 3 TE Third Place",
+    ]);
+    const wr = tc.trophies[0];
+    expect(wr).toMatchObject({ place: 1, tied: false, subtitle: "2026 season" });
+    expect(wr.href).toBe(profileBoardHref("me", 2026, 3, "WR"));
+    expect(wr.href).toBe("/profile/me/rankings/3/wr?season=2026");
+    expect(tc.counts).toMatchObject({ weeklyPositionWins: 1, weeklyOverallWins: 0, weeklyPodiums: 4 });
 
-    const positional = tc.trophies.filter((t) => t.kind === "WEEKLY_POSITION_CHAMPION");
-    expect(positional.map((t) => t.title)).toEqual(["Week 3 WR Champion"]);
-    expect(positional[0].href).toBe(positionBoardHref("me", 3, "WR"));
-    expect(positional[0].href).toBe("/profile/me/rankings/3/wr");
-    expect(tc.counts).toMatchObject({ weeklyOverallWins: 1, weeklyPositionWins: 1 });
+    const leader = await derive("r00", s);
+    expect(titles(leader)).toContain("Week 3 Overall Champion");
+    expect(leader.trophies.find((t) => t.kind === "WEEKLY_OVERALL_PLACEMENT")?.href).toBe(
+      "/profile/r00?tab=rankiq#season-2026-week-3",
+    );
+  });
+
+  it("awards Overall Runner-Up and Third Place on the weekly overall board", async () => {
+    const s = season({ weeks: [2], positions: ["QB"] });
+    const [a, b, c, d] = field("p", 4);
+    fillWeek(s, 2, "QB", [a, b, c, d], 90);
+    expect(titles(await derive(b.id, s))).toEqual([
+      "Week 2 Overall Runner-Up",
+      "Week 2 QB Runner-Up",
+    ]);
+    expect(titles(await derive(c.id, s))).toEqual([
+      "Week 2 Overall Third Place",
+      "Week 2 QB Third Place",
+    ]);
+    expect(titles(await derive(d.id, s))).toEqual([]);
   });
 
   it("does not award weekly overall until every contest that week is final", async () => {
@@ -387,14 +421,98 @@ describe("weekly championships", () => {
     const me = profile("me");
     fillWeek(s, 4, "QB", [me, ...field("r", 4)], 90);
     fillWeek(s, 4, "RB", [me, ...field("r", 4)], 90); // not loaded: contest not final
-    const tc = deriveTrophyCase({ profileId: me.id, username: "me", sets: [await boardSet(s)] });
-    expect(tc.trophies.map((t) => t.kind)).toEqual(["WEEKLY_POSITION_CHAMPION"]);
+    const tc = await derive("me", s);
+    expect(tc.trophies.map((t) => t.kind)).toEqual(["WEEKLY_POSITION_PLACEMENT"]);
     expect(tc.topTenFinishes.every((f) => f.scope !== "OVERALL")).toBe(true);
   });
 });
 
+describe("competitive ties (display name never awards hardware)", () => {
+  it("shares #1 when performance is identical; display order stays deterministic", async () => {
+    const s = season({ weeks: [1], positions: ["QB"] });
+    const alpha = profile("alpha");
+    const zulu = profile("zulu");
+    score(s, 1, "QB", zulu, 90);
+    score(s, 1, "QB", alpha, 90);
+    fillWeek(s, 1, "QB", field("p", 8), 80);
+    const set = await boardSet(s);
+
+    const board = set.weeks[0].overall;
+    expect(board.slice(0, 2).map((r) => [r.username, r.rank])).toEqual([
+      ["alpha", 1],
+      ["zulu", 2],
+    ]);
+    const ranks = competitiveRanks(board);
+    expect(ranks.get("alpha")).toBe(1);
+    expect(ranks.get("zulu")).toBe(1);
+    expect(ranks.get("p00")).toBe(3);
+
+    for (const id of ["alpha", "zulu"]) {
+      const tc = deriveTrophyCase({ profileId: id, username: id, sets: [set] });
+      expect(titles(tc)).toEqual(["Week 1 Overall Champion", "Week 1 QB Champion"]);
+      expect(tc.trophies.every((t) => t.tied && t.subtitle === "2026 season · Tied")).toBe(
+        true,
+      );
+    }
+    // Competition ranking: after a shared #1 the next placement is #3 — no Runner-Up.
+    const next = deriveTrophyCase({ profileId: "p00", username: "p00", sets: [set] });
+    expect(titles(next)).toEqual(["Week 1 Overall Third Place", "Week 1 QB Third Place"]);
+    expect(next.trophies.every((t) => !t.tied)).toBe(true);
+  });
+
+  it("uses best score (performance) before treating equal averages as tied", async () => {
+    const s = season({ weeks: [1], positions: ["QB", "RB"] });
+    const steady = profile("aaa_steady");
+    const spiky = profile("zzz_spiky");
+    score(s, 1, "QB", steady, 80);
+    score(s, 1, "RB", steady, 80);
+    score(s, 1, "QB", spiky, 90);
+    score(s, 1, "RB", spiky, 70);
+    const set = await boardSet(s);
+    expect(set.weeks[0].overall.map((r) => r.username)).toEqual(["zzz_spiky", "aaa_steady"]);
+    expect(titles(deriveTrophyCase({ profileId: "zzz_spiky", username: "x", sets: [set] })))
+      .toContain("Week 1 Overall Champion");
+    expect(titles(deriveTrophyCase({ profileId: "aaa_steady", username: "x", sets: [set] })))
+      .toContain("Week 1 Overall Runner-Up");
+  });
+
+  it("shares #2 and #3 placements on exact ties", async () => {
+    const s = season({ weeks: [5], positions: ["WR"] });
+    score(s, 5, "WR", profile("leader"), 99);
+    score(s, 5, "WR", profile("bravo"), 90);
+    score(s, 5, "WR", profile("alpha"), 90);
+    score(s, 5, "WR", profile("fourth"), 80);
+    score(s, 5, "WR", profile("yankee"), 70);
+    score(s, 5, "WR", profile("xray"), 70);
+    score(s, 5, "WR", profile("last"), 60);
+    const set = await boardSet(s);
+    const wr = (id: string) =>
+      deriveTrophyCase({ profileId: id, username: id, sets: [set] }).trophies.find(
+        (t) => t.position === "WR",
+      );
+    expect(wr("alpha")).toMatchObject({ title: "Week 5 WR Runner-Up", tied: true });
+    expect(wr("bravo")).toMatchObject({ title: "Week 5 WR Runner-Up", tied: true });
+    // 1, 2, 2 → the next profile is placement 4: no Third Place is awarded.
+    expect(wr("fourth")).toBeUndefined();
+
+    const s2 = season({ id: "s2", weeks: [6], positions: ["WR"] });
+    score(s2, 6, "WR", profile("one"), 99);
+    score(s2, 6, "WR", profile("two"), 95);
+    score(s2, 6, "WR", profile("yankee"), 70);
+    score(s2, 6, "WR", profile("xray"), 70);
+    score(s2, 6, "WR", profile("five"), 60);
+    const set2 = await boardSet(s2);
+    for (const id of ["xray", "yankee"]) {
+      const trophy = deriveTrophyCase({ profileId: id, username: id, sets: [set2] }).trophies.find(
+        (t) => t.position === "WR",
+      );
+      expect(trophy).toMatchObject({ title: "Week 6 WR Third Place", place: 3, tied: true });
+    }
+  });
+});
+
 describe("Top 10%", () => {
-  it("uses rank ≤ max(1, ceil(N × 0.10)) on the applicable board", () => {
+  it("uses placement ≤ max(1, ceil(N × 0.10)) on the applicable board", () => {
     expect(isWeeklyTopTen(2, 20)).toBe(true);
     expect(isWeeklyTopTen(3, 20)).toBe(false);
     expect(isWeeklyTopTen(3, 21)).toBe(true);
@@ -404,53 +522,51 @@ describe("Top 10%", () => {
 
   it("applies the boundary to real weekly boards", async () => {
     const s = season({ weeks: [1], positions: ["QB"] });
-    const rankers = field("p", 20);
-    fillWeek(s, 1, "QB", rankers, 99);
+    fillWeek(s, 1, "QB", field("p", 20), 99);
     const set = await boardSet(s);
     const top10 = (id: string) =>
       deriveTrophyCase({ profileId: id, username: id, sets: [set] }).topTenFinishes.map(
         (f) => f.scope,
       );
-    expect(top10("p01")).toEqual(["OVERALL", "QB"]); // rank 2 of 20
-    expect(top10("p02")).toEqual([]); // rank 3 of 20
+    expect(top10("p01")).toEqual(["OVERALL", "QB"]); // placement 2 of 20
+    expect(top10("p02")).toEqual([]); // placement 3 of 20
   });
 
-  it("breaks ties with the canonical order (best score, then display name)", async () => {
+  it("includes every profile tied at a qualifying placement across the cutoff", async () => {
+    // N = 20 → cutoff 2. zulu and alpha share placement 2 → both qualify (3 total).
     const s = season({ weeks: [1], positions: ["QB"] });
-    const rankers = field("p", 18);
-    const alpha = profile("alpha");
-    const zulu = profile("zulu");
     score(s, 1, "QB", profile("leader"), 99);
-    score(s, 1, "QB", zulu, 90);
-    score(s, 1, "QB", alpha, 90); // tied average with zulu
-    fillWeek(s, 1, "QB", rankers, 80);
+    score(s, 1, "QB", profile("zulu"), 90);
+    score(s, 1, "QB", profile("alpha"), 90);
+    fillWeek(s, 1, "QB", field("q", 17), 80);
     const set = await boardSet(s);
-    expect(set.weeks[0].overall.length).toBe(21); // cutoff = ceil(2.1) = 3
-    const tcAlpha = deriveTrophyCase({ profileId: "alpha", username: "alpha", sets: [set] });
-    const tcZulu = deriveTrophyCase({ profileId: "zulu", username: "zulu", sets: [set] });
-    expect(tcAlpha.topTenFinishes[0]).toMatchObject({ rank: 2 });
-    expect(tcZulu.topTenFinishes[0]).toMatchObject({ rank: 3 });
+    expect(set.weeks[0].overall).toHaveLength(20);
+    for (const id of ["alpha", "zulu"]) {
+      const tc = deriveTrophyCase({ profileId: id, username: id, sets: [set] });
+      expect(tc.topTenFinishes).toHaveLength(2);
+      expect(tc.topTenFinishes[0]).toMatchObject({ placement: 2, tied: true, fieldSize: 20 });
+    }
+    const q00 = deriveTrophyCase({ profileId: "q00", username: "q00", sets: [set] });
+    expect(q00.topTenFinishes).toEqual([]); // placement 4
 
+    // A tie that starts after the cutoff does not qualify.
     const s2 = season({ id: "s2", weeks: [1], positions: ["QB"] });
-    score(s2, 1, "QB", profile("leader"), 99);
-    score(s2, 1, "QB", zulu, 90);
-    score(s2, 1, "QB", alpha, 90);
-    fillWeek(s2, 1, "QB", field("q", 17), 80); // N = 20 → cutoff 2
+    score(s2, 1, "QB", profile("one"), 99);
+    score(s2, 1, "QB", profile("two"), 95);
+    score(s2, 1, "QB", profile("alpha"), 90);
+    score(s2, 1, "QB", profile("zulu"), 90);
+    fillWeek(s2, 1, "QB", field("q", 16), 80);
     const set2 = await boardSet(s2);
-    expect(
-      deriveTrophyCase({ profileId: "alpha", username: "alpha", sets: [set2] }).topTenFinishes,
-    ).toHaveLength(2);
-    expect(
-      deriveTrophyCase({ profileId: "zulu", username: "zulu", sets: [set2] }).topTenFinishes,
-    ).toHaveLength(0);
+    for (const id of ["alpha", "zulu"]) {
+      expect(
+        deriveTrophyCase({ profileId: id, username: id, sets: [set2] }).topTenFinishes,
+      ).toEqual([]);
+    }
   });
 });
 
 describe("Hot Streak", () => {
-  function streakWorld(
-    placements: Array<number | null>,
-    opts: { active?: boolean } = {},
-  ) {
+  function streakWorld(placements: Array<number | null>, opts: { active?: boolean } = {}) {
     const weeks = placements.map((_, i) => i + 1);
     const s = season({ weeks, positions: ["QB"], active: opts.active ?? true });
     const me = profile("me");
@@ -463,36 +579,31 @@ describe("Hot Streak", () => {
     return s;
   }
 
-  it("awards a streak for 3 consecutive Top-10% overall weeks", async () => {
-    const s = streakWorld([1, 2, 2]);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
-    expect(tc.hotStreak.current).toMatchObject({ fromWeek: 1, toWeek: 3, length: 3 });
-    expect(tc.hotStreak.longest).toMatchObject({ length: 3 });
-    const trophy = tc.trophies.find((t) => t.kind === "HOT_STREAK");
-    expect(trophy).toMatchObject({
-      title: "Hot Streak · 3 weeks",
-      subtitle: "Top 10% overall, Weeks 1–3",
-      href: "/profile/me?tab=rankiq#week-3",
+  it("counts 3 consecutive Top-10% overall weeks, linking the last week", async () => {
+    const tc = await derive("me", streakWorld([1, 2, 2]));
+    expect(tc.hotStreak.current).toMatchObject({
+      fromWeek: 1,
+      toWeek: 3,
+      length: 3,
+      href: "/profile/me?tab=rankiq#season-2026-week-3",
     });
+    expect(tc.hotStreak.longest).toMatchObject({ length: 3 });
   });
 
   it("breaks on a non-Top-10% week and keeps the longest", async () => {
-    const s = streakWorld([1, 1, 1, 1, 5, 2, 1]);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = await derive("me", streakWorld([1, 1, 1, 1, 5, 2, 1]));
     expect(tc.hotStreak.longest).toMatchObject({ fromWeek: 1, toWeek: 4, length: 4 });
     expect(tc.hotStreak.current).toBeNull(); // weeks 6–7 is only 2 long
   });
 
   it("breaks on a missed / non-participating week", async () => {
-    const s = streakWorld([1, 1, null, 1, 1]);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = await derive("me", streakWorld([1, 1, null, 1, 1]));
     expect(tc.hotStreak.longest).toBeNull();
-    expect(tc.trophies.some((t) => t.kind === "HOT_STREAK")).toBe(false);
+    expect(tc.hotStreak.current).toBeNull();
   });
 
   it("is not earned by climbing the leaderboard without Top-10% weeks", async () => {
-    const s = streakWorld([15, 10, 6, 3]);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = await derive("me", streakWorld([15, 10, 6, 3]));
     expect(tc.hotStreak.longest).toBeNull();
   });
 
@@ -504,7 +615,7 @@ describe("Hot Streak", () => {
     });
     const me = profile("me");
     for (const week of [1, 2, 3]) fillWeek(s, week, "QB", [me, ...field("r", 9)], 90);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = await derive("me", s);
     expect(tc.hotStreak.longest).toBeNull();
     expect(tc.counts).toMatchObject({ weeksPlayed: 2, weeksEligible: 2 });
   });
@@ -527,33 +638,72 @@ describe("season championships", () => {
     return s;
   }
 
-  it("never awards season titles during an active season", async () => {
+  const anyone: SeasonChampionshipEligibility = { id: "test-any", isEligible: () => true };
+
+  it("suppresses season titles without an approved participation rule", async () => {
+    const s = seasonOf({ active: false });
+    const set = await boardSet(s);
+    for (const id of ["me", "r00"]) {
+      const tc = deriveTrophyCase({ profileId: id, username: id, sets: [set] });
+      expect(tc.seasonChampionshipsEnabled).toBe(false);
+      expect(tc.trophies.filter((t) => t.tier === "season")).toEqual([]);
+      expect(tc.counts.seasonTitles).toBe(0);
+    }
+    // Weekly hardware is unaffected by the gate.
+    const me = deriveTrophyCase({ profileId: "me", username: "me", sets: [set] });
+    expect(titles(me)).toContain("Week 2 QB Champion");
+  });
+
+  it("never awards season titles during an active season, even with a rule", async () => {
     const s = seasonOf({ active: true });
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = deriveTrophyCase({
+      profileId: "me",
+      username: "me",
+      sets: [await boardSet(s)],
+      seasonChampionshipEligibility: anyone,
+    });
     expect(tc.trophies.filter((t) => t.tier === "season")).toEqual([]);
-    expect(tc.counts.seasonTitles).toBe(0);
   });
 
   it("does not award before every contest is final, even if inactive", async () => {
     const s = seasonOf({ active: false, lastStatus: "GRADING" });
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const tc = deriveTrophyCase({
+      profileId: "me",
+      username: "me",
+      sets: [await boardSet(s)],
+      seasonChampionshipEligibility: anyone,
+    });
     expect(tc.trophies.filter((t) => t.tier === "season")).toEqual([]);
   });
 
-  it("awards Season Overall + Position Champion once finalized", async () => {
+  it("with an approved rule, awards Season Overall + Position Champion once finalized", async () => {
     const s = seasonOf({ active: false });
     const set = await boardSet(s);
-    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [set] });
-    const seasonTitles = tc.trophies.filter((t) => t.tier === "season");
     // me: QB 90, WR 86 → avg 88; r00: QB 89, WR 90 → avg 89.5 (overall #1).
     expect(set.seasonOverall[0].universalProfileId).toBe("r00");
-    expect(seasonTitles.map((t) => t.title)).toEqual(["2026 Season QB Champion"]);
-    expect(seasonTitles.every((t) => t.href === null)).toBe(true);
+    const seasonTitles = (id: string, rule = anyone) =>
+      deriveTrophyCase({
+        profileId: id,
+        username: id,
+        sets: [set],
+        seasonChampionshipEligibility: rule,
+      })
+        .trophies.filter((t) => t.tier === "season")
+        .map((t) => [t.title, t.href]);
+    expect(seasonTitles("me")).toEqual([["2026 Season QB Champion", null]]);
+    expect(seasonTitles("r00")).toEqual([
+      ["2026 Season Overall Champion", null],
+      ["2026 Season WR Champion", null],
+    ]);
 
-    const rival = deriveTrophyCase({ profileId: "r00", username: "r00", sets: [set] });
-    expect(rival.trophies.filter((t) => t.tier === "season").map((t) => t.title)).toEqual([
+    // The rule filters the field before placement is computed.
+    const excludeTop: SeasonChampionshipEligibility = {
+      id: "test-exclude",
+      isEligible: ({ row }) => !["r00", "r01"].includes(row.universalProfileId),
+    };
+    expect(seasonTitles("me", excludeTop).map(([t]) => t)).toEqual([
       "2026 Season Overall Champion",
-      "2026 Season WR Champion",
+      "2026 Season QB Champion",
     ]);
   });
 });
@@ -564,48 +714,64 @@ describe("profile classes", () => {
     ["CREATOR", null, "among Creators"],
     ["BENCHMARK", "ANALYST", "among Experts"],
     ["AI", null, "among AI"],
-  ] as const)(
-    "%s profiles earn trophies on the full field",
-    async (profileType, sourceKind, label) => {
-      const s = season({ weeks: [1], positions: ["TE"] });
-      const me = profile("me", profileType, sourceKind);
-      fillWeek(s, 1, "TE", [me, ...field("r", 9)], 90);
-      const set = await boardSet(s);
-      const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [set] });
-      expect(tc.trophies.map((t) => t.kind)).toEqual([
-        "WEEKLY_OVERALL_CHAMPION",
-        "WEEKLY_POSITION_CHAMPION",
-      ]);
-      const standing = buildSeasonStanding({
-        profileId: "me",
-        set,
-        classFilter: classFilterForStanding({
-          profileType,
-          isPublisherConsensus: false,
-        }),
-      });
-      expect(standing.cells[0].rank).toBe(1);
-      expect(standing.classRank).toMatchObject({ label, rank: 1 });
-    },
-  );
+  ] as const)("%s profiles earn hardware on the full field", async (profileType, sourceKind, label) => {
+    const s = season({ weeks: [1], positions: ["TE"] });
+    const me = profile("me", profileType, sourceKind);
+    fillWeek(s, 1, "TE", [me, ...field("r", 9)], 90);
+    const set = await boardSet(s);
+    const tc = deriveTrophyCase({ profileId: "me", username: "me", sets: [set] });
+    expect(titles(tc)).toEqual(["Week 1 Overall Champion", "Week 1 TE Champion"]);
+    const standing = buildSeasonStanding({
+      profileId: "me",
+      set,
+      classFilter: classFilterForStanding({ profileType, isPublisherConsensus: false }),
+    });
+    expect(standing.cells[0].rank).toBe(1);
+    expect(standing.classRank).toMatchObject({ label, rank: 1 });
+  });
 
   it("keeps legacy publisher shells off boards and out of the Trophy Case", async () => {
     const s = season({ weeks: [1], positions: ["QB"] });
-    const legacy = profile("legacy", "BENCHMARK", "PUBLISHER");
-    score(s, 1, "QB", legacy, 99);
+    score(s, 1, "QB", profile("legacy", "BENCHMARK", "PUBLISHER"), 99);
     fillWeek(s, 1, "QB", field("r", 5), 80);
-    const tc = deriveTrophyCase({
-      profileId: "legacy",
-      username: "legacy",
-      sets: [await boardSet(s)],
-    });
+    const tc = await derive("legacy", s);
     expect(tc.trophies).toEqual([]);
     expect(tc.counts.weeksPlayed).toBe(0);
   });
 });
 
+describe("season-aware receipts", () => {
+  it("a 2026 achievement never resolves to the same-numbered 2027 week", async () => {
+    const s26 = season({ id: "s2026", year: 2026, active: false, weeks: [4], positions: ["WR"] });
+    const s27 = season({ id: "s2027", year: 2027, active: true, weeks: [4], positions: ["WR"] });
+    const me = profile("me");
+    fillWeek(s26, 4, "WR", [me, ...field("r", 9)], 90);
+    fillWeek(s27, 4, "WR", [...field("r", 9), me], 90);
+    const tc = await derive("me", s26, s27);
+
+    const wr = tc.trophies.find((t) => t.position === "WR")!;
+    expect(wr).toMatchObject({ title: "Week 4 WR Champion", seasonYear: 2026, weekNumber: 4 });
+    expect(wr.subtitle).toBe("2026 season");
+    expect(wr.href).toBe("/profile/me/rankings/4/wr?season=2026");
+    const overall = tc.trophies.find((t) => t.kind === "WEEKLY_OVERALL_PLACEMENT")!;
+    expect(overall.href).toBe("/profile/me?tab=rankiq#season-2026-week-4");
+    expect(tc.trophies.every((t) => !t.href?.includes("2027"))).toBe(true);
+    expect(weeklyReceiptsHref("me", 2027, 4)).not.toBe(overall.href);
+  });
+});
+
+describe("#1 Calls", () => {
+  it("requires predicted #1 AND actual #1", () => {
+    expect(isNumberOneCall({ predictedRank: 1, actualRank: 1 })).toBe(true);
+    expect(isNumberOneCall({ predictedRank: 4, actualRank: 1 })).toBe(false);
+    expect(isNumberOneCall({ predictedRank: 1, actualRank: 2 })).toBe(false);
+    expect(isNumberOneCall({ predictedRank: 1, actualRank: null })).toBe(false);
+    expect(isNumberOneCall({ predictedRank: 2, actualRank: 2 })).toBe(false);
+  });
+});
+
 describe("integrity", () => {
-  it("derives without mutating graded inputs or calling scoring/writes", async () => {
+  it("derives without mutating graded inputs or calling writes", async () => {
     const s = season({ weeks: [1, 2, 3], positions: ["QB", "RB"] });
     const me = profile("me");
     for (const week of [1, 2, 3]) {
@@ -628,37 +794,29 @@ describe("integrity", () => {
     );
   });
 
-  it("keeps historical trophies stable when a later week is added", async () => {
+  it("keeps historical hardware stable when a later week is added", async () => {
     const s = season({ weeks: [1, 2, 3], positions: ["QB"] });
     const me = profile("me");
     const rivals = field("r", 9);
     for (const week of [1, 2, 3]) fillWeek(s, week, "QB", [me, ...rivals], 90);
-    const first = deriveTrophyCase({ profileId: "me", username: "me", sets: [await boardSet(s)] });
+    const first = await derive("me", s);
 
     s.contests.push({ weekNumber: 4, position: "QB", status: "GRADING" });
     fillWeek(s, 4, "QB", [...rivals, me], 99);
-    const inProgress = deriveTrophyCase({
-      profileId: "me",
-      username: "me",
-      sets: [await boardSet(s)],
-    });
+    const inProgress = await derive("me", s);
     expect(inProgress.trophies).toEqual(first.trophies);
     expect(inProgress.topTenFinishes).toEqual(first.topTenFinishes);
 
     s.contests[s.contests.length - 1].status = "FINAL";
-    const finalized = deriveTrophyCase({
-      profileId: "me",
-      username: "me",
-      sets: [await boardSet(s)],
-    });
-    const weekly = (tc: typeof first) =>
-      tc.trophies.filter((t) => t.tier === "weekly").map((t) => t.id);
-    expect(weekly(finalized)).toEqual(weekly(first));
+    const finalized = await derive("me", s);
+    const early = (tc: TrophyCase) =>
+      tc.trophies.filter((t) => (t.weekNumber ?? 0) <= 3).map((t) => t.id);
+    expect(early(finalized)).toEqual(early(first));
     expect(finalized.hotStreak.longest).toMatchObject({ fromWeek: 1, toWeek: 3 });
     expect(finalized.hotStreak.current).toBeNull();
   });
 
-  it("resets streaks per season and labels multi-season trophies", async () => {
+  it("resets streaks per season", async () => {
     const s25 = season({ id: "s2025", year: 2025, active: false, weeks: [17, 18], positions: ["QB"] });
     const s26 = season({ id: "s2026", year: 2026, active: true, weeks: [1], positions: ["QB"] });
     const me = profile("me");
@@ -666,23 +824,43 @@ describe("integrity", () => {
     fillWeek(s25, 17, "QB", [me, ...rivals], 90);
     fillWeek(s25, 18, "QB", [me, ...rivals], 90);
     fillWeek(s26, 1, "QB", [me, ...rivals], 90);
-    const tc = deriveTrophyCase({
-      profileId: "me",
-      username: "me",
-      sets: [await boardSet(s25), await boardSet(s26)],
-    });
+    const tc = await derive("me", s25, s26);
     expect(tc.hotStreak.longest).toBeNull();
     expect(tc.trophies.find((t) => t.id === "weekly-overall-2025-17")?.subtitle).toBe(
       "2025 season",
     );
-    expect(tc.trophies.map((t) => t.kind)).toContain("SEASON_OVERALL_CHAMPION");
   });
 
-  it("threads awarded honors without deriving Founding Ranker", async () => {
+  it("does not derive Founding Ranker", async () => {
     const s = season({ weeks: [1], positions: ["QB"] });
     fillWeek(s, 1, "QB", field("r", 3), 80);
+    const tc = await derive("r00", s);
+    expect(tc.trophies.some((t) => t.kind === "FOUNDING_RANKER")).toBe(false);
+  });
+});
+
+describe("#1 Calls wiring", () => {
+  it("profile stats count #1 Calls only via isNumberOneCall (not the #1 Hits rule)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/profile-stats.ts", "utf8");
+    expect(source).toMatch(/if \(isNumberOneCall\(pick\)\) numberOneCalls \+= 1;/);
+    expect(source.match(/numberOneCalls \+= 1/g)).toHaveLength(1);
+  });
+
+  it("season standing medals follow competitive placement, ranks stay canonical", async () => {
+    const s = season({ weeks: [1], positions: ["QB"] });
+    score(s, 1, "QB", profile("zulu"), 90);
+    score(s, 1, "QB", profile("alpha"), 90);
+    score(s, 1, "QB", profile("third"), 80);
     const set = await boardSet(s);
-    const derived = deriveTrophyCase({ profileId: "r00", username: "r00", sets: [set] });
-    expect(derived.trophies.some((t) => t.kind === "FOUNDING_RANKER")).toBe(false);
+    const cell = (id: string) =>
+      buildSeasonStanding({
+        profileId: id,
+        set,
+        classFilter: classFilterForStanding({ profileType: "HUMAN" }),
+      }).cells[0];
+    expect(cell("alpha")).toMatchObject({ rank: 1, placement: 1, tied: true });
+    expect(cell("zulu")).toMatchObject({ rank: 2, placement: 1, tied: true });
+    expect(cell("third")).toMatchObject({ rank: 3, placement: 3, tied: false });
   });
 });

@@ -24,6 +24,7 @@ import {
 } from "@/lib/expert-identity";
 import { getRankIQProfileView } from "@/lib/profile-stats";
 import { getCompetitiveResume } from "@/lib/competitive-resume-data";
+import { profileBoardHref } from "@/lib/board-routes";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
 import { getFollowCounts, isFollowing } from "@/lib/social/follows";
@@ -256,7 +257,7 @@ export default async function ProfilePage(
       weekLabel: item.weekLabel,
       position: item.position,
       normalizedScore: item.normalizedScore,
-      href: `/profile/${view.username}/rankings/${item.weekNumber}/${item.position.toLowerCase()}`,
+      href: profileBoardHref(view.username, item.seasonYear, item.weekNumber, item.position),
     })),
   });
 

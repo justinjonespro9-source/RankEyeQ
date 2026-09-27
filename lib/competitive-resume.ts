@@ -4,10 +4,16 @@
  * Everything here is derived from canonical leaderboard rows
  * (`getSeasonBoardSet` → accumulate/toRows) — never from owner-editable fields.
  * Pure functions only; loaders live in `competitive-resume-data.ts`.
+ *
+ * Display rank (`row.rank`) keeps the canonical display-name tiebreak.
+ * Achievements use competitive placement (`competitiveRanks`): profiles tied on
+ * every performance criterion share a placement, so identity never decides hardware.
  */
 import { qualifiesForTopPercentile } from "@/lib/badges/percentile";
 import { PERCENTILE_CUTOFFS } from "@/lib/badges/thresholds";
+import { profileBoardHref, weeklyReceiptsHref } from "@/lib/board-routes";
 import {
+  competitiveRanks,
   filterLeaderboardRows,
   type LeaderboardFilter,
   type LeaderboardRow,
@@ -25,7 +31,11 @@ export type StandingScope = "OVERALL" | ContestPosition;
 
 export type SeasonStandingCell = {
   scope: StandingScope;
+  /** Canonical display rank (identical to the season leaderboard). */
   rank: number | null;
+  /** Competitive placement — drives medal treatment; ties share it. */
+  placement: number | null;
+  tied: boolean;
   fieldSize: number;
   averageScore: number | null;
   contestsPlayed: number;
@@ -42,24 +52,29 @@ export type SeasonStanding = {
   strongestPosition: SeasonStandingCell | null;
 };
 
+export type Placement = 1 | 2 | 3;
+
 export type TrophyKind =
   | "SEASON_OVERALL_CHAMPION"
   | "SEASON_POSITION_CHAMPION"
-  | "WEEKLY_OVERALL_CHAMPION"
-  | "WEEKLY_POSITION_CHAMPION"
-  | "HOT_STREAK"
+  | "WEEKLY_OVERALL_PLACEMENT"
+  | "WEEKLY_POSITION_PLACEMENT"
   /** Reserved: manually / rule-awarded legacy honors (e.g. Founding Ranker · 2026). */
   | "FOUNDING_RANKER";
 
 export type Trophy = {
   id: string;
   kind: TrophyKind;
-  tier: "season" | "weekly" | "streak" | "legacy";
+  tier: "season" | "weekly" | "legacy";
   title: string;
   subtitle: string | null;
   seasonYear: number;
   weekNumber: number | null;
   position: ContestPosition | null;
+  /** Competitive placement (1 = Champion, 2 = Runner-Up, 3 = Third Place). */
+  place: Placement | null;
+  /** Placement shared with at least one performance-identical profile. */
+  tied: boolean;
   href: string | null;
   /** "derived" = reproducible from graded results; "awarded" = future persisted honors. */
   source: "derived" | "awarded";
@@ -69,7 +84,9 @@ export type TopTenFinish = {
   seasonYear: number;
   weekNumber: number;
   scope: StandingScope;
-  rank: number;
+  /** Competitive placement on that weekly board. */
+  placement: number;
+  tied: boolean;
   fieldSize: number;
   href: string;
 };
@@ -79,6 +96,7 @@ export type StreakRange = {
   fromWeek: number;
   toWeek: number;
   length: number;
+  href: string;
 };
 
 export type HotStreakSummary = {
@@ -87,14 +105,33 @@ export type HotStreakSummary = {
   longest: StreakRange | null;
 };
 
+/**
+ * Participation rule a season-board leader must satisfy to earn a permanent
+ * Season Champion trophy. No rule is approved yet, so season titles are gated off.
+ */
+export type SeasonChampionshipEligibility = {
+  id: string;
+  isEligible: (input: {
+    row: LeaderboardRow;
+    scope: StandingScope;
+    set: SeasonBoardSet;
+  }) => boolean;
+};
+
+export const APPROVED_SEASON_CHAMPIONSHIP_ELIGIBILITY: SeasonChampionshipEligibility | null =
+  null;
+
 export type TrophyCase = {
   trophies: Trophy[];
   topTenFinishes: TopTenFinish[];
   hotStreak: HotStreakSummary;
+  /** False until a season-championship participation rule is approved. */
+  seasonChampionshipsEnabled: boolean;
   counts: {
     seasonTitles: number;
     weeklyOverallWins: number;
     weeklyPositionWins: number;
+    weeklyPodiums: number;
     topTenFinishes: number;
     /** Finalized weeks with a graded board on the overall weekly leaderboard. */
     weeksPlayed: number;
@@ -102,6 +139,20 @@ export type TrophyCase = {
     weeksEligible: number;
   };
 };
+
+export const PLACEMENT_LABEL: Record<Placement, string> = {
+  1: "Champion",
+  2: "Runner-Up",
+  3: "Third Place",
+};
+
+/** Résumé "#1 Call": ranked the player #1 and he finished #1 (display metric only). */
+export function isNumberOneCall(pick: {
+  predictedRank: number;
+  actualRank: number | null;
+}): boolean {
+  return pick.predictedRank === 1 && pick.actualRank === 1;
+}
 
 export function isContestFinal(status: string): boolean {
   return FINAL_CONTEST_STATUSES.has(status);
@@ -148,29 +199,34 @@ function rowFor(board: LeaderboardRow[] | undefined, profileId: string) {
   return board?.find((row) => row.universalProfileId === profileId) ?? null;
 }
 
-export function isWeeklyTopTen(rank: number, fieldSize: number): boolean {
+/** Competitive placement of one profile on a board, plus whether it is shared. */
+export function competitivePlacement(
+  board: LeaderboardRow[],
+  profileId: string,
+): { placement: number; tied: boolean } | null {
+  const ranks = competitiveRanks(board);
+  const placement = ranks.get(profileId);
+  if (placement == null) return null;
+  let sharing = 0;
+  for (const value of ranks.values()) if (value === placement) sharing += 1;
+  return { placement, tied: sharing > 1 };
+}
+
+/**
+ * Top 10% on a competitive placement: max(1, ceil(N × 0.10)) via the canonical
+ * percentile helper. Every profile tied at a qualifying placement qualifies,
+ * even if the tie group extends past the cutoff.
+ */
+export function isWeeklyTopTen(placement: number, fieldSize: number): boolean {
   return qualifiesForTopPercentile({
-    rank,
+    rank: placement,
     cohortSize: fieldSize,
     percentile: WEEKLY_TOP_PERCENTILE,
   });
 }
 
-export function positionBoardHref(
-  username: string,
-  weekNumber: number,
-  position: ContestPosition,
-): string {
-  return `/profile/${username}/rankings/${weekNumber}/${position.toLowerCase()}`;
-}
-
-export function weeklyReceiptsHref(username: string, weekNumber: number): string {
-  return `/profile/${username}?tab=rankiq#week-${weekNumber}`;
-}
-
 export function classFilterForStanding(input: {
   profileType: string;
-  expertSourceKind?: string | null;
   isPublisherConsensus?: boolean;
 }): { filter: LeaderboardFilter; label: string } {
   if (input.profileType === "BENCHMARK") {
@@ -189,9 +245,12 @@ function standingCell(
   profileId: string,
 ): SeasonStandingCell {
   const row = rowFor(board, profileId);
+  const competitive = board && row ? competitivePlacement(board, profileId) : null;
   return {
     scope,
     rank: row?.rank ?? null,
+    placement: competitive?.placement ?? null,
+    tied: competitive?.tied ?? false,
     fieldSize: board?.length ?? 0,
     averageScore: row?.averageScore ?? null,
     contestsPlayed: row?.contestsPlayed ?? 0,
@@ -236,6 +295,7 @@ export function buildSeasonStanding(input: {
 
 function streakRuns(input: {
   seasonYear: number;
+  username: string;
   finalizedWeeks: number[];
   topTenWeeks: Set<number>;
 }): StreakRange[] {
@@ -248,8 +308,15 @@ function streakRuns(input: {
       if (run && consecutive) {
         run.toWeek = week;
         run.length += 1;
+        run.href = weeklyReceiptsHref(input.username, input.seasonYear, week);
       } else {
-        run = { seasonYear: input.seasonYear, fromWeek: week, toWeek: week, length: 1 };
+        run = {
+          seasonYear: input.seasonYear,
+          fromWeek: week,
+          toWeek: week,
+          length: 1,
+          href: weeklyReceiptsHref(input.username, input.seasonYear, week),
+        };
         runs.push(run);
       }
     } else {
@@ -260,32 +327,44 @@ function streakRuns(input: {
   return runs;
 }
 
+function subtitleFor(seasonYear: number, tied: boolean) {
+  return `${seasonYear} season${tied ? " · Tied" : ""}`;
+}
+
+function isPlacement(value: number): value is Placement {
+  return value === 1 || value === 2 || value === 3;
+}
+
 /**
  * Derive the Trophy Case from canonical graded boards.
  *
- * - Weekly Overall Champion: rank 1 on the full-field weekly overall board, only
- *   once every contest that week is FINAL/ARCHIVED.
- * - Weekly Position Champion: rank 1 on that week's position board (contest FINAL).
- * - Top 10%: `qualifiesForTopPercentile` (rank ≤ max(1, ceil(N × 0.10))).
+ * - Weekly placements (Champion / Runner-Up / Third Place): competitive
+ *   placement 1–3 on the full-field weekly overall board (once every contest
+ *   that week is FINAL/ARCHIVED) or a weekly position board (contest FINAL).
+ * - Top 10%: competitive placement ≤ max(1, ceil(N × 0.10)).
  * - Hot Streak: ≥3 consecutive finalized weeks with a Top-10% overall finish;
  *   a missed or non-Top-10% week breaks the streak; streaks reset each season.
- * - Season Champions: rank 1 on the season board, only for finalized seasons.
+ * - Season Champions: only for finalized seasons AND an approved participation
+ *   rule (`APPROVED_SEASON_CHAMPIONSHIP_ELIGIBILITY`, currently none).
  */
 export function deriveTrophyCase(input: {
   profileId: string;
   username: string;
   sets: SeasonBoardSet[];
+  /** Override for tests; defaults to the approved rule (none in V1). */
+  seasonChampionshipEligibility?: SeasonChampionshipEligibility | null;
   /** Future persisted honors (Founding Ranker, etc.). Empty in V1. */
   awarded?: Trophy[];
 }): TrophyCase {
   const { profileId, username } = input;
+  const eligibility =
+    input.seasonChampionshipEligibility === undefined
+      ? APPROVED_SEASON_CHAMPIONSHIP_ELIGIBILITY
+      : input.seasonChampionshipEligibility;
   const sets = [...input.sets].sort((a, b) => a.seasonYear - b.seasonYear);
-  const multiSeason = sets.filter((s) => s.weeks.length > 0).length > 1;
-  const seasonNote = (year: number) => (multiSeason ? `${year} season` : null);
 
   const seasonTrophies: Trophy[] = [];
-  const weeklyOverall: Trophy[] = [];
-  const weeklyPosition: Trophy[] = [];
+  const weeklyTrophies: Trophy[] = [];
   const topTenFinishes: TopTenFinish[] = [];
   let longest: StreakRange | null = null;
   let current: StreakRange | null = null;
@@ -293,67 +372,77 @@ export function deriveTrophyCase(input: {
   let weeksEligible = 0;
 
   for (const set of sets) {
+    const year = set.seasonYear;
     const finalWeeks = finalizedWeekNumbers(set);
     const topTenOverallWeeks = new Set<number>();
     weeksEligible += finalWeeks.size;
 
     for (const week of set.weeks) {
-      const overallRow = rowFor(week.overall, profileId);
-      if (overallRow && finalWeeks.has(week.weekNumber)) {
+      const overall = finalWeeks.has(week.weekNumber)
+        ? competitivePlacement(week.overall, profileId)
+        : null;
+      if (overall) {
         weeksPlayed += 1;
-        if (overallRow.rank === 1) {
-          weeklyOverall.push({
-            id: `weekly-overall-${set.seasonYear}-${week.weekNumber}`,
-            kind: "WEEKLY_OVERALL_CHAMPION",
+        const href = weeklyReceiptsHref(username, year, week.weekNumber);
+        if (isPlacement(overall.placement)) {
+          weeklyTrophies.push({
+            id: `weekly-overall-${year}-${week.weekNumber}`,
+            kind: "WEEKLY_OVERALL_PLACEMENT",
             tier: "weekly",
-            title: `Week ${week.weekNumber} Overall Champion`,
-            subtitle: seasonNote(set.seasonYear),
-            seasonYear: set.seasonYear,
+            title: `Week ${week.weekNumber} Overall ${PLACEMENT_LABEL[overall.placement]}`,
+            subtitle: subtitleFor(year, overall.tied),
+            seasonYear: year,
             weekNumber: week.weekNumber,
             position: null,
-            href: weeklyReceiptsHref(username, week.weekNumber),
+            place: overall.placement,
+            tied: overall.tied,
+            href,
             source: "derived",
           });
         }
-        if (isWeeklyTopTen(overallRow.rank, week.overall.length)) {
+        if (isWeeklyTopTen(overall.placement, week.overall.length)) {
           topTenOverallWeeks.add(week.weekNumber);
           topTenFinishes.push({
-            seasonYear: set.seasonYear,
+            seasonYear: year,
             weekNumber: week.weekNumber,
             scope: "OVERALL",
-            rank: overallRow.rank,
+            placement: overall.placement,
+            tied: overall.tied,
             fieldSize: week.overall.length,
-            href: weeklyReceiptsHref(username, week.weekNumber),
+            href,
           });
         }
       }
 
       for (const position of RESUME_POSITIONS) {
         const board = week.byPosition[position];
-        const row = rowFor(board, profileId);
-        if (!row || !board) continue;
-        if (!isPositionContestFinal(set, week.weekNumber, position)) continue;
-        const href = positionBoardHref(username, week.weekNumber, position);
-        if (row.rank === 1) {
-          weeklyPosition.push({
-            id: `weekly-${position}-${set.seasonYear}-${week.weekNumber}`,
-            kind: "WEEKLY_POSITION_CHAMPION",
+        if (!board || !isPositionContestFinal(set, week.weekNumber, position)) continue;
+        const result = competitivePlacement(board, profileId);
+        if (!result) continue;
+        const href = profileBoardHref(username, year, week.weekNumber, position);
+        if (isPlacement(result.placement)) {
+          weeklyTrophies.push({
+            id: `weekly-${position}-${year}-${week.weekNumber}`,
+            kind: "WEEKLY_POSITION_PLACEMENT",
             tier: "weekly",
-            title: `Week ${week.weekNumber} ${position} Champion`,
-            subtitle: seasonNote(set.seasonYear),
-            seasonYear: set.seasonYear,
+            title: `Week ${week.weekNumber} ${position} ${PLACEMENT_LABEL[result.placement]}`,
+            subtitle: subtitleFor(year, result.tied),
+            seasonYear: year,
             weekNumber: week.weekNumber,
             position,
+            place: result.placement,
+            tied: result.tied,
             href,
             source: "derived",
           });
         }
-        if (isWeeklyTopTen(row.rank, board.length)) {
+        if (isWeeklyTopTen(result.placement, board.length)) {
           topTenFinishes.push({
-            seasonYear: set.seasonYear,
+            seasonYear: year,
             weekNumber: week.weekNumber,
             scope: position,
-            rank: row.rank,
+            placement: result.placement,
+            tied: result.tied,
             fieldSize: board.length,
             href,
           });
@@ -363,7 +452,8 @@ export function deriveTrophyCase(input: {
 
     const orderedFinalWeeks = [...finalWeeks].sort((a, b) => a - b);
     const runs = streakRuns({
-      seasonYear: set.seasonYear,
+      seasonYear: year,
+      username,
       finalizedWeeks: orderedFinalWeeks,
       topTenWeeks: topTenOverallWeeks,
     });
@@ -372,74 +462,50 @@ export function deriveTrophyCase(input: {
     }
     const lastFinal = orderedFinalWeeks[orderedFinalWeeks.length - 1];
     if (set.seasonActive && lastFinal != null) {
-      const tail = runs.find((run) => run.toWeek === lastFinal) ?? null;
-      current = tail;
+      current = runs.find((run) => run.toWeek === lastFinal) ?? null;
     }
 
-    if (isSeasonFinalized(set)) {
-      const overallRow = rowFor(set.seasonOverall, profileId);
-      if (overallRow?.rank === 1) {
+    if (eligibility && isSeasonFinalized(set)) {
+      const scopes: Array<[StandingScope, LeaderboardRow[] | undefined]> = [
+        ["OVERALL", set.seasonOverall],
+        ...RESUME_POSITIONS.map(
+          (position) => [position, set.seasonByPosition[position]] as [StandingScope, LeaderboardRow[] | undefined],
+        ),
+      ];
+      for (const [scope, board] of scopes) {
+        const eligibleBoard = (board ?? []).filter((row) =>
+          eligibility.isEligible({ row, scope, set }),
+        );
+        const result = competitivePlacement(eligibleBoard, profileId);
+        if (result?.placement !== 1) continue;
+        const isOverall = scope === "OVERALL";
         seasonTrophies.push({
-          id: `season-overall-${set.seasonYear}`,
-          kind: "SEASON_OVERALL_CHAMPION",
+          id: `season-${isOverall ? "overall" : scope}-${year}`,
+          kind: isOverall ? "SEASON_OVERALL_CHAMPION" : "SEASON_POSITION_CHAMPION",
           tier: "season",
-          title: `${set.seasonYear} Season Overall Champion`,
-          subtitle: null,
-          seasonYear: set.seasonYear,
+          title: `${year} Season ${isOverall ? "Overall" : scope} Champion`,
+          subtitle: result.tied ? "Tied" : null,
+          seasonYear: year,
           weekNumber: null,
-          position: null,
+          position: isOverall ? null : (scope as ContestPosition),
+          place: 1,
+          tied: result.tied,
           href: null,
           source: "derived",
         });
       }
-      for (const position of RESUME_POSITIONS) {
-        const row = rowFor(set.seasonByPosition[position], profileId);
-        if (row?.rank === 1) {
-          seasonTrophies.push({
-            id: `season-${position}-${set.seasonYear}`,
-            kind: "SEASON_POSITION_CHAMPION",
-            tier: "season",
-            title: `${set.seasonYear} Season ${position} Champion`,
-            subtitle: null,
-            seasonYear: set.seasonYear,
-            weekNumber: null,
-            position,
-            href: null,
-            source: "derived",
-          });
-        }
-      }
     }
   }
 
-  const streakTrophies: Trophy[] =
-    longest && longest.length >= HOT_STREAK_MIN_WEEKS
-      ? [
-          {
-            id: `hot-streak-${longest.seasonYear}-${longest.fromWeek}`,
-            kind: "HOT_STREAK",
-            tier: "streak",
-            title: `Hot Streak · ${longest.length} weeks`,
-            subtitle: `Top 10% overall, Weeks ${longest.fromWeek}–${longest.toWeek}${
-              multiSeason ? ` (${longest.seasonYear})` : ""
-            }`,
-            seasonYear: longest.seasonYear,
-            weekNumber: longest.toWeek,
-            position: null,
-            href: weeklyReceiptsHref(username, longest.toWeek),
-            source: "derived",
-          },
-        ]
-      : [];
-
-  const newestFirst = (a: Trophy, b: Trophy) =>
-    b.seasonYear - a.seasonYear || (b.weekNumber ?? 0) - (a.weekNumber ?? 0);
+  const weeklyOrder = (a: Trophy, b: Trophy) =>
+    (a.place ?? 9) - (b.place ?? 9) ||
+    (a.position == null ? 0 : 1) - (b.position == null ? 0 : 1) ||
+    b.seasonYear - a.seasonYear ||
+    (b.weekNumber ?? 0) - (a.weekNumber ?? 0);
 
   const trophies = [
-    ...seasonTrophies.sort(newestFirst),
-    ...weeklyOverall.sort(newestFirst),
-    ...weeklyPosition.sort(newestFirst),
-    ...streakTrophies,
+    ...seasonTrophies.sort((a, b) => b.seasonYear - a.seasonYear),
+    ...weeklyTrophies.sort(weeklyOrder),
     ...(input.awarded ?? []),
   ];
 
@@ -450,6 +516,9 @@ export function deriveTrophyCase(input: {
       (a.scope === "OVERALL" ? -1 : b.scope === "OVERALL" ? 1 : 0),
   );
 
+  const wins = (kind: TrophyKind) =>
+    weeklyTrophies.filter((t) => t.kind === kind && t.place === 1).length;
+
   return {
     trophies,
     topTenFinishes,
@@ -458,10 +527,12 @@ export function deriveTrophyCase(input: {
       current: current && current.length >= HOT_STREAK_MIN_WEEKS ? current : null,
       longest: longest && longest.length >= HOT_STREAK_MIN_WEEKS ? longest : null,
     },
+    seasonChampionshipsEnabled: eligibility != null,
     counts: {
       seasonTitles: seasonTrophies.length,
-      weeklyOverallWins: weeklyOverall.length,
-      weeklyPositionWins: weeklyPosition.length,
+      weeklyOverallWins: wins("WEEKLY_OVERALL_PLACEMENT"),
+      weeklyPositionWins: wins("WEEKLY_POSITION_PLACEMENT"),
+      weeklyPodiums: weeklyTrophies.length,
       topTenFinishes: topTenFinishes.length,
       weeksPlayed,
       weeksEligible,

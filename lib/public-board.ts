@@ -4,6 +4,7 @@ import {
   weekIsPubliclyVisibleForProfile,
 } from "@/lib/competitor-visibility";
 import { prisma } from "@/lib/db";
+import { boardSeasonWhere } from "@/lib/board-routes";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit";
 import type {
@@ -176,6 +177,8 @@ export async function getPublicProfileBoard(input: {
   weekNumber: number;
   position: ContestPosition;
   viewer: BoardViewer;
+  /** Pins the week to a specific season; omitted → active season. */
+  seasonYear?: number | null;
   now?: Date;
   recordUnlock?: boolean;
 }): Promise<PublicBoardView | null> {
@@ -204,7 +207,7 @@ export async function getPublicProfileBoard(input: {
   const week = await prisma.week.findFirst({
     where: {
       weekNumber: input.weekNumber,
-      season: { active: true },
+      season: boardSeasonWhere(input.seasonYear, { active: true }),
     },
     include: { season: true },
   });
@@ -222,7 +225,8 @@ export async function getPublicProfileBoard(input: {
     return null;
   }
 
-  await ensureWeekFullLock(week.id, now);
+  // Lock transitions only apply to the live season; historical receipts are read-only.
+  if (week.season.active) await ensureWeekFullLock(week.id, now);
 
   const contest = await prisma.rankIQContest.findUnique({
     where: {

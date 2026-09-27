@@ -296,6 +296,38 @@ function accumulate(
   return [...map.values()];
 }
 
+const PERFORMANCE_EPSILON = 1e-9;
+
+/**
+ * Performance-only equality for the canonical ranking tuple
+ * (averageScore desc, bestScore desc). The final `displayName` tiebreak in
+ * `toRows` orders the list deterministically but is not performance.
+ */
+export function samePerformance(
+  a: Pick<LeaderboardRow, "averageScore" | "bestScore">,
+  b: Pick<LeaderboardRow, "averageScore" | "bestScore">,
+): boolean {
+  return (
+    Math.abs(a.averageScore - b.averageScore) < PERFORMANCE_EPSILON &&
+    Math.abs(a.bestScore - b.bestScore) < PERFORMANCE_EPSILON
+  );
+}
+
+/**
+ * Competitive placement for achievements (standard competition ranking,
+ * "1-2-2-4"): profiles tied on every performance criterion share a placement.
+ * `rows` must be in canonical display order; `row.rank` stays the display rank.
+ */
+export function competitiveRanks(rows: LeaderboardRow[]): Map<string, number> {
+  const out = new Map<string, number>();
+  let placement = 0;
+  rows.forEach((row, index) => {
+    if (index === 0 || !samePerformance(rows[index - 1], row)) placement = index + 1;
+    out.set(row.universalProfileId, placement);
+  });
+  return out;
+}
+
 /** Minimum contests concept for future filtering — currently informational only. */
 export const DEFAULT_MIN_CONTESTS = 1;
 

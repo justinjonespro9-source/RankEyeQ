@@ -15,6 +15,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { getBoardIndexability } from "@/lib/board-privacy";
 import { getPublicProfileBoard } from "@/lib/public-board";
+import { parseSeasonYearParam } from "@/lib/board-routes";
 import { formatRankIqScore } from "@/lib/scoring";
 import { NO_INDEX, PUBLIC_INDEX } from "@/lib/seo";
 import { WeeklySourceLink } from "@/components/profile/WeeklySourceLink";
@@ -29,15 +30,21 @@ export async function generateMetadata(
   props: PageProps<"/profile/[username]/rankings/[week]/[position]">,
 ): Promise<Metadata> {
   const { username, week, position } = await props.params;
+  const seasonYear = parseSeasonYearParam((await props.searchParams)?.season);
   const weekNumber = Number(week);
   const pos = position.toUpperCase() as ContestPosition;
-  if (!Number.isInteger(weekNumber) || !POSITIONS.includes(pos)) {
+  if (
+    !Number.isInteger(weekNumber) ||
+    !POSITIONS.includes(pos) ||
+    seasonYear === "invalid"
+  ) {
     return { title: "Rankings", ...NO_INDEX };
   }
   const indexability = await getBoardIndexability({
     username,
     weekNumber,
     position: pos,
+    seasonYear,
   });
   if (!indexability.public) {
     return {
@@ -57,9 +64,15 @@ export default async function PublicRankingBoardPage(
   props: PageProps<"/profile/[username]/rankings/[week]/[position]">,
 ) {
   const { username, week, position } = await props.params;
+  const seasonYear = parseSeasonYearParam((await props.searchParams)?.season);
   const weekNumber = Number(week);
   const pos = position.toUpperCase() as ContestPosition;
-  if (!Number.isInteger(weekNumber) || weekNumber < 1 || !POSITIONS.includes(pos)) {
+  if (
+    !Number.isInteger(weekNumber) ||
+    weekNumber < 1 ||
+    !POSITIONS.includes(pos) ||
+    seasonYear === "invalid"
+  ) {
     notFound();
   }
 
@@ -68,6 +81,7 @@ export default async function PublicRankingBoardPage(
     username,
     weekNumber,
     position: pos,
+    seasonYear,
     viewer: {
       profileId: auth?.universalProfile?.id ?? null,
       isAdmin: auth?.user.role === "ADMIN",

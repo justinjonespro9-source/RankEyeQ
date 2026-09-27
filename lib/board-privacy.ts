@@ -1,3 +1,4 @@
+import { boardSeasonWhere } from "@/lib/board-routes";
 import { prisma } from "@/lib/db";
 import {
   profileAppearsOnPublicSurfaces,
@@ -18,6 +19,8 @@ export async function getBoardIndexability(input: {
   username: string;
   weekNumber: number;
   position: ContestPosition;
+  /** Pins the week to a specific season; omitted → active season. */
+  seasonYear?: number | null;
   now?: Date;
 }): Promise<BoardIndexability> {
   const now = input.now ?? new Date();
@@ -56,7 +59,7 @@ export async function getBoardIndexability(input: {
   const week = await prisma.week.findFirst({
     where: {
       weekNumber: input.weekNumber,
-      season: { active: true, sport: "NFL" },
+      season: boardSeasonWhere(input.seasonYear, { active: true, sport: "NFL" }),
       isTest: false,
     },
   });

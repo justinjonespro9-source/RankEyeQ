@@ -245,6 +245,7 @@ describe("athlete badge evaluation", () => {
 
 function hist(weekNumber: number, score: number): ProfileContestHistoryItem {
   return {
+    seasonYear: 2026,
     submissionId: `s-${weekNumber}`,
     contestId: `c-${weekNumber}`,
     weekLabel: `Week ${weekNumber}`,

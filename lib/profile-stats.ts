@@ -15,6 +15,7 @@ import {
   type SeasonBoardSet,
 } from "@/lib/leaderboards";
 import { getCachedSeasonBoardSet } from "@/lib/competitive-resume-data";
+import { isNumberOneCall } from "@/lib/competitive-resume";
 import type {
   ContestPosition,
   ProfileType,
@@ -104,7 +105,9 @@ export async function getRankIQProfileView(
       contest: options?.includeTest ? undefined : { week: { isTest: false } },
     },
     include: {
-      contest: { include: { week: true } },
+      contest: {
+        include: { week: { include: { season: { select: { year: true } } } } },
+      },
       picks: {
         include: {
           rankableEntry: { select: { name: true, team: true } },
@@ -113,6 +116,7 @@ export async function getRankIQProfileView(
       },
     },
     orderBy: [
+      { contest: { season: { year: "desc" } } },
       { contest: { week: { weekNumber: "desc" } } },
       { updatedAt: "desc" },
     ],
@@ -183,7 +187,7 @@ export async function getRankIQProfileView(
         exactHits += 1;
       }
       if (pick.actualRank === 1) numberOneHits += 1;
-      if (pick.actualRank === 1 && pick.predictedRank === 1) numberOneCalls += 1;
+      if (isNumberOneCall(pick)) numberOneCalls += 1;
       if (
         pick.predictedRank <= 3 &&
         pick.actualRank != null &&
@@ -293,6 +297,7 @@ export async function getRankIQProfileView(
       submissionId: submission.id,
       contestId: submission.contestId,
       weekLabel: submission.contest.week.label,
+      seasonYear: submission.contest.week.season.year,
       weekNumber: submission.contest.week.weekNumber,
       position: submission.contest.position,
       rankingDepth: depth,
