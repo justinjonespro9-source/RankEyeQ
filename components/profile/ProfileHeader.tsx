@@ -118,6 +118,42 @@ export function ProfileHeader({
     featuredLinkUrl: profile.featuredLinkUrl,
   });
   const claimable = showClaimCta;
+  const showFollow = Boolean(follow && !isOwner && !isAuthFree);
+  const identityBadges = (
+    <>
+      <Badge
+        tone={
+          profile.isBenchmark || profile.isCreator
+            ? "warning"
+            : profile.isBot
+              ? "neutral"
+              : "success"
+        }
+      >
+        {profile.isBenchmark
+          ? (expertBadge ?? "EXPERT")
+          : profile.isCreator
+            ? (creatorCompetitorBadge ?? "CREATOR")
+            : profile.isBot
+              ? `AI · ${expertPrimary}`
+              : "PUBLIC"}
+      </Badge>
+      {ownershipVerified ? (
+        <Badge tone="accent" className="text-[10px] sm:text-xs">
+          Verified
+        </Badge>
+      ) : null}
+      {!isAuthFree ? (
+        <CreatorBadge
+          enabled={creator?.enabled}
+          qualified={creator?.qualified}
+        />
+      ) : null}
+      {profile.suspended ? (
+        <Badge tone="warning">Unavailable</Badge>
+      ) : null}
+    </>
+  );
 
   return (
     <header className="rounded-lg border border-border bg-surface-elevated px-5 py-6 sm:px-7">
@@ -136,6 +172,10 @@ export function ProfileHeader({
               {expertPrimary}
             </h1>
             <p className="mt-1 text-muted">@{profile.username}</p>
+            {/* Mobile: keep competitive identity above owner-supplied presentation. */}
+            <div className="mt-2 flex flex-wrap gap-2 sm:hidden">
+              {identityBadges}
+            </div>
             {profile.headline?.trim() ? (
               <p className="mt-2 text-sm font-medium text-ink">
                 {profile.headline.trim()}
@@ -200,41 +240,13 @@ export function ProfileHeader({
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-wrap justify-end gap-2">
-            <Badge
-              tone={
-                profile.isBenchmark || profile.isCreator
-                  ? "warning"
-                  : profile.isBot
-                    ? "neutral"
-                    : "success"
-              }
-            >
-              {profile.isBenchmark
-                ? (expertBadge ?? "EXPERT")
-                : profile.isCreator
-                  ? (creatorCompetitorBadge ?? "CREATOR")
-                  : profile.isBot
-                    ? `AI · ${expertPrimary}`
-                    : "PUBLIC"}
-            </Badge>
-            {ownershipVerified ? (
-              <Badge tone="accent" className="text-[10px] sm:text-xs">
-                Verified
-              </Badge>
-            ) : null}
-            {!isAuthFree ? (
-              <CreatorBadge
-                enabled={creator?.enabled}
-                qualified={creator?.qualified}
-              />
-            ) : null}
-            {profile.suspended ? (
-              <Badge tone="warning">Unavailable</Badge>
-            ) : null}
+        <div
+          className={`${showFollow ? "flex" : "hidden sm:flex"} flex-col items-end gap-2`}
+        >
+          <div className="hidden flex-wrap justify-end gap-2 sm:flex">
+            {identityBadges}
           </div>
-          {follow && !isOwner && !isAuthFree ? (
+          {showFollow && follow ? (
             <FollowButton
               targetProfileId={follow.targetProfileId}
               initialFollowing={follow.viewerIsFollowing}
