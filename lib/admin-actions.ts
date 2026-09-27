@@ -392,12 +392,14 @@ export async function adminSaveBotSubmissionAction(formData: FormData) {
         contestId,
         universalProfileId: profileId,
         rankedEntryIds,
+        authority: "SYSTEM_OPERATED",
       });
     } else {
       await saveSubmissionPicks({
         contestId,
         universalProfileId: profileId,
         rankedEntryIds,
+        authority: "SYSTEM_OPERATED",
         requireComplete: false,
       });
     }

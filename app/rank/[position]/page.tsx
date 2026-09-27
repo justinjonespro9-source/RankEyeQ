@@ -9,6 +9,10 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ClaimedExpertRankNotice } from "@/components/rank/ClaimedExpertRankNotice";
 import { shouldShowClaimedExpertRankState } from "@/lib/auth/participation";
+import {
+  CAPTURED_BOARD_WORKSPACE_MESSAGE,
+  resolveSubmissionAuthority,
+} from "@/lib/boards/authority";
 import { getAuthContext } from "@/lib/auth/session";
 import { parsePositionParam } from "@/lib/contest";
 import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
@@ -216,6 +220,7 @@ export default async function PositionRankPage(
   let initialSubmissionStatus = "DRAFT";
   let initialLockedEntryIds: string[] = [];
   let gradedPredicted = players.slice(0, 0);
+  let capturedByRankEyeQ = false;
 
   const canCreateOrEdit =
     Boolean(contestId) && boardEditableByWeek && timing.canEditUnlocked;
@@ -226,6 +231,11 @@ export default async function PositionRankPage(
         ? await getOrCreateDraftSubmission(contestId, profile.id)
         : await getSubmissionForProfile(contestId, profile.id);
       if (submission) {
+        capturedByRankEyeQ =
+          resolveSubmissionAuthority({
+            profileType: profile.profileType,
+            submission,
+          }) === "RANKEYEQ_CAPTURED";
         initialRankedEntryIds = picksToRankedIds(
           submission.picks,
           challenge.slotCount,
@@ -396,6 +406,15 @@ export default async function PositionRankPage(
         positionLabel={challenge.shortLabel}
       />
 
+      {capturedByRankEyeQ ? (
+        <p
+          className="mb-4 rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-muted"
+          role="status"
+        >
+          {CAPTURED_BOARD_WORKSPACE_MESSAGE}
+        </p>
+      ) : null}
+
       <RankingWorkspace
         challenge={challenge}
         players={players}
@@ -406,7 +425,9 @@ export default async function PositionRankPage(
         initialSubmissionStatus={initialSubmissionStatus}
         initialLockedEntryIds={initialLockedEntryIds}
         kickoffLockedEntryIds={kickoffLockedEntryIds}
-        canEditUnlocked={timing.canEditUnlocked && boardEditableByWeek}
+        canEditUnlocked={
+          timing.canEditUnlocked && boardEditableByWeek && !capturedByRankEyeQ
+        }
         fullBoardLocked={timing.fullBoardLocked}
         researchWindowLabel={windowLabel}
         consensusPublic={timing.consensusVisible}

@@ -145,6 +145,7 @@ describe("persistent contest lifecycle", () => {
     const saved = await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: entryIds.slice(0, 5),
     });
     expect(saved.picks).toHaveLength(5);
@@ -156,6 +157,7 @@ describe("persistent contest lifecycle", () => {
       submitRanking({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: entryIds.slice(0, 5),
       }),
     ).rejects.toBeInstanceOf(SubmissionError);
@@ -166,6 +168,7 @@ describe("persistent contest lifecycle", () => {
     await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: completeDraftIds,
       requireComplete: true,
     });
@@ -173,6 +176,7 @@ describe("persistent contest lifecycle", () => {
     const submitted = await submitRanking({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: completeDraftIds,
     });
     expect(submitted.status).toBe("SUBMITTED");
@@ -181,6 +185,7 @@ describe("persistent contest lifecycle", () => {
     await submitRanking({
       contestId,
       universalProfileId: botId,
+      authority: "SYSTEM_OPERATED",
       rankedEntryIds: [...entryIds.slice(1, 13)],
     });
   });
@@ -198,6 +203,7 @@ describe("persistent contest lifecycle", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: entryIds.slice(0, 12),
       }),
     ).rejects.toBeInstanceOf(SubmissionError);

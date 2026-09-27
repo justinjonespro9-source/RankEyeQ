@@ -25,6 +25,10 @@ import {
   WeekMatchupNotStampedError,
   assertWeekMatchupsStamped,
 } from "@/lib/nfl/week-matchup-health";
+import {
+  evaluateWorkspaceSaveAuthority,
+  type WorkspaceSaveAuthority,
+} from "@/lib/boards/authority";
 
 export class SubmissionError extends Error {
   constructor(message: string) {
@@ -242,6 +246,8 @@ export async function saveSubmissionPicks(input: {
   contestId: string;
   universalProfileId: string;
   rankedEntryIds: (string | null)[];
+  /** Set by the trusted server caller — never from client input. */
+  authority: WorkspaceSaveAuthority;
   requireComplete?: boolean;
   now?: Date;
 }) {
@@ -286,6 +292,15 @@ export async function saveSubmissionPicks(input: {
     input.universalProfileId,
     now,
   );
+
+  const authorityDecision = evaluateWorkspaceSaveAuthority({
+    requested: input.authority,
+    profileType: submission.universalProfile.profileType,
+    submission,
+  });
+  if (!authorityDecision.allowed) {
+    throw new SubmissionError(authorityDecision.message);
+  }
 
   if (
     !submissionAllowsRankingEdits({
@@ -463,7 +478,7 @@ export async function saveSubmissionPicks(input: {
 
     await tx.rankingSubmission.update({
       where: { id: submission.id },
-      data: { status: nextStatus },
+      data: { status: nextStatus, authority: input.authority },
     });
   });
 
@@ -474,6 +489,8 @@ export async function submitRanking(input: {
   contestId: string;
   universalProfileId: string;
   rankedEntryIds: (string | null)[];
+  /** Set by the trusted server caller — never from client input. */
+  authority: WorkspaceSaveAuthority;
   now?: Date;
 }) {
   const now = input.now ?? new Date();

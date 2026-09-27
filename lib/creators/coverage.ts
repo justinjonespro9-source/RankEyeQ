@@ -14,7 +14,8 @@ export type CreatorImportCellStatus =
   | "Not imported"
   | "Draft"
   | "Submitted"
-  | "Error";
+  | "Error"
+  | "Owner-managed";
 
 export type CreatorCoverageRow = {
   profileId: string;
@@ -46,6 +47,7 @@ export type CreatorCoverageDashboard = {
 };
 
 function mapCell(status: BenchmarkCellStatus, late: boolean): CreatorImportCellStatus {
+  if (status === "Owner-managed") return "Owner-managed";
   if (status === "Missing" || status === "Not Available") return "Not imported";
   if (late) return "Error";
   if (status === "Thursday Snapshot") return "Draft";
@@ -121,11 +123,12 @@ export async function getCreatorRankingCoverage(
         cells[position] = "Not imported";
         continue;
       }
-      expectedCount += 1;
       const status = base?.cells[position] ?? "Missing";
       const late = Boolean(base?.lateCells.includes(position));
       const mapped = mapCell(status, late);
       cells[position] = mapped;
+      if (mapped === "Owner-managed") continue;
+      expectedCount += 1;
       if (late) lateCells.push(position);
       if (mapped === "Not imported") missingPositions.push(position);
       if (mapped === "Draft" || mapped === "Submitted") capturedCount += 1;
@@ -174,8 +177,9 @@ export async function getCreatorRankingCoverage(
   for (const row of rows) {
     for (const position of CONTEST_POSITIONS) {
       if (!contestByPosition.has(position)) continue;
-      expectedBoards += 1;
       const status = row.cells[position];
+      if (status === "Owner-managed") continue;
+      expectedBoards += 1;
       if (status === "Not imported") missingBoards += 1;
       if (status === "Draft" || status === "Submitted") importedBoards += 1;
       if (status === "Submitted") submittedBoards += 1;

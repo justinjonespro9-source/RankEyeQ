@@ -349,6 +349,7 @@ describe("Week 1 lifecycle simulation", () => {
       await submitRanking({
         contestId: rbContestId,
         universalProfileId: profileId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: humanOrders[index]!,
         now: beforeLock,
       });
@@ -358,6 +359,7 @@ describe("Week 1 lifecycle simulation", () => {
       await submitRanking({
         contestId: rbContestId,
         universalProfileId: profileId,
+        authority: "SYSTEM_OPERATED",
         rankedEntryIds: consensusOrder,
         now: beforeLock,
       });
@@ -436,12 +438,14 @@ describe("Week 1 lifecycle simulation", () => {
       await submitRanking({
         contestId,
         universalProfileId: humanIds[0]!,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: ranked,
         now: beforeLock,
       });
       await submitRanking({
         contestId,
         universalProfileId: aiIds[0]!,
+        authority: "SYSTEM_OPERATED",
         rankedEntryIds: ranked,
         now: beforeLock,
       });

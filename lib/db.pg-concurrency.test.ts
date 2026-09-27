@@ -66,6 +66,7 @@ describe("ranking path avoids same-client concurrent pg queries", () => {
         await submitRanking({
           contestId: contest.contestId,
           universalProfileId: profile.id,
+          authority: "OWNER_AUTHORED",
           rankedEntryIds: ranked,
         });
       } catch (error) {

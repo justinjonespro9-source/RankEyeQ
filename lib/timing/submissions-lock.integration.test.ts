@@ -162,6 +162,7 @@ describe("submission partial lock + Sunday lock", () => {
     await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: [gibbsId, bijanId, taylorId, achaneId],
       now: beforeKickoff,
     });
@@ -184,6 +185,7 @@ describe("submission partial lock + Sunday lock", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: [extraIds[0], bijanId, taylorId, achaneId],
         now: afterKickoff,
       }),
@@ -193,6 +195,7 @@ describe("submission partial lock + Sunday lock", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: [bijanId, taylorId, achaneId, extraIds[0]],
         now: afterKickoff,
       }),
@@ -201,6 +204,7 @@ describe("submission partial lock + Sunday lock", () => {
     const reordered = await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: [gibbsId, taylorId, bijanId, achaneId],
       now: afterKickoff,
     });
@@ -220,6 +224,7 @@ describe("submission partial lock + Sunday lock", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: [gibbsId, taylorId, bijanId, achaneId],
         now: afterLock,
       }),
@@ -242,6 +247,7 @@ describe("submission partial lock + Sunday lock", () => {
     await submitRanking({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: [gibbsId, taylorId, bijanId, achaneId],
       now: beforeKickoff,
     });

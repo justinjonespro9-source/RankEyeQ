@@ -7,8 +7,10 @@ import { CreatorImportForm } from "@/components/admin/CreatorImportForm";
 import { ConfirmSubmit } from "@/components/ui/ConfirmSubmit";
 import { Container } from "@/components/layout/Container";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { BoardAuthorityNotice } from "@/components/admin/BoardAuthorityNotice";
 import { adminMarkBenchmarkNotAvailableAction } from "@/lib/admin-benchmark-actions";
 import { loadCreatorBoardPage } from "@/lib/admin/creator-board-page";
+import { loadCaptureAuthorityDecision } from "@/lib/boards/authority";
 import { formatInChicago } from "@/lib/timing/chicago";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +34,10 @@ export default async function AdminCreatorBoardPage(props: {
   if ("notFound" in model) {
     notFound();
   }
+  const captureDecision = await loadCaptureAuthorityDecision({
+    contestId: model.contestId,
+    universalProfileId: model.profileId,
+  });
 
   return (
     <Container className="py-12 sm:py-16">
@@ -109,42 +115,51 @@ export default async function AdminCreatorBoardPage(props: {
         </p>
       ) : null}
 
-      <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
-        <CreatorImportForm
-          contestId={model.contestId}
-          profileId={model.profileId}
-          weekId={model.weekId}
-          position={model.position}
-          rankingDepth={model.rankingDepth}
-          eligible={model.eligible}
-          creatorName={model.primaryName}
-          brandName={model.brandName}
-          affiliationBadge={model.affiliationBadge}
-          defaultSourceUrl={model.defaultSourceUrl}
-          competitorActive={model.competitorActive}
-          fullLockAt={model.fullLockAt}
-          latestSnapshotId={model.latestSnapshotId}
-          hasOfficialBoard={model.hasOfficialBoard}
-          nextHref={model.nextHref}
+      {captureDecision && !captureDecision.allowed ? (
+        <BoardAuthorityNotice
+          decision={captureDecision}
+          profileName={model.primaryName}
         />
-      </section>
+      ) : (
+        <>
+          <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
+            <CreatorImportForm
+              contestId={model.contestId}
+              profileId={model.profileId}
+              weekId={model.weekId}
+              position={model.position}
+              rankingDepth={model.rankingDepth}
+              eligible={model.eligible}
+              creatorName={model.primaryName}
+              brandName={model.brandName}
+              affiliationBadge={model.affiliationBadge}
+              defaultSourceUrl={model.defaultSourceUrl}
+              competitorActive={model.competitorActive}
+              fullLockAt={model.fullLockAt}
+              latestSnapshotId={model.latestSnapshotId}
+              hasOfficialBoard={model.hasOfficialBoard}
+              nextHref={model.nextHref}
+            />
+          </section>
 
-      <div className="mb-8">
-        <ConfirmSubmit
-          action={adminMarkBenchmarkNotAvailableAction}
-          submitLabel="Mark not available"
-          impact={`Mark ${model.primaryName} ${model.position} as NOT_AVAILABLE for ${model.weekLabel}. Does not invent a ranking.`}
-          confirmPhrase="NOT AVAILABLE"
-        >
-          <input type="hidden" name="contestId" value={model.contestId} />
-          <input type="hidden" name="profileId" value={model.profileId} />
-          <input
-            type="hidden"
-            name="notes"
-            value="Creator did not publish a compatible ranking for this position"
-          />
-        </ConfirmSubmit>
-      </div>
+          <div className="mb-8">
+            <ConfirmSubmit
+              action={adminMarkBenchmarkNotAvailableAction}
+              submitLabel="Mark not available"
+              impact={`Mark ${model.primaryName} ${model.position} as NOT_AVAILABLE for ${model.weekLabel}. Does not invent a ranking.`}
+              confirmPhrase="NOT AVAILABLE"
+            >
+              <input type="hidden" name="contestId" value={model.contestId} />
+              <input type="hidden" name="profileId" value={model.profileId} />
+              <input
+                type="hidden"
+                name="notes"
+                value="Creator did not publish a compatible ranking for this position"
+              />
+            </ConfirmSubmit>
+          </div>
+        </>
+      )}
 
       {model.snapshots.length > 0 ? (
         <section className="rounded-lg border border-border bg-surface-elevated p-5">

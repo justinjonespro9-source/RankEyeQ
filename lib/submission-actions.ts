@@ -95,6 +95,7 @@ export async function saveDraftAction(input: {
       contestId: input.contestId,
       universalProfileId: participant.universalProfileId,
       rankedEntryIds: input.rankedEntryIds,
+      authority: "OWNER_AUTHORED",
       requireComplete: false,
     });
     revalidateSubmissionPaths(input.contestId, input.position);
@@ -154,6 +155,7 @@ export async function submitRankingsAction(input: {
       contestId: input.contestId,
       universalProfileId: participant.universalProfileId,
       rankedEntryIds: input.rankedEntryIds,
+      authority: "OWNER_AUTHORED",
     });
     revalidateSubmissionPaths(input.contestId, input.position);
     trackEvent("ranking_submitted", { position: input.position });

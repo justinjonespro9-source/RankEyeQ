@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { evaluateCaptureAuthority } from "@/lib/boards/authority";
 import { listActiveBenchmarkSources } from "@/lib/benchmark-sources-sync";
 import { listActiveCreatorCompetitors } from "@/lib/creator-identity";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
@@ -15,7 +16,9 @@ export type BenchmarkCellStatus =
   | "Sunday Snapshot"
   | "Locked"
   | "Graded"
-  | "Not Available";
+  | "Not Available"
+  /** Owner authors this contest board in the ranking workspace; not capture work. */
+  | "Owner-managed";
 
 export type BenchmarkCoverageRow = {
   profileId: string;
@@ -44,7 +47,9 @@ function cellFromState(input: {
   snapshotStatus: BenchmarkSnapshotStatus | null;
   captureType: BenchmarkCaptureType | null;
   submissionStatus: SubmissionStatus | null;
+  ownerManaged?: boolean;
 }): BenchmarkCellStatus {
+  if (input.ownerManaged) return "Owner-managed";
   if (input.snapshotStatus === "NOT_AVAILABLE") return "Not Available";
   if (input.submissionStatus === "GRADED" || input.snapshotStatus === "GRADED") {
     return "Graded";
@@ -69,6 +74,7 @@ export function summarizeBenchmarkCoverage(input: {
     captureType: BenchmarkCaptureType | null;
     submissionStatus: SubmissionStatus | null;
     late: boolean;
+    ownerManaged?: boolean;
   }>;
 }): BenchmarkCoverageSummary {
   const byKey = new Map<string, (typeof input.cells)[number]>();
@@ -87,12 +93,20 @@ export function summarizeBenchmarkCoverage(input: {
         snapshotStatus: raw?.snapshotStatus ?? null,
         captureType: raw?.captureType ?? null,
         submissionStatus: raw?.submissionStatus ?? null,
+        ownerManaged: raw?.ownerManaged,
       });
       cells[position] = status;
-      if (raw?.late && status !== "Not Available" && status !== "Missing") {
+      if (
+        raw?.late &&
+        status !== "Not Available" &&
+        status !== "Missing" &&
+        status !== "Owner-managed"
+      ) {
         lateCells.push(position);
       }
-      if (status !== "Not Available") expectedCount += 1;
+      if (status !== "Not Available" && status !== "Owner-managed") {
+        expectedCount += 1;
+      }
       if (
         status === "Thursday Snapshot" ||
         status === "Sunday Snapshot" ||
@@ -120,7 +134,9 @@ export function summarizeBenchmarkCoverage(input: {
   for (const row of rows) {
     for (const position of input.positions) {
       const status = row.cells[position];
-      if (status !== "Not Available") expectedBoards += 1;
+      if (status !== "Not Available" && status !== "Owner-managed") {
+        expectedBoards += 1;
+      }
       if (
         status === "Thursday Snapshot" ||
         status === "Sunday Snapshot" ||
@@ -163,7 +179,12 @@ export async function getBenchmarkCoverage(
     prisma.rankIQContest.findMany({
       where: { weekId },
       include: {
-        submissions: { include: { universalProfile: true } },
+        submissions: {
+          include: {
+            universalProfile: true,
+            picks: { select: { sourceRank: true } },
+          },
+        },
       },
     }),
     prisma.benchmarkSnapshot.findMany({
@@ -171,6 +192,14 @@ export async function getBenchmarkCoverage(
       orderBy: { createdAt: "desc" },
     }),
   ]);
+  const linkedCreatorIds = new Set(
+    (
+      await prisma.user.findMany({
+        where: { universalProfileId: { in: creators.map((row) => row.id) } },
+        select: { universalProfileId: true },
+      })
+    ).map((row) => row.universalProfileId),
+  );
 
   const sources = [
     ...experts.map((source) => ({
@@ -215,6 +244,11 @@ export async function getBenchmarkCoverage(
             (row.universalProfile.profileType === "BENCHMARK" ||
               row.universalProfile.profileType === "CREATOR"),
         ) ?? null;
+      const decision = evaluateCaptureAuthority({
+        profileType: source.profileType,
+        hasLinkedUser: linkedCreatorIds.has(source.id),
+        submission,
+      });
       cells.push({
         universalProfileId: source.id,
         position: contest.position,
@@ -222,6 +256,10 @@ export async function getBenchmarkCoverage(
         captureType: snapshot?.captureType ?? null,
         submissionStatus: submission?.status ?? null,
         late: snapshot?.late ?? false,
+        ownerManaged:
+          !decision.allowed &&
+          (decision.reason === "owner_authored_board" ||
+            decision.reason === "owner_managed_profile"),
       });
     }
   }

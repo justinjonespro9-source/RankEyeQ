@@ -18,6 +18,7 @@ import {
 import { rankingDepthForPosition, submissionDepthFromScoring, isScorablePickCount } from "@/lib/contest-defaults";
 import { scoreContest, type ScoreablePick } from "@/lib/scoring";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
+import { loadCaptureAuthorityDecision } from "@/lib/boards/authority";
 import {
   WeekMatchupNotStampedError,
   assertWeekMatchupsStamped,
@@ -90,6 +91,17 @@ async function loadKickoffMap(contestId: string, db: Tx | typeof prisma = prisma
     );
   }
   return map;
+}
+
+/** Refuse any capture mutation that would overwrite, hide or replace an owner-managed board. */
+async function assertCaptureAuthority(
+  input: { contestId: string; universalProfileId: string },
+  db: Tx | typeof prisma = prisma,
+) {
+  const decision = await loadCaptureAuthorityDecision(input, db);
+  if (decision && !decision.allowed) {
+    throw new BenchmarkCaptureError(decision.message);
+  }
 }
 
 function selectedMergePicks(
@@ -277,6 +289,11 @@ async function upsertOfficialBenchmarkSubmission(
       `Official board requires exactly ${input.rankingDepth} slots (got ${input.slots.length})`,
     );
   }
+  if (existing?.authority && existing.authority !== "RANKEYEQ_CAPTURED") {
+    throw new BenchmarkCaptureError(
+      "This contest board is not RankEyeQ-captured and cannot be overwritten by capture.",
+    );
+  }
 
   const submission = existing
     ? await db.rankingSubmission.update({
@@ -287,6 +304,7 @@ async function upsertOfficialBenchmarkSubmission(
           lockedAt: existing.lockedAt ?? input.competitiveAt,
           historicalBackfill:
             existing.historicalBackfill || Boolean(input.historicalBackfill),
+          authority: "RANKEYEQ_CAPTURED",
         },
       })
     : await db.rankingSubmission.create({
@@ -297,6 +315,7 @@ async function upsertOfficialBenchmarkSubmission(
           submittedAt: input.competitiveAt,
           lockedAt: input.competitiveAt,
           historicalBackfill: Boolean(input.historicalBackfill),
+          authority: "RANKEYEQ_CAPTURED",
         },
       });
 
@@ -372,6 +391,7 @@ export async function captureBenchmarkSnapshot(input: {
     throw new BenchmarkCaptureError("This benchmark source is suspended");
   }
   if (!contest) throw new BenchmarkCaptureError("Contest not found");
+  await assertCaptureAuthority(input);
 
   if (!input.historicalBackfill) {
     try {
@@ -593,6 +613,7 @@ export async function captureBenchmarkSnapshot(input: {
 
   const snapshotId = await prisma.$transaction(async (tx) => {
     let snapshotIdLocal: string;
+    await assertCaptureAuthority(input, tx);
 
     if (!isCorrection) {
       const reusable = await tx.benchmarkSnapshot.findFirst({
@@ -683,6 +704,7 @@ export async function markBenchmarkNotAvailable(input: {
     );
   }
   if (!contest) throw new BenchmarkCaptureError("Contest not found");
+  await assertCaptureAuthority(input);
 
   const snapshot = await prisma.benchmarkSnapshot.create({
     data: {

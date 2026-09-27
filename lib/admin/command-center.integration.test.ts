@@ -148,6 +148,7 @@ describe("admin command-center workflow", () => {
     const submitted = await submitRanking({
       contestId,
       universalProfileId: botId,
+      authority: "SYSTEM_OPERATED",
       rankedEntryIds: entryIds.slice(0, 12),
       now: zonedLocalToUtc(2026, 9, 9, 12, 0),
     });
@@ -179,6 +180,7 @@ describe("admin command-center workflow", () => {
     await submitRanking({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: [...entryIds.slice(1, 13)],
       now: beforeKickoff,
     });
@@ -198,6 +200,7 @@ describe("admin command-center workflow", () => {
       saveSubmissionPicks({
         contestId,
         universalProfileId: humanId,
+        authority: "OWNER_AUTHORED",
         rankedEntryIds: entryIds.slice(0, 12),
         now: beforeKickoff,
       }),

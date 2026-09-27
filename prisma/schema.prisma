@@ -115,6 +115,16 @@ enum BoardRevealPreference {
   PREMIUM_REVEAL
 }
 
+/// Who controls a profile + contest competitive board. Per submission, not per profile.
+enum SubmissionAuthority {
+  /// Authored through the authenticated ranking workspace by the owning HUMAN/CREATOR.
+  OWNER_AUTHORED
+  /// Captured by RankEyeQ from an external source (tracked Creator / BENCHMARK).
+  RANKEYEQ_CAPTURED
+  /// RankEyeQ-operated competitor board (AI).
+  SYSTEM_OPERATED
+}
+
 enum EntitlementType {
   SINGLE_BOARD
   CREATOR_WEEK
@@ -918,6 +928,8 @@ model RankingSubmission {
   normalizedScore    Float?
   /// Official board entered via admin Historical / Backfill Entry.
   historicalBackfill Boolean                @default(false)
+  /// null = legacy row; resolve via lib/boards/authority (sourceRank inference).
+  authority          SubmissionAuthority?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 

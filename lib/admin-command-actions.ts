@@ -185,12 +185,14 @@ export async function adminSaveParsedBotBoardAction(input: {
         contestId: input.contestId,
         universalProfileId: input.profileId,
         rankedEntryIds: input.rankedEntryIds,
+        authority: "SYSTEM_OPERATED",
       });
     } else {
       await saveSubmissionPicks({
         contestId: input.contestId,
         universalProfileId: input.profileId,
         rankedEntryIds: input.rankedEntryIds,
+        authority: "SYSTEM_OPERATED",
         requireComplete: false,
       });
     }

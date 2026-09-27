@@ -178,6 +178,7 @@ export async function runHistoricalTestStep(input: {
               contestId: contest.id,
               universalProfileId: bot.id,
               rankedEntryIds: entryIds,
+              authority: "SYSTEM_OPERATED",
             });
             seeded += 1;
           } catch {

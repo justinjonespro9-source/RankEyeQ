@@ -273,6 +273,7 @@ describe("Week 2 ranking path ignores poisoned Week 1 RankableEntry matchups", (
     const result = await saveSubmissionPicks({
       contestId,
       universalProfileId: humanId,
+      authority: "OWNER_AUTHORED",
       rankedEntryIds: ranked,
       requireComplete: true,
       now: beforeKickoff,

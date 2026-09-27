@@ -12,6 +12,7 @@ import type {
   ContestPosition,
   ProfileType,
 } from "@/lib/generated/prisma/client";
+import { resolveSubmissionAuthority } from "@/lib/boards/authority";
 import { findMatchingEntitlement } from "@/lib/social/entitlements";
 import { isPremiumRevealBoard } from "@/lib/social/creator";
 import {
@@ -257,8 +258,18 @@ export async function getPublicProfileBoard(input: {
     revealPreference,
   });
 
+  // Provenance follows the board's authority, not the profile type.
+  const ownerAuthoredBoard =
+    resolveSubmissionAuthority({
+      profileType: profile.profileType,
+      submission,
+    }) === "OWNER_AUTHORED";
+  const showsCaptureProvenance =
+    (profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR") &&
+    !ownerAuthoredBoard;
+
   const benchmarkSnapshot =
-    profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
+    showsCaptureProvenance
       ? await prisma.benchmarkSnapshot.findFirst({
           where: {
             contestId: contest.id,
@@ -274,7 +285,7 @@ export async function getPublicProfileBoard(input: {
         })
       : null;
   const publicBoardRestricted =
-    (profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR") &&
+    showsCaptureProvenance &&
     (benchmarkSnapshot?.status === "NOT_AVAILABLE" ||
       benchmarkSnapshot?.publicBoardAllowed === false);
 
@@ -359,10 +370,9 @@ export async function getPublicProfileBoard(input: {
     boardCaption: null,
     capturedAt: benchmarkSnapshot?.capturedAt ?? null,
     weeklySourceUrl: benchmarkSnapshot?.sourceUrl?.trim() || null,
-    captureAttribution:
-      profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
-        ? "Source ranking captured by RankEYEQ"
-        : null,
+    captureAttribution: showsCaptureProvenance
+      ? "Source ranking captured by RankEYEQ"
+      : null,
     publicBoardRestricted,
     isLiveProvisional:
       contest.status !== "FINAL" && contest.status !== "ARCHIVED",

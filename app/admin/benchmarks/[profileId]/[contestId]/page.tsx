@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { BenchmarkImportForm } from "@/components/admin/BenchmarkImportForm";
+import { BoardAuthorityNotice } from "@/components/admin/BoardAuthorityNotice";
+import { loadCaptureAuthorityDecision } from "@/lib/boards/authority";
 import { toEligibleParserEntry } from "@/lib/admin/ai-parser";
 import { ConfirmSubmit } from "@/components/ui/ConfirmSubmit";
 import { Container } from "@/components/layout/Container";
@@ -67,6 +69,10 @@ export default async function AdminBenchmarkContestPage(
     );
   const submission = contest.submissions[0] ?? null;
   const latest = snapshots[0] ?? null;
+  const captureDecision = await loadCaptureAuthorityDecision({
+    contestId: contest.id,
+    universalProfileId: profile.id,
+  });
 
   return (
     <Container className="py-12 sm:py-16">
@@ -103,36 +109,45 @@ export default async function AdminBenchmarkContestPage(
           : ""}
       </p>
 
-      <BenchmarkImportForm
-        contestId={contest.id}
-        profileId={profile.id}
-        weekId={contest.weekId}
-        rankingDepth={contest.rankingDepth}
-        eligible={eligible}
-        sourceName={profile.displayName}
-        fullLockAt={contest.week.fullLockAt}
-        latestSnapshotId={latest?.id ?? null}
-        hasOfficialBoard={
-          submission?.status === "LOCKED" || submission?.status === "GRADED"
-        }
-      />
-
-      <div className="mt-8">
-        <ConfirmSubmit
-          action={adminMarkBenchmarkNotAvailableAction}
-          submitLabel="Mark not available"
-          impact={`Mark ${profile.displayName} ${contest.position} as NOT_AVAILABLE for ${contest.week.label}. This does not invent a ranking and does not block Finalize Week.`}
-          confirmPhrase="NOT AVAILABLE"
-        >
-          <input type="hidden" name="contestId" value={contest.id} />
-          <input type="hidden" name="profileId" value={profile.id} />
-          <input
-            type="hidden"
-            name="notes"
-            value="Source did not publish a compatible ranking for this position"
+      {captureDecision && !captureDecision.allowed ? (
+        <BoardAuthorityNotice
+          decision={captureDecision}
+          profileName={profile.displayName}
+        />
+      ) : (
+        <>
+          <BenchmarkImportForm
+            contestId={contest.id}
+            profileId={profile.id}
+            weekId={contest.weekId}
+            rankingDepth={contest.rankingDepth}
+            eligible={eligible}
+            sourceName={profile.displayName}
+            fullLockAt={contest.week.fullLockAt}
+            latestSnapshotId={latest?.id ?? null}
+            hasOfficialBoard={
+              submission?.status === "LOCKED" || submission?.status === "GRADED"
+            }
           />
-        </ConfirmSubmit>
-      </div>
+
+          <div className="mt-8">
+            <ConfirmSubmit
+              action={adminMarkBenchmarkNotAvailableAction}
+              submitLabel="Mark not available"
+              impact={`Mark ${profile.displayName} ${contest.position} as NOT_AVAILABLE for ${contest.week.label}. This does not invent a ranking and does not block Finalize Week.`}
+              confirmPhrase="NOT AVAILABLE"
+            >
+              <input type="hidden" name="contestId" value={contest.id} />
+              <input type="hidden" name="profileId" value={profile.id} />
+              <input
+                type="hidden"
+                name="notes"
+                value="Source did not publish a compatible ranking for this position"
+              />
+            </ConfirmSubmit>
+          </div>
+        </>
+      )}
 
       <section className="mt-10">
         <h2 className="font-display text-lg font-semibold text-ink">
