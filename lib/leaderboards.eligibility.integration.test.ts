@@ -252,7 +252,7 @@ describe("leaderboard empty-competitor eligibility", () => {
 
   it("excludes empty shells from live boards and consensus", async () => {
     // Live board needs provisional fantasy points; entries already have points.
-    const live = await getLiveContestRankerBoard(contestId);
+    const live = await getLiveContestRankerBoard(contestId, { includeTest: true });
     expect(live.some((row) => row.universalProfileId === expertNoSubId)).toBe(
       false,
     );

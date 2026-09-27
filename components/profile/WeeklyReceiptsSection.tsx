@@ -119,7 +119,12 @@ function ReceiptCard({
 
       {open ? (
         <div className="border-t border-border">
-          {item.receiptPicks.length === 0 ? (
+          {item.sourceRestricted ? (
+            <p className="px-4 py-5 text-sm text-muted">
+              This source ranking is stored internally and is not reproduced
+              publicly. Performance metrics remain available.
+            </p>
+          ) : item.receiptPicks.length === 0 ? (
             <p className="px-4 py-5 text-sm text-muted">
               No graded picks on this receipt yet.
             </p>

@@ -259,6 +259,7 @@ function hist(weekNumber: number, score: number): ProfileContestHistoryItem {
     numberOneHit: false,
     weeklyRank: 1,
     receiptPicks: [],
+    sourceRestricted: false,
   };
 }
 

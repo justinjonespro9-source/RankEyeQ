@@ -12,7 +12,10 @@ import type {
   ContestPosition,
   ProfileType,
 } from "@/lib/generated/prisma/client";
-import { resolveSubmissionAuthority } from "@/lib/boards/authority";
+import {
+  boardShowsCaptureProvenance,
+  snapshotRestrictsPublicBoard,
+} from "@/lib/boards/source-rights";
 import { findMatchingEntitlement } from "@/lib/social/entitlements";
 import { isPremiumRevealBoard } from "@/lib/social/creator";
 import {
@@ -259,14 +262,10 @@ export async function getPublicProfileBoard(input: {
   });
 
   // Provenance follows the board's authority, not the profile type.
-  const ownerAuthoredBoard =
-    resolveSubmissionAuthority({
-      profileType: profile.profileType,
-      submission,
-    }) === "OWNER_AUTHORED";
-  const showsCaptureProvenance =
-    (profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR") &&
-    !ownerAuthoredBoard;
+  const showsCaptureProvenance = boardShowsCaptureProvenance({
+    profileType: profile.profileType,
+    submission,
+  });
 
   const benchmarkSnapshot =
     showsCaptureProvenance
@@ -285,9 +284,7 @@ export async function getPublicProfileBoard(input: {
         })
       : null;
   const publicBoardRestricted =
-    showsCaptureProvenance &&
-    (benchmarkSnapshot?.status === "NOT_AVAILABLE" ||
-      benchmarkSnapshot?.publicBoardAllowed === false);
+    showsCaptureProvenance && snapshotRestrictsPublicBoard(benchmarkSnapshot);
 
   let hasMatchingEntitlement = false;
   let matchingEntitlementId: string | null = null;

@@ -28,6 +28,7 @@ function historyItem(
     numberOneHit: false,
     weeklyRank: 3,
     receiptPicks: [],
+    sourceRestricted: false,
     ...partial,
   };
 }

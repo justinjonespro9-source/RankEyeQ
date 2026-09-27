@@ -1,4 +1,10 @@
 import { prisma } from "@/lib/db";
+import {
+  capturedBoardSourceRestricted,
+  loadLatestSnapshotRights,
+  sourceRightsBoardKey,
+} from "@/lib/boards/source-rights";
+import { boardAppearsOnPublicWeekSurface } from "@/lib/competitor-visibility";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
 
@@ -11,6 +17,8 @@ export type ThursdayReceiptCommitment = {
   rank: number;
   username: string;
   displayName: string;
+  /** False for source-rights-restricted captured boards: counted, never named. */
+  nameable?: boolean;
 };
 
 export function committedPicksForKickoff(input: {
@@ -19,6 +27,7 @@ export function committedPicksForKickoff(input: {
   eligibleBoards: Array<{
     username: string;
     displayName: string;
+    nameable?: boolean;
     picks: Array<{
       rankableEntryId: string;
       predictedRank: number;
@@ -41,6 +50,7 @@ export function committedPicksForKickoff(input: {
       rank: pick.lockedRank ?? pick.predictedRank,
       username: board.username,
       displayName: board.displayName,
+      nameable: board.nameable,
     });
   }
   return rows;
@@ -60,7 +70,10 @@ export function summarizeReceiptCommitments(
       committed.length === 0
         ? null
         : committed.reduce((sum, row) => sum + row.rank, 0) / committed.length,
-    numberOneCallers: rankedOne.slice(0, 8) as ThursdayReceiptCaller[],
+    numberOneCallers: rankedOne
+      .filter((row) => row.nameable !== false)
+      .slice(0, 8)
+      .map(({ username, displayName }) => ({ username, displayName })),
   };
 }
 
@@ -128,7 +141,15 @@ export async function getThursdayReceipts(weekId: string): Promise<{
             include: {
               picks: true,
               universalProfile: {
-                select: { username: true, displayName: true, profileType: true },
+                select: {
+                  username: true,
+                  displayName: true,
+                  profileType: true,
+                  competitorActive: true,
+                  publicVisible: true,
+                  publicFromWeekId: true,
+                  publicFromWeek: true,
+                },
               },
             },
           },
@@ -136,6 +157,24 @@ export async function getThursdayReceipts(weekId: string): Promise<{
       },
     },
   });
+
+  const publicBoardsByContest = new Map(
+    week.contests.map((contest) => [
+      contest.id,
+      contest.submissions.filter(
+        (submission) =>
+          submissionIsEligible(submission.status) &&
+          boardAppearsOnPublicWeekSurface(submission.universalProfile, week),
+      ),
+    ]),
+  );
+  const snapshotRights = await loadLatestSnapshotRights(
+    [...publicBoardsByContest.values()]
+      .flat()
+      .filter((submission) =>
+        ["BENCHMARK", "CREATOR"].includes(submission.universalProfile.profileType),
+      ),
+  );
 
   const rows: ThursdayReceiptRow[] = [];
 
@@ -154,9 +193,7 @@ export async function getThursdayReceipts(weekId: string): Promise<{
       ranked.map((row) => [row.item.rankableEntryId, row.rank]),
     );
 
-    const eligible = contest.submissions.filter((submission) =>
-      submissionIsEligible(submission.status),
-    );
+    const eligible = publicBoardsByContest.get(contest.id) ?? [];
     const sampleSize = eligible.length;
 
     for (const entry of completed) {
@@ -169,6 +206,13 @@ export async function getThursdayReceipts(weekId: string): Promise<{
         eligibleBoards: eligible.map((submission) => ({
           username: submission.universalProfile.username,
           displayName: submission.universalProfile.displayName,
+          nameable: !capturedBoardSourceRestricted({
+            profileType: submission.universalProfile.profileType,
+            submission,
+            latestSnapshot: snapshotRights.get(
+              sourceRightsBoardKey(submission.contestId, submission.universalProfileId),
+            ),
+          }),
           picks: submission.picks,
         })),
       });

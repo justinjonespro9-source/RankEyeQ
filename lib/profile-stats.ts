@@ -3,6 +3,11 @@ import {
   profileAppearsOnPublicSurfaces,
   weekIsPubliclyVisibleForProfile,
 } from "@/lib/competitor-visibility";
+import {
+  capturedBoardSourceRestricted,
+  loadLatestSnapshotRights,
+  sourceRightsBoardKey,
+} from "@/lib/boards/source-rights";
 import { isCreatorVerified } from "@/lib/creator-verification-shared";
 import { prisma } from "@/lib/db";
 import {
@@ -242,8 +247,21 @@ export async function getRankIQProfileView(
     }
   }
 
+  const snapshotRights = await loadLatestSnapshotRights(
+    profile.profileType === "BENCHMARK" || profile.profileType === "CREATOR"
+      ? submissions
+      : [],
+  );
+
   const history: ProfileContestHistoryItem[] = [];
   for (const submission of submissions) {
+    const sourceRestricted = capturedBoardSourceRestricted({
+      profileType: profile.profileType,
+      submission,
+      latestSnapshot: snapshotRights.get(
+        sourceRightsBoardKey(submission.contestId, submission.universalProfileId),
+      ),
+    });
     const weekly: LeaderboardRow[] =
       boardSets
         .get(submission.contest.seasonId)
@@ -272,7 +290,7 @@ export async function getRankIQProfileView(
       if (pick.actualRank === 1) numberOne = true;
     }
 
-    const receiptPicks = submission.picks.map((pick) => {
+    const receiptPicks = sourceRestricted ? [] : submission.picks.map((pick) => {
       const line = buildReceiptPickLine({
         pick: {
           playerId: pick.rankableEntryId,
@@ -308,6 +326,7 @@ export async function getRankIQProfileView(
       numberOneHit: numberOne,
       weeklyRank: rankOnBoard(weekly, profile.id),
       receiptPicks,
+      sourceRestricted,
     });
   }
 

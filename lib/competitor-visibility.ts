@@ -104,6 +104,22 @@ export function weekIsPubliclyVisibleForProfile(
   return week.startsAt.getTime() >= from.startsAt.getTime();
 }
 
+/**
+ * A named/scored board on a public week surface (leaderboards, Thursday
+ * Receipts, Live EYEQ): profile + publicFromWeek gate; test weeks only when the
+ * caller explicitly includes them (admin test preview).
+ */
+export function boardAppearsOnPublicWeekSurface(
+  profile: VisibilityProfileFields & {
+    publicFromWeek?: WeekVisibilityFields | null;
+  },
+  week: WeekVisibilityFields & { isTest: boolean },
+  options?: { includeTest?: boolean },
+): boolean {
+  if (week.isTest && !options?.includeTest) return false;
+  return weekIsPubliclyVisibleForProfile(profile, week);
+}
+
 export type AuthorizeHistoryMode = "from_now" | "expose_history";
 
 export function authorizePublicUpdate(input: {

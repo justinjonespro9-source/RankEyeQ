@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { profileAppearsOnPublicSurfaces } from "@/lib/competitor-visibility";
+import { boardAppearsOnPublicWeekSurface } from "@/lib/competitor-visibility";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
 import { assignCompetitionRanks } from "@/lib/fantasy/competition-rank";
 import { scoreProvisionalEyeq } from "@/lib/live-provisional";
@@ -87,10 +87,14 @@ export async function getLivePlayerStandings(
   });
 }
 
-export async function getLiveContestRankerBoard(contestId: string) {
+export async function getLiveContestRankerBoard(
+  contestId: string,
+  options?: { includeTest?: boolean },
+) {
   const contest = await prisma.rankIQContest.findUniqueOrThrow({
     where: { id: contestId },
     include: {
+      week: true,
       entries: {
         where: { excluded: false },
         include: {
@@ -110,7 +114,7 @@ export async function getLiveContestRankerBoard(contestId: string) {
           picks: {
             include: { rankableEntry: { include: { game: true } } },
           },
-          universalProfile: true,
+          universalProfile: { include: { publicFromWeek: true } },
         },
       },
     },
@@ -141,11 +145,11 @@ export async function getLiveContestRankerBoard(contestId: string) {
       continue;
     }
     if (
-      !profileAppearsOnPublicSurfaces({
-        profileType: submission.universalProfile.profileType,
-        competitorActive: submission.universalProfile.competitorActive,
-        publicVisible: submission.universalProfile.publicVisible,
-      })
+      !boardAppearsOnPublicWeekSurface(
+        submission.universalProfile,
+        contest.week,
+        options,
+      )
     ) {
       continue;
     }
@@ -189,7 +193,11 @@ export async function getLiveContestRankerBoard(contestId: string) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-export async function getLiveWeekRankerBoard(weekId: string, position?: ContestPosition) {
+export async function getLiveWeekRankerBoard(
+  weekId: string,
+  position?: ContestPosition,
+  options?: { includeTest?: boolean },
+) {
   const contests = await prisma.rankIQContest.findMany({
     where: position ? { weekId, position } : { weekId },
     select: { id: true },
@@ -201,7 +209,7 @@ export async function getLiveWeekRankerBoard(weekId: string, position?: ContestP
   >();
 
   for (const contest of contests) {
-    const board = await getLiveContestRankerBoard(contest.id);
+    const board = await getLiveContestRankerBoard(contest.id, options);
     for (const row of board) {
       const current = byProfile.get(row.universalProfileId);
       if (!current) {

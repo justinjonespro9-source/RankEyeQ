@@ -16,4 +16,6 @@ export type ProfileContestHistoryItem = {
   weeklyRank: number | null;
   /** Graded pick lines for expandable Weekly Receipts (permanent archive). */
   receiptPicks: ReceiptPickLine[];
+  /** Captured-source rights restriction: picks withheld, metrics still shown. */
+  sourceRestricted: boolean;
 };
