@@ -68,8 +68,8 @@ export function SeasonStanding({
             </ul>
           </div>
           <p className="mt-2 text-xs text-muted">
-            Full-field ranks from the canonical season leaderboards (average {EYEQ_SCORE_LABEL}
-            across graded contests).
+            Full-field ranks from the canonical season leaderboards (average{" "}
+            {EYEQ_SCORE_LABEL} across graded contests).
           </p>
         </>
       )}
