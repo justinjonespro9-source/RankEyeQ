@@ -10,6 +10,12 @@ function scopeLabel(scope: SeasonStandingCell["scope"]) {
   return scope === "OVERALL" ? "Overall" : scope;
 }
 
+function ordinal(n: number) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
+}
+
 function podiumPlace(placement: number | null): 1 | 2 | 3 | null {
   return placement === 1 || placement === 2 || placement === 3 ? placement : null;
 }
@@ -69,7 +75,8 @@ export function SeasonStanding({
           </div>
           <p className="mt-2 text-xs text-muted">
             Full-field ranks from the canonical season leaderboards (average{" "}
-            {EYEQ_SCORE_LABEL} across graded contests).
+            {EYEQ_SCORE_LABEL} across graded contests). T = tied on performance;
+            medals follow the shared placement.
           </p>
         </>
       )}
@@ -105,7 +112,9 @@ function OverallCell({
             </p>
             <p className="self-end pb-1 text-sm text-muted">
               of {cell.fieldSize}
-              {cell.tied ? " · tied" : ""}
+              {cell.tied && cell.placement != null
+                ? ` · tied for ${ordinal(cell.placement)}`
+                : ""}
             </p>
           </div>
           <p className="mt-1 text-sm text-ink">
@@ -168,7 +177,7 @@ function PositionCell({
           </div>
           <p className="text-[11px] text-muted sm:text-xs">
             of {cell.fieldSize}
-            {cell.tied ? " · T" : ""}
+            {cell.tied && cell.placement != null ? ` · T-${cell.placement}` : ""}
           </p>
           <p className="mt-1 font-display text-sm font-semibold tabular-nums text-ink">
             {cell.averageScore == null ? "—" : formatRankIqScore(cell.averageScore)}
