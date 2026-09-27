@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { PodiumMedal } from "@/components/live/PodiumMedal";
-import type {
-  HotStreakSummary,
-  StreakRange,
-  TopTenFinish,
-  Trophy,
-  TrophyCase as TrophyCaseData,
+import {
+  formatCompetitiveRank,
+  type HotStreakSummary,
+  type StreakRange,
+  type TopTenFinish,
+  type Trophy,
+  type TrophyCase as TrophyCaseData,
 } from "@/lib/competitive-resume";
 
 const PLACEMENTS_VISIBLE = 9;
@@ -186,7 +187,7 @@ function PlacementGrid({ placements }: { placements: Trophy[] }) {
 
 function finishLabel(finish: TopTenFinish, multiSeason: boolean) {
   const scope = finish.scope === "OVERALL" ? "Overall" : finish.scope;
-  return `${multiSeason ? `${finish.seasonYear} ` : ""}Wk ${finish.weekNumber} · ${scope} · #${finish.placement}${finish.tied ? " (T)" : ""} of ${finish.fieldSize}`;
+  return `${multiSeason ? `${finish.seasonYear} ` : ""}Wk ${finish.weekNumber} · ${scope} · ${formatCompetitiveRank(finish.placement, finish.tied)} of ${finish.fieldSize}`;
 }
 
 function TopTenTile({ finishes }: { finishes: TopTenFinish[] }) {

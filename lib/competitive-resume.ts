@@ -47,7 +47,7 @@ export type SeasonStanding = {
   seasonFinalized: boolean;
   cells: SeasonStandingCell[];
   /** Rank inside the profile's own class (e.g. among Experts) — context only. */
-  classRank: { label: string; rank: number; fieldSize: number } | null;
+  classRank: { label: string; placement: number; tied: boolean; fieldSize: number } | null;
   /** Best positional finish (lowest rank) — surfaced so elite specialists stand out. */
   strongestPosition: SeasonStandingCell | null;
 };
@@ -195,6 +195,14 @@ function isPositionContestFinal(
   return Boolean(contest && isContestFinal(contest.status));
 }
 
+/**
+ * User-facing résumé rank. A performance tie shows only the shared placement
+ * ("T-3"); the display-order number never appears beside it.
+ */
+export function formatCompetitiveRank(placement: number, tied: boolean): string {
+  return tied ? `T-${placement}` : `#${placement}`;
+}
+
 function rowFor(board: LeaderboardRow[] | undefined, profileId: string) {
   return board?.find((row) => row.universalProfileId === profileId) ?? null;
 }
@@ -270,14 +278,14 @@ export function buildSeasonStanding(input: {
   );
 
   const classBoard = filterLeaderboardRows(set.seasonOverall, input.classFilter.filter);
-  const classRow = rowFor(classBoard, profileId);
+  const classPlacement = competitivePlacement(classBoard, profileId);
 
-  const ranked = positions.filter((cell) => cell.rank != null);
+  const ranked = positions.filter((cell) => cell.placement != null);
   const strongestPosition =
     ranked.length === 0
       ? null
       : [...ranked].sort((a, b) => {
-          if (a.rank! !== b.rank!) return a.rank! - b.rank!;
+          if (a.placement! !== b.placement!) return a.placement! - b.placement!;
           return (b.averageScore ?? 0) - (a.averageScore ?? 0);
         })[0];
 
@@ -286,8 +294,8 @@ export function buildSeasonStanding(input: {
     seasonActive: set.seasonActive,
     seasonFinalized: isSeasonFinalized(set),
     cells: [overall, ...positions],
-    classRank: classRow
-      ? { label: input.classFilter.label, rank: classRow.rank, fieldSize: classBoard.length }
+    classRank: classPlacement
+      ? { label: input.classFilter.label, ...classPlacement, fieldSize: classBoard.length }
       : null,
     strongestPosition,
   };

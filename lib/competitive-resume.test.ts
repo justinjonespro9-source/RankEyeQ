@@ -131,6 +131,7 @@ import {
   buildSeasonStanding,
   classFilterForStanding,
   deriveTrophyCase,
+  formatCompetitiveRank,
   isNumberOneCall,
   isWeeklyTopTen,
   type SeasonChampionshipEligibility,
@@ -727,7 +728,7 @@ describe("profile classes", () => {
       classFilter: classFilterForStanding({ profileType, isPublisherConsensus: false }),
     });
     expect(standing.cells[0].rank).toBe(1);
-    expect(standing.classRank).toMatchObject({ label, rank: 1 });
+    expect(standing.classRank).toMatchObject({ label, placement: 1, tied: false });
   });
 
   it("keeps legacy publisher shells off boards and out of the Trophy Case", async () => {
@@ -862,5 +863,51 @@ describe("#1 Calls wiring", () => {
     expect(cell("alpha")).toMatchObject({ rank: 1, placement: 1, tied: true });
     expect(cell("zulu")).toMatchObject({ rank: 2, placement: 1, tied: true });
     expect(cell("third")).toMatchObject({ rank: 3, placement: 3, tied: false });
+  });
+
+  it("résumé rank shows only the shared placement for ties (no display-order number)", () => {
+    expect(formatCompetitiveRank(3, true)).toBe("T-3");
+    expect(formatCompetitiveRank(7, false)).toBe("#7");
+  });
+});
+
+describe("Season Standing presentation", () => {
+  it("renders a tied cell as T-3 of 23 without the display-order #7", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { SeasonStanding } = await import("@/components/profile/SeasonStanding");
+    const cell = (scope: string, rank: number | null, placement: number | null, tied: boolean) => ({
+      scope,
+      rank,
+      placement,
+      tied,
+      fieldSize: 23,
+      averageScore: rank == null ? null : 40.5,
+      contestsPlayed: rank == null ? 0 : 1,
+    });
+    const html = renderToStaticMarkup(
+      createElement(SeasonStanding, {
+        standing: {
+          seasonYear: 2026,
+          seasonActive: true,
+          seasonFinalized: false,
+          cells: [
+            cell("OVERALL", 1, 1, false),
+            cell("QB", null, null, false),
+            cell("RB", 7, 3, true),
+            cell("WR", 2, 2, false),
+            cell("TE", null, null, false),
+            cell("DEF", null, null, false),
+          ],
+          classRank: { label: "among Experts", placement: 1, tied: false, fieldSize: 12 },
+          strongestPosition: null,
+        } as never,
+      }),
+    );
+    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("T-3 of 23");
+    expect(text).not.toContain("#7");
+    expect(text).toContain("#2 of 23");
+    expect(text).toContain("#1 among Experts");
   });
 });

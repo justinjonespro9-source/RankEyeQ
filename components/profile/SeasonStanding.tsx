@@ -1,19 +1,14 @@
 import { PodiumMedal } from "@/components/live/PodiumMedal";
 import { EYEQ_SCORE_LABEL } from "@/lib/brand";
 import { formatRankIqScore } from "@/lib/scoring";
-import type {
-  SeasonStanding as SeasonStandingData,
-  SeasonStandingCell,
+import {
+  formatCompetitiveRank,
+  type SeasonStanding as SeasonStandingData,
+  type SeasonStandingCell,
 } from "@/lib/competitive-resume";
 
 function scopeLabel(scope: SeasonStandingCell["scope"]) {
   return scope === "OVERALL" ? "Overall" : scope;
-}
-
-function ordinal(n: number) {
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
-  return `${n}${({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
 }
 
 function podiumPlace(placement: number | null): 1 | 2 | 3 | null {
@@ -33,7 +28,7 @@ export function SeasonStanding({
 }) {
   const overall = standing?.cells.find((cell) => cell.scope === "OVERALL") ?? null;
   const positions = standing?.cells.filter((cell) => cell.scope !== "OVERALL") ?? [];
-  const hasAnyRank = standing?.cells.some((cell) => cell.rank != null) ?? false;
+  const hasAnyRank = standing?.cells.some((cell) => cell.placement != null) ?? false;
 
   return (
     <section aria-labelledby="season-standing-heading" className="mt-8">
@@ -75,8 +70,7 @@ export function SeasonStanding({
           </div>
           <p className="mt-2 text-xs text-muted">
             Full-field ranks from the canonical season leaderboards (average{" "}
-            {EYEQ_SCORE_LABEL} across graded contests). T = tied on performance;
-            medals follow the shared placement.
+            {EYEQ_SCORE_LABEL} across graded contests). T = tied on performance.
           </p>
         </>
       )}
@@ -101,20 +95,17 @@ function OverallCell({
       <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
         Overall
       </p>
-      {cell.rank == null ? (
+      {cell.placement == null ? (
         <p className="mt-2 text-sm text-muted">Not ranked yet</p>
       ) : (
         <>
           <div className="mt-1 flex items-center gap-2">
             {place ? <PodiumMedal place={place} className="h-6 w-6" /> : null}
             <p className="font-display text-4xl font-semibold tabular-nums text-ink">
-              #{cell.rank}
+              {formatCompetitiveRank(cell.placement!, cell.tied)}
             </p>
             <p className="self-end pb-1 text-sm text-muted">
               of {cell.fieldSize}
-              {cell.tied && cell.placement != null
-                ? ` · tied for ${ordinal(cell.placement)}`
-                : ""}
             </p>
           </div>
           <p className="mt-1 text-sm text-ink">
@@ -129,7 +120,8 @@ function OverallCell({
           </p>
           {classRank ? (
             <p className="mt-1 text-xs text-muted">
-              #{classRank.rank} {classRank.label} (of {classRank.fieldSize})
+              {formatCompetitiveRank(classRank.placement, classRank.tied)} {classRank.label} (of{" "}
+              {classRank.fieldSize})
             </p>
           ) : null}
         </>
@@ -146,7 +138,7 @@ function PositionCell({
   strongest: boolean;
 }) {
   const place = podiumPlace(cell.placement);
-  const ranked = cell.rank != null;
+  const ranked = cell.placement != null;
   return (
     <li
       className={`relative rounded-lg border px-2.5 py-3 sm:px-3 ${
@@ -172,12 +164,11 @@ function PositionCell({
           <div className="mt-1 flex items-center gap-1">
             {place ? <PodiumMedal place={place} /> : null}
             <p className="font-display text-xl font-semibold tabular-nums text-ink sm:text-2xl">
-              #{cell.rank}
+              {formatCompetitiveRank(cell.placement!, cell.tied)}
             </p>
           </div>
           <p className="text-[11px] text-muted sm:text-xs">
             of {cell.fieldSize}
-            {cell.tied && cell.placement != null ? ` · T-${cell.placement}` : ""}
           </p>
           <p className="mt-1 font-display text-sm font-semibold tabular-nums text-ink">
             {cell.averageScore == null ? "—" : formatRankIqScore(cell.averageScore)}
