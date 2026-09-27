@@ -58,6 +58,13 @@ export function canSubmitFromRankingWorkspace(
   return profileType === "HUMAN" || profileType === "CREATOR";
 }
 
+/** Signed-in owner of an Expert profile: show the tracked-Expert /rank state. */
+export function shouldShowClaimedExpertRankState(
+  profileType: ProfileType | null | undefined,
+): boolean {
+  return profileType === "BENCHMARK";
+}
+
 /**
  * CREATOR class can exist as a tracked (imported) identity without an auth User.
  * Verified creators may also sign in — use canAuthenticateAsParticipant for that.

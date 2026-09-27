@@ -26,3 +26,17 @@ Dev-only (never production):
 - `RANKIQ_BOARD_REVEAL_ENTITLED=1` (dev fallback for premium reveal)
 
 Secrets are never sent to the client. `instrumentation.ts` fails startup in strict production if required vars are missing.
+
+## Database targets (local safety)
+
+| Target | Host | Used by |
+| --- | --- | --- |
+| Local dev | `localhost:5432/rankiq` (`.env`) | `npm test`, `prisma migrate dev`, local scripts |
+| Preview | Neon `ep-aged-sunset…` | Vercel Preview deployments (Preview-scoped `DATABASE_URL` secret) |
+| Production | Neon `ep-curly-bonus…` | Vercel Production only |
+
+- `dotenv` does **not** override variables already exported in your shell. A leftover `export DATABASE_URL=…` (or `set -a; source prod.env`) silently wins over `.env`.
+- `lib/db-target-guard.ts` blocks the Production host:
+  - `vitest.setup.ts`: tests always refuse Production (no override).
+  - `prisma.config.ts`: Prisma CLI refuses Production unless `RANKEYEQ_ALLOW_PRODUCTION_DB=1` is set for that single, approved command. Vercel builds (`VERCEL=1`) are exempt.
+- Before any operator script, print the hostname only and confirm the target. Never keep Production env files in `/tmp` or export them into a long-lived shell.

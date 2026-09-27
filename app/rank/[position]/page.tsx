@@ -7,6 +7,8 @@ import { RankingWorkspace } from "@/components/rank/RankingWorkspace";
 import { ScoringRulesDetails } from "@/components/rank/ScoringRulesDetails";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ClaimedExpertRankNotice } from "@/components/rank/ClaimedExpertRankNotice";
+import { shouldShowClaimedExpertRankState } from "@/lib/auth/participation";
 import { getAuthContext } from "@/lib/auth/session";
 import { parsePositionParam } from "@/lib/contest";
 import { contestAllowsRankingEdits } from "@/lib/contest-lifecycle";
@@ -114,6 +116,15 @@ export default async function PositionRankPage(
       "error",
     );
     throw error;
+  }
+
+  // Before any draft lookup/creation: Expert boards are RankEyeQ-captured.
+  const viewerProfile = authCtx?.universalProfile ?? null;
+  if (
+    viewerProfile &&
+    shouldShowClaimedExpertRankState(viewerProfile.profileType)
+  ) {
+    return <ClaimedExpertRankNotice username={viewerProfile.username} />;
   }
 
   const {

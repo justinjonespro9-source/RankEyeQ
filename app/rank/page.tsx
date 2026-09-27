@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { Container } from "@/components/layout/Container";
+import { ClaimedExpertRankNotice } from "@/components/rank/ClaimedExpertRankNotice";
 import { PositionChallengeCard } from "@/components/rank/PositionChallengeCard";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { getActiveProfile } from "@/lib/active-profile";
+import { shouldShowClaimedExpertRankState } from "@/lib/auth/participation";
 import { CONTEST_ELIGIBILITY } from "@/lib/contest";
 import { getPublicWeeklyChallenges } from "@/lib/contests";
 import { getHomepageData } from "@/lib/homepage";
@@ -24,6 +26,9 @@ export const dynamic = "force-dynamic";
 
 export default async function RankHubPage() {
   const activeProfile = await getActiveProfile();
+  if (activeProfile && shouldShowClaimedExpertRankState(activeProfile.profileType)) {
+    return <ClaimedExpertRankNotice username={activeProfile.username} />;
+  }
   const [challenges, homepage] = await Promise.all([
     getPublicWeeklyChallenges(),
     getHomepageData(activeProfile?.id),
