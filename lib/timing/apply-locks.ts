@@ -11,6 +11,10 @@ import {
 import { logServerEvent } from "@/lib/log";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import { Prisma } from "@/lib/generated/prisma/client";
+import {
+  contestIdsWithFinalReceipts,
+  ensureOfficialBoardFinalsForWeek,
+} from "@/lib/boards/official-board";
 
 /**
  * Persist slot locks when kickoff/full-lock has occurred.
@@ -221,6 +225,20 @@ export async function ensureWeekFullLock(weekId: string, now = new Date()) {
 
   await captureContestPregameSnapshotsForWeek(weekId, week.fullLockAt);
 
+  // Presentation-only receipts; the pre-grade backstop guarantees them if this fails.
+  try {
+    await ensureOfficialBoardFinalsForWeek(weekId, now);
+  } catch (error) {
+    logServerEvent(
+      "official_board.finals_lifecycle_failed",
+      {
+        weekId,
+        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      },
+      "error",
+    );
+  }
+
   return { lockedContests, lockedSubmissions };
 }
 
@@ -289,10 +307,21 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
     };
   }
 
+  // A FINAL receipt records what competed; never reopen a contest that has one.
+  const finalContestIds = [...(await contestIdsWithFinalReceipts(weekId))];
+  if (finalContestIds.length > 0) {
+    logServerEvent(
+      "official_board.heal_blocked_by_final",
+      { weekId, contestIds: finalContestIds },
+      "warn",
+    );
+  }
+
   const contests = await prisma.rankIQContest.updateMany({
     where: {
       weekId,
       status: "LOCKED",
+      id: { notIn: finalContestIds },
     },
     data: {
       status: "OPEN",
@@ -303,6 +332,7 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
   const submissions = await prisma.rankingSubmission.updateMany({
     where: {
       contest: { weekId },
+      contestId: { notIn: finalContestIds },
       status: "LOCKED",
     },
     data: {
@@ -315,7 +345,7 @@ export async function healPrematureWeekLocks(weekId: string, now = new Date()) {
   const prematurePicks = await prisma.rankingPick.findMany({
     where: {
       slotLocked: true,
-      submission: { contest: { weekId } },
+      submission: { contest: { weekId }, contestId: { notIn: finalContestIds } },
     },
     include: {
       submission: {

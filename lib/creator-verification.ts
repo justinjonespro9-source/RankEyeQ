@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { OFFICIAL_BOARD_CLAIM_BLOCKED_MESSAGE } from "@/lib/boards/official-board";
 import {
   CREATOR_CLAIM_REVIEW_COPY,
   CREATOR_TRACKED_DISCLAIMER,
@@ -306,6 +307,18 @@ export async function approveCreatorClaimLink(input: {
         })
       ).map((row) => row.contestId),
     );
+
+    const duplicateIds = humanSubs
+      .filter((sub) => creatorContestIds.has(sub.contestId))
+      .map((sub) => sub.id);
+    if (
+      duplicateIds.length > 0 &&
+      (await tx.officialBoardVersion.count({
+        where: { submissionId: { in: duplicateIds } },
+      })) > 0
+    ) {
+      throw new CreatorVerificationError(OFFICIAL_BOARD_CLAIM_BLOCKED_MESSAGE);
+    }
 
     for (const sub of humanSubs) {
       if (creatorContestIds.has(sub.contestId)) {

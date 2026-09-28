@@ -32,6 +32,7 @@ import type {
   WeekStatus,
 } from "@/lib/generated/prisma/client";
 import { calculateLeagueActualFinishesForContest } from "@/lib/nfl/actual-finishes";
+import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
 import { buildContestWeekKickoffMap } from "@/lib/reserves/contest-week-kickoffs";
@@ -822,6 +823,7 @@ export async function applyPostFinalStatCorrection(
     );
     finishesRecalculated = true;
 
+    await ensureOfficialBoardFinalsForContest(target.contestId);
     const gradeResult = await gradeContest(target.contestId);
     graded = true;
 

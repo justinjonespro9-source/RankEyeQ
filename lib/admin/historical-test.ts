@@ -7,6 +7,7 @@ import { commitWeeklyImport } from "@/lib/nfl/import";
 import { buildRankIqPositionPools } from "@/lib/nfl/pool-builder";
 import { commitWeekResults } from "@/lib/nfl/results-import";
 import { calculateActualFinishesForWeek } from "@/lib/nfl/actual-finishes";
+import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 import { submitRanking } from "@/lib/submissions";
 
@@ -193,6 +194,7 @@ export async function runHistoricalTestStep(input: {
         where: { weekId: week.id },
       });
       for (const contest of contests) {
+        await ensureOfficialBoardFinalsForContest(contest.id);
         await gradeContest(contest.id);
       }
       await prisma.week.update({

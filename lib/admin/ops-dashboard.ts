@@ -1,3 +1,7 @@
+import {
+  getOfficialBoardFinalReadiness,
+  type ContestFinalReadiness,
+} from "@/lib/admin/official-boards";
 import { prisma } from "@/lib/db";
 import { getWeekTimingState } from "@/lib/timing/week-windows";
 import { getWeekResultsAudit } from "@/lib/nfl/results-audit";
@@ -28,8 +32,16 @@ export type OpsDashboard = {
     fullyLockedBoards: number;
     gradedBoards: number;
     statsReady: boolean;
+    officialFinal: Pick<
+      ContestFinalReadiness,
+      "state" | "captured" | "missing" | "gradingBlockedUntilCaptured"
+    > | null;
     status: OpsStatus;
   }>;
+  officialBoards: {
+    missingFinal: number;
+    gradingBlockedPositions: string[];
+  };
   bots: {
     expected: number;
     completedByPosition: Record<string, number>;
@@ -46,7 +58,11 @@ export type OpsDashboard = {
   };
 };
 
-export async function getOpsDashboard(weekId: string): Promise<OpsDashboard> {
+export async function getOpsDashboard(
+  weekId: string,
+  options?: { now?: Date },
+): Promise<OpsDashboard> {
+  const now = options?.now ?? new Date();
   const week = await prisma.week.findUniqueOrThrow({
     where: { id: weekId },
     include: {
@@ -83,6 +99,7 @@ export async function getOpsDashboard(weekId: string): Promise<OpsDashboard> {
 
   const resultsAudit = await getWeekResultsAudit(weekId);
   const finalize = await getFinalizeWeekReadiness(weekId);
+  const finalReadiness = await getOfficialBoardFinalReadiness(weekId, now);
 
   const completedByPosition: Record<string, number> = {};
   const missingByPosition: Record<string, string[]> = {};
@@ -119,9 +136,13 @@ export async function getOpsDashboard(weekId: string): Promise<OpsDashboard> {
       (row) => row.position === contest.position,
     );
     const statsReady = Boolean(auditContest?.readyToGrade);
+    const officialFinal =
+      finalReadiness.find((row) => row.contestId === contest.id) ?? null;
     let status: OpsStatus = "Needs Attention";
     if (contest.status === "FINAL" || contest.status === "ARCHIVED") {
       status = "Complete";
+    } else if (officialFinal?.gradingBlockedUntilCaptured) {
+      status = "Needs Attention";
     } else if (
       contest.entries.length > 0 &&
       (submitted + fullyLocked > 0 || contest.status === "OPEN")
@@ -139,6 +160,14 @@ export async function getOpsDashboard(weekId: string): Promise<OpsDashboard> {
       fullyLockedBoards: fullyLocked,
       gradedBoards: graded,
       statsReady,
+      officialFinal: officialFinal
+        ? {
+            state: officialFinal.state,
+            captured: officialFinal.captured,
+            missing: officialFinal.missing,
+            gradingBlockedUntilCaptured: officialFinal.gradingBlockedUntilCaptured,
+          }
+        : null,
       status,
     };
   });
@@ -163,6 +192,12 @@ export async function getOpsDashboard(weekId: string): Promise<OpsDashboard> {
       gamesTotal: week.games.length,
     },
     positions,
+    officialBoards: {
+      missingFinal: finalReadiness.reduce((sum, row) => sum + row.missing, 0),
+      gradingBlockedPositions: finalReadiness
+        .filter((row) => row.gradingBlockedUntilCaptured)
+        .map((row) => row.position),
+    },
     bots: {
       expected: aiProfiles.length,
       completedByPosition,

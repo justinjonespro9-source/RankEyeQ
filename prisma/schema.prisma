@@ -125,6 +125,22 @@ enum SubmissionAuthority {
   SYSTEM_OPERATED
 }
 
+/// Immutable Official RankEyeQ Board version kinds. Presentation + history only.
+enum OfficialBoardVersionKind {
+  /// Owner explicitly published (or updated) the board before full lock.
+  PUBLISHED
+  /// What competed: captured once at full lock (or the pre-grade backstop).
+  FINAL
+}
+
+enum WeeklyContentType {
+  VIDEO
+  ARTICLE
+  PODCAST
+  RANKINGS
+  OTHER
+}
+
 enum EntitlementType {
   SINGLE_BOARD
   CREATOR_WEEK
@@ -244,6 +260,9 @@ model UniversalProfile {
   ledgerAsViewer   CreatorLedgerEntry[] @relation("LedgerViewer")
   expertSource     ExpertSourceProfile?
   publicFromWeek   Week?                @relation("ProfilePublicFromWeek", fields: [publicFromWeekId], references: [id], onDelete: SetNull)
+  officialBoardPublications OfficialBoardPublication[]
+  officialBoardVersions     OfficialBoardVersion[]
+  weeklyContent             WeeklyContent[]
 
   @@index([publicFromWeekId])
 }
@@ -474,6 +493,8 @@ model User {
   profileClaimsFiled   ProfileClaimRequest[] @relation("ProfileClaimClaimantUser")
   profileClaimsReviewed ProfileClaimRequest[] @relation("ProfileClaimReviewedBy")
   playerWeekAvailabilityUpdates PlayerWeekAvailability[] @relation("PlayerWeekAvailabilityUpdatedBy")
+  officialBoardVersionsAuthored OfficialBoardVersion[]
+  weeklyContentSuppressed       WeeklyContent[]            @relation("WeeklyContentSuppressedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -581,6 +602,7 @@ model Week {
   manualImports    ManualImportLog[]
   publicFromProfiles UniversalProfile[] @relation("ProfilePublicFromWeek")
   playerWeekAvailabilities PlayerWeekAvailability[]
+  weeklyContent            WeeklyContent[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -649,6 +671,8 @@ model RankIQContest {
   ledgerEntries CreatorLedgerEntry[]
   benchmarkSnapshots BenchmarkSnapshot[]
   pregameSnapshot    ContestPregameSnapshot?
+  officialBoardPublications OfficialBoardPublication[]
+  officialBoardVersions     OfficialBoardVersion[]
 
   @@unique([weekId, position])
   @@index([seasonId, status])
@@ -742,6 +766,7 @@ model RankableEntry {
   picks            RankingPick[]
   benchmarkSnapshotPicks BenchmarkSnapshotPick[]
   pregameSnapshotEntries ContestPregameSnapshotEntry[]
+  officialBoardVersionPicks OfficialBoardVersionPick[]
   playerWeekStats  PlayerWeekStat[]
   defenseWeekStats DefenseWeekStat[]
   weekAvailabilities PlayerWeekAvailability[]
@@ -937,9 +962,122 @@ model RankingSubmission {
   /// Restrict so deleting a profile cannot silently erase historical RankIQ scores.
   universalProfile UniversalProfile @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
   picks            RankingPick[]
+  officialBoardPublication OfficialBoardPublication?
+  officialBoardVersions    OfficialBoardVersion[]
 
   @@unique([contestId, universalProfileId])
   @@index([contestId, status])
+}
+
+/// Official RankEyeQ Board publication state for one owner-authored board.
+/// Presentation + history only — grading, scoring, reserves, locks and
+/// consensus never read this. No row = Protected. Publication is one-way.
+/// Keyed by submission so a board keeps its publication if a claim moves it.
+model OfficialBoardPublication {
+  id                       String   @id @default(cuid())
+  submissionId             String   @unique
+  contestId                String
+  /// Authoring profile at first publication (immutable).
+  profileId                String
+  firstPublishedAt         DateTime
+  lastPublishedAt          DateTime
+  latestPublishedVersionId String   @unique
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  submission             RankingSubmission    @relation(fields: [submissionId], references: [id], onDelete: NoAction)
+  contest                RankIQContest        @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  profile                UniversalProfile     @relation(fields: [profileId], references: [id], onDelete: NoAction)
+  latestPublishedVersion OfficialBoardVersion @relation("PublicationLatestVersion", fields: [latestPublishedVersionId], references: [id], onDelete: NoAction)
+
+  @@index([contestId])
+  @@index([profileId])
+}
+
+/// Immutable snapshot of an owner-authored competitive board. Never updated or
+/// deleted. PUBLISHED versions number 1..n per submission; FINAL is always 1,
+/// so a second FINAL for the same submission violates the unique constraint.
+/// FINAL is the full-lock ranking + slot-lock state at that boundary only;
+/// later kickoff-unavailability freezes stay on RankingPick and are never
+/// copied here. Never a grading or scoring input.
+model OfficialBoardVersion {
+  id            String                   @id @default(cuid())
+  submissionId  String
+  contestId     String
+  /// Authoring profile when this version was created (immutable).
+  profileId     String
+  kind          OfficialBoardVersionKind
+  versionNumber Int
+  /// Owner who pressed Publish / Update. null for system-captured FINAL.
+  authorUserId  String?
+  rankingDepth  Int
+  reserveCount  Int
+  /// sha256 of the ordered competitive board (all slots incl. reserves).
+  fingerprint   String
+  /// FINAL only: the week's full-lock instant the board competed from.
+  boardLockedAt DateTime?
+  createdAt     DateTime                 @default(now())
+
+  submission           RankingSubmission          @relation(fields: [submissionId], references: [id], onDelete: NoAction)
+  contest              RankIQContest              @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  profile              UniversalProfile           @relation(fields: [profileId], references: [id], onDelete: NoAction)
+  authorUser           User?                      @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  picks                OfficialBoardVersionPick[]
+  latestForPublication OfficialBoardPublication?  @relation("PublicationLatestVersion")
+
+  @@unique([submissionId, kind, versionNumber])
+  @@index([contestId, kind])
+  @@index([profileId])
+}
+
+/// One immutable slot of an OfficialBoardVersion (Top N + reserves).
+model OfficialBoardVersionPick {
+  id              String    @id @default(cuid())
+  boardVersionId  String
+  rankableEntryId String
+  boardRank       Int
+  isReserve       Boolean
+  reserveSlot     Int?
+  /// Display identity frozen at version time.
+  displayName     String
+  displayTeam     String
+  /// Slot-lock state as stored on the live pick when the version was taken.
+  slotLocked      Boolean   @default(false)
+  lockedAt        DateTime?
+  lockedRank      Int?
+  committedAt     DateTime?
+
+  boardVersion  OfficialBoardVersion @relation(fields: [boardVersionId], references: [id], onDelete: Cascade)
+  rankableEntry RankableEntry        @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([boardVersionId, boardRank])
+  @@unique([boardVersionId, rankableEntryId])
+}
+
+/// Owner-attached weekly content link (video, article, …). Noncompetitive:
+/// never affects submissions, board versions, scoring, grading or authority.
+model WeeklyContent {
+  id                 String            @id @default(cuid())
+  profileId          String
+  weekId             String
+  title              String
+  url                String
+  type               WeeklyContentType
+  position           ContestPosition?
+  /// Admin moderation: hidden from public display (audited). Owner edits
+  /// never clear it; only an admin restore does.
+  suppressedAt       DateTime?
+  suppressedByUserId String?
+  suppressionReason  String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  profile      UniversalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  week         Week             @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  suppressedBy User?            @relation("WeeklyContentSuppressedBy", fields: [suppressedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, weekId])
+  @@index([weekId])
 }
 
 model RankingPick {

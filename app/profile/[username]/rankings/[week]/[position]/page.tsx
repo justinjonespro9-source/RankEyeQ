@@ -14,7 +14,12 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { getAuthContext } from "@/lib/auth/session";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { getBoardIndexability } from "@/lib/board-privacy";
-import { getPublicProfileBoard } from "@/lib/public-board";
+import {
+  getPublicProfileBoard,
+  type OfficialBoardStage,
+  type PublicBoardView,
+} from "@/lib/public-board";
+import { WeeklyContentLinks } from "@/components/profile/WeeklyContentLinks";
 import { parseSeasonYearParam } from "@/lib/board-routes";
 import { formatRankIqScore } from "@/lib/scoring";
 import { NO_INDEX, PUBLIC_INDEX } from "@/lib/seo";
@@ -25,6 +30,33 @@ import { formatInChicago } from "@/lib/timing/chicago";
 export const dynamic = "force-dynamic";
 
 const POSITIONS: ContestPosition[] = ["QB", "RB", "WR", "TE", "DEF"];
+
+const OFFICIAL_STAGE_LABEL: Record<OfficialBoardStage, string> = {
+  PROTECTED: "Protected",
+  PUBLISHED: "Published",
+  FINAL: "Final",
+  LOCKED: "Locked",
+  SCORING: "Scoring Board",
+};
+
+function officialBoardHeading(board: PublicBoardView): string {
+  const official = board.officialBoard;
+  if (!official) {
+    return board.showingStoredScoringBoard ? "Scoring board" : "Ranking board";
+  }
+  switch (official.stage) {
+    case "PUBLISHED":
+      return `Official Board · Published version ${official.publishedVersionNumber ?? 1}`;
+    case "FINAL":
+      return "Official Board · Final locked board";
+    case "SCORING":
+      return "Official Board · Scoring Board";
+    case "LOCKED":
+      return "Official Board · Locked board";
+    default:
+      return "Official Board";
+  }
+}
 
 export async function generateMetadata(
   props: PageProps<"/profile/[username]/rankings/[week]/[position]">,
@@ -115,6 +147,11 @@ export default async function PublicRankingBoardPage(
         {board.submissionStatus ? (
           <Badge tone="neutral">{board.submissionStatus}</Badge>
         ) : null}
+        {board.officialBoard ? (
+          <Badge tone="success">
+            Official RankEyeQ Board · {OFFICIAL_STAGE_LABEL[board.officialBoard.stage]}
+          </Badge>
+        ) : null}
         {board.isLiveProvisional ? (
           <Badge tone="warning">LIVE / UNOFFICIAL</Badge>
         ) : (
@@ -122,12 +159,23 @@ export default async function PublicRankingBoardPage(
         )}
       </div>
 
+      {board.weeklyContent.length > 0 ? (
+        <div className="mb-6 rounded-lg border border-border bg-surface px-4 py-3">
+          <WeeklyContentLinks
+            profileId={board.profileId}
+            items={board.weeklyContent}
+          />
+        </div>
+      ) : null}
+
       {!board.allowed ? (
         <EmptyState
           title={
             board.gatedPremium
               ? "Premium board — unlock required before noon."
-              : "Board not public yet"
+              : board.officialBoard?.stage === "PROTECTED"
+                ? "Board protected until reveal"
+                : "Board not public yet"
           }
           description={
             board.reason ??
@@ -224,10 +272,22 @@ export default async function PublicRankingBoardPage(
             <div className="space-y-6">
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                  {board.showingStoredScoringBoard
-                    ? "Scoring board"
-                    : "Ranking board"}
+                  {officialBoardHeading(board)}
                 </p>
+                {board.ownerPreview ? (
+                  <p className="mb-3 text-sm text-muted">
+                    Private view of your live board.
+                    {board.officialBoard?.stage === "PUBLISHED"
+                      ? ` The public sees published version ${board.officialBoard.publishedVersionNumber ?? 1}.`
+                      : " The public can't see it until reveal."}
+                  </p>
+                ) : null}
+                {board.officialBoard?.stage === "PUBLISHED" && !board.ownerPreview ? (
+                  <p className="mb-3 text-sm text-muted">
+                    Published by {board.displayName} before lock. Reserves stay
+                    private until the board is final.
+                  </p>
+                ) : null}
                 {board.boardCaption ? (
                   <p className="mb-3 text-sm text-muted">{board.boardCaption}</p>
                 ) : null}
@@ -324,6 +384,28 @@ export default async function PublicRankingBoardPage(
                   )}
                 </ol>
               </div>
+
+              {board.reservePicks.length > 0 ? (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                    Reserves
+                  </p>
+                  <ol className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface-elevated">
+                    {board.reservePicks.map((pick) => (
+                      <li
+                        key={`reserve-${pick.predictedRank}`}
+                        className="flex items-center gap-3 px-4 py-2.5 text-sm"
+                      >
+                        <span className="font-display w-6 font-semibold text-muted">
+                          R{pick.reserveSlot}
+                        </span>
+                        <span className="font-medium text-ink">{pick.name}</span>
+                        <span className="text-xs text-muted">· {pick.team}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
 
               {board.originalAuditPicks.length > 0 ? (
                 <details className="rounded-lg border border-border bg-surface px-4 py-3">

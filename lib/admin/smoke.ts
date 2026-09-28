@@ -1,3 +1,4 @@
+import { getOfficialBoardFinalReadiness } from "@/lib/admin/official-boards";
 import { prisma } from "@/lib/db";
 import { EXPECTED_ACTIVE_AI_COMPETITOR_COUNT } from "@/lib/ai-competitors";
 import { countActiveAiCompetitors } from "@/lib/ai-competitors-sync";
@@ -131,6 +132,31 @@ export async function getSmokeDiagnostics(): Promise<{
     detail: week?.fullLockAt
       ? "Week timing windows are set"
       : "Missing fullLockAt / publicReleaseAt",
+  });
+
+  const finalReadiness = (
+    await Promise.all(
+      (activeSeason?.weeks ?? []).map(async (item) => ({
+        label: item.label,
+        contests: await getOfficialBoardFinalReadiness(item.id),
+      })),
+    )
+  ).filter((item) => item.contests.some((row) => row.gradingBlockedUntilCaptured));
+  checks.push({
+    key: "official_board_finals",
+    ok: finalReadiness.length === 0,
+    detail:
+      finalReadiness.length === 0
+        ? "No required FINAL Official Board receipts missing"
+        : finalReadiness
+            .map(
+              (item) =>
+                `${item.label}: ${item.contests.reduce((sum, row) => sum + row.missing, 0)} missing FINAL (grading blocked for ${item.contests
+                  .filter((row) => row.gradingBlockedUntilCaptured)
+                  .map((row) => row.position)
+                  .join(", ")})`,
+            )
+            .join("; "),
   });
 
   checks.push({

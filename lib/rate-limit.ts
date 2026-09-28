@@ -48,6 +48,8 @@ export function rateLimitErrorMessage(result: Extract<RateLimitResult, { ok: fal
 export const RATE_LIMITS = {
   draftSave: { limit: 30, windowMs: 60_000 },
   submit: { limit: 8, windowMs: 60_000 },
+  boardPublish: { limit: 8, windowMs: 60_000 },
+  weeklyContent: { limit: 20, windowMs: 60_000 },
   follow: { limit: 20, windowMs: 60_000 },
   authEmail: { limit: 5, windowMs: 15 * 60_000 },
   unlockWrite: { limit: 40, windowMs: 60_000 },

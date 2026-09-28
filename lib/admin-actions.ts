@@ -342,8 +342,12 @@ export async function gradeContestAction(formData: FormData) {
   });
   const contestId = String(formData.get("contestId"));
   const { gradeContest, GradingError } = await import("@/lib/grading");
+  const { ensureOfficialBoardFinalsForContest } = await import(
+    "@/lib/boards/official-board"
+  );
 
   try {
+    await ensureOfficialBoardFinalsForContest(contestId);
     await gradeContest(contestId);
   } catch (error) {
     if (error instanceof GradingError) {

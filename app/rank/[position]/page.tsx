@@ -8,6 +8,16 @@ import { ScoringRulesDetails } from "@/components/rank/ScoringRulesDetails";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ClaimedExpertRankNotice } from "@/components/rank/ClaimedExpertRankNotice";
+import {
+  OfficialBoardPanel,
+  type OfficialBoardPanelStatus,
+} from "@/components/rank/OfficialBoardPanel";
+import { WeeklyContentManager } from "@/components/rank/WeeklyContentManager";
+import { getOwnerOfficialBoardStatus } from "@/lib/boards/official-board";
+import { profileBoardHref } from "@/lib/board-routes";
+import { toDbPosition } from "@/lib/contest-defaults";
+import { canAuthorWeeklyContent, listWeeklyContent } from "@/lib/weekly-content";
+import type { WeeklyContentItem } from "@/lib/weekly-content-shared";
 import { shouldShowClaimedExpertRankState } from "@/lib/auth/participation";
 import {
   CAPTURED_BOARD_WORKSPACE_MESSAGE,
@@ -290,6 +300,48 @@ export default async function PositionRankPage(
     }
   }
 
+  let officialBoardStatus: OfficialBoardPanelStatus | null = null;
+  let weeklyContentItems: WeeklyContentItem[] = [];
+  const ownerCanAuthor =
+    profile != null &&
+    participation === "ready" &&
+    !capturedByRankEyeQ &&
+    canAuthorWeeklyContent({
+      profileType: profile.profileType,
+      hasLinkedUser: true,
+    });
+  if (ownerCanAuthor && profile) {
+    try {
+      if (contestId) {
+        const status = await getOwnerOfficialBoardStatus({
+          profileId: profile.id,
+          profileType: profile.profileType,
+          contestId,
+          now: requestNow,
+        });
+        officialBoardStatus = status.state === "UNAVAILABLE" ? null : status;
+      }
+      if (weekId) {
+        weeklyContentItems = await listWeeklyContent({
+          profileId: profile.id,
+          weekId,
+          includeSuppressed: true,
+        });
+      }
+    } catch (error) {
+      logServerEvent(
+        "rank.official_board_load_failed",
+        {
+          route: "/rank/[position]",
+          position,
+          message:
+            error instanceof Error ? error.message.slice(0, 160) : "unknown",
+        },
+        "warn",
+      );
+    }
+  }
+
   const parsedWindow = parsePlayerResearchWindow(
     researchWindow,
     weekNumber ?? 1,
@@ -415,6 +467,20 @@ export default async function PositionRankPage(
         </p>
       ) : null}
 
+      {officialBoardStatus && contestId && profile && seasonYear != null && weekNumber != null ? (
+        <OfficialBoardPanel
+          status={officialBoardStatus}
+          contestId={contestId}
+          position={position}
+          publicHref={profileBoardHref(
+            profile.username,
+            seasonYear,
+            weekNumber,
+            toDbPosition(position),
+          )}
+        />
+      ) : null}
+
       <RankingWorkspace
         challenge={challenge}
         players={players}
@@ -476,6 +542,16 @@ export default async function PositionRankPage(
             : undefined
         }
       />
+
+      {ownerCanAuthor && weekId ? (
+        <div className="mt-8">
+          <WeeklyContentManager
+            weekId={weekId}
+            position={toDbPosition(position)}
+            items={weeklyContentItems}
+          />
+        </div>
+      ) : null}
 
       <AdPlacement placementKey="rank_sidebar" className="mt-8 sm:mt-10" />
     </Container>

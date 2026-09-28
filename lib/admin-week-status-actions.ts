@@ -21,6 +21,7 @@ import {
   logPostKickoffCorrectionRegrade,
   resolveContestsForPostKickoffCorrectionRegrade,
 } from "@/lib/eligibility/post-kickoff-factual-correction";
+import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 
 function revalidateWeekStatus(weekId?: string) {
@@ -503,6 +504,7 @@ export async function regradeContestsAfterFactualCorrectionAction(
   }
 
   for (const contestId of resolved.contestIds) {
+    await ensureOfficialBoardFinalsForContest(contestId);
     await gradeContest(contestId);
   }
 

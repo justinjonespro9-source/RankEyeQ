@@ -6,6 +6,7 @@ import {
 } from "@/lib/contest-defaults";
 import type { ContestPosition, WeekStatus } from "@/lib/generated/prisma/client";
 import { getActiveRankingScoringVersion } from "@/lib/ranking-scoring-versions";
+import { contestIdsWithFinalReceipts } from "@/lib/boards/official-board";
 import { computeNflTimingWindows } from "@/lib/timing/week-windows";
 
 export class WeekSetupError extends Error {
@@ -93,6 +94,16 @@ export async function updateWeekTiming(input: {
 }) {
   const week = await prisma.week.findUnique({ where: { id: input.weekId } });
   if (!week) throw new WeekSetupError("Week not found");
+
+  if (
+    input.fullLockAt !== undefined &&
+    (input.fullLockAt == null || input.fullLockAt > new Date()) &&
+    (await contestIdsWithFinalReceipts(input.weekId)).size > 0
+  ) {
+    throw new WeekSetupError(
+      "This week already has FINAL Official Board receipts, so full lock cannot be moved into the future or cleared.",
+    );
+  }
 
   const updated = await prisma.week.update({
     where: { id: input.weekId },

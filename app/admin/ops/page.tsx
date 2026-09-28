@@ -103,12 +103,37 @@ export default async function AdminOpsPage({
               NFL Data
             </Link>
             <Link
+              href={weekId ? `/admin/official-boards?weekId=${weekId}` : "/admin/official-boards"}
+              className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
+            >
+              Official Boards
+            </Link>
+            <Link
               href="/admin/diagnostics"
               className="rounded-md border border-border bg-surface-elevated px-3 py-1.5 font-medium text-ink hover:border-ink/30"
             >
               Diagnostics
             </Link>
           </div>
+
+          {dashboard.officialBoards.gradingBlockedPositions.length > 0 ? (
+            <div
+              role="alert"
+              className="mb-6 rounded-md border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger"
+            >
+              Grading blocked for{" "}
+              {dashboard.officialBoards.gradingBlockedPositions.join(", ")}:{" "}
+              {dashboard.officialBoards.missingFinal} required FINAL Official
+              Board receipt(s) missing. Grading runs the canonical capture first
+              and stops if it cannot preserve them.{" "}
+              <Link
+                href={`/admin/official-boards?weekId=${weekId}`}
+                className="font-medium underline"
+              >
+                Open Official Boards
+              </Link>
+            </div>
+          ) : null}
 
           <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -156,6 +181,7 @@ export default async function AdminOpsPage({
                   <th className="px-3 py-3">Fully locked</th>
                   <th className="px-3 py-3">Graded</th>
                   <th className="px-3 py-3">Stats</th>
+                  <th className="px-3 py-3">Official FINAL</th>
                   <th className="px-3 py-3">Status</th>
                 </tr>
               </thead>
@@ -178,6 +204,27 @@ export default async function AdminOpsPage({
                     <td className="px-3 py-3 tabular-nums">{row.gradedBoards}</td>
                     <td className="px-3 py-3">
                       {row.statsReady ? "Ready" : "Needs Attention"}
+                    </td>
+                    <td className="px-3 py-3">
+                      {row.officialFinal ? (
+                        row.officialFinal.gradingBlockedUntilCaptured ? (
+                          <Badge tone="danger">
+                            {row.officialFinal.missing} missing · grading blocked
+                          </Badge>
+                        ) : row.officialFinal.state === "READY" ? (
+                          `${row.officialFinal.captured} captured`
+                        ) : (
+                          <span className="text-muted">
+                            {row.officialFinal.state === "PRE_ACTIVATION"
+                              ? "Pre-activation"
+                              : row.officialFinal.state === "HISTORICAL"
+                                ? `Finalized · ${row.officialFinal.captured} captured`
+                                : "At full lock"}
+                          </span>
+                        )
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <Badge tone={toneFor(row.status)}>{row.status}</Badge>

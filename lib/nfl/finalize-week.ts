@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 import { logServerEvent } from "@/lib/log";
 import { calculateLeagueActualFinishesForWeek } from "@/lib/nfl/actual-finishes";
@@ -589,6 +590,7 @@ export async function finalizeWeek(input: {
 
   for (const contest of contests) {
     try {
+      await ensureOfficialBoardFinalsForContest(contest.id);
       const gradeResult = await gradeContest(contest.id);
       submissionsGraded += gradeResult.graded;
       submissionsSkipped += gradeResult.skipped;

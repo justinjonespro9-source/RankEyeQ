@@ -31,6 +31,7 @@ import {
   previewWeekResults,
 } from "@/lib/nfl/results-import";
 import { createNflDataProvider } from "@/lib/providers/nfl";
+import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 
 function revalidateDataPaths(weekId?: string) {
@@ -285,6 +286,7 @@ export async function gradeWeekContestsAction(formData: FormData) {
   logAdminImpact("week.grade", { weekId, adminUserId: admin.user.id });
   const contests = await prisma.rankIQContest.findMany({ where: { weekId } });
   for (const contest of contests) {
+    await ensureOfficialBoardFinalsForContest(contest.id);
     await gradeContest(contest.id);
   }
   await logAdminAction({

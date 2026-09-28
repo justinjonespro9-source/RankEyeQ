@@ -127,9 +127,15 @@ describe("admin IA navigation config", () => {
       "Live Scoring",
       "Availability",
       "Exceptions",
+      "Official Boards",
       "Diagnostics",
       "Ops Status",
     ]);
+    expect(resolveAdminNav("/admin/official-boards?weekId=x")).toMatchObject({
+      family: "weekly-ops",
+      primaryHref: "/admin",
+      secondaryHref: "/admin/official-boards",
+    });
   });
 });
 

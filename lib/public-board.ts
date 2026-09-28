@@ -16,6 +16,13 @@ import {
   boardShowsCaptureProvenance,
   snapshotRestrictsPublicBoard,
 } from "@/lib/boards/source-rights";
+import { resolveSubmissionAuthority } from "@/lib/boards/authority";
+import {
+  loadOfficialBoardVersions,
+  type OfficialBoardVersionView,
+} from "@/lib/boards/official-board";
+import { listWeeklyContent } from "@/lib/weekly-content";
+import type { WeeklyContentItem } from "@/lib/weekly-content-shared";
 import { findMatchingEntitlement } from "@/lib/social/entitlements";
 import { isPremiumRevealBoard } from "@/lib/social/creator";
 import {
@@ -83,6 +90,26 @@ export type PublicBoardLiveEyeq = {
   totalPicks: number;
 };
 
+/**
+ * Official RankEyeQ Board progression for owner-authored boards:
+ * PROTECTED → PUBLISHED (latest published version) → FINAL (immutable
+ * receipt) → SCORING. LOCKED = locked board without a FINAL receipt
+ * (boards before FINAL receipts existed).
+ */
+export type OfficialBoardStage =
+  | "PROTECTED"
+  | "PUBLISHED"
+  | "FINAL"
+  | "LOCKED"
+  | "SCORING";
+
+export type PublicOfficialBoard = {
+  stage: OfficialBoardStage;
+  publishedVersionNumber: number | null;
+  lastPublishedAt: Date | null;
+  finalLockedAt: Date | null;
+};
+
 export type PublicBoardView = {
   allowed: boolean;
   gatedPremium: boolean;
@@ -127,6 +154,13 @@ export type PublicBoardView = {
   finalEyeqScore: number | null;
   /** Provisional LIVE EYEQ — never written as normalizedScore. */
   liveEyeq: PublicBoardLiveEyeq | null;
+  /** null = not an owner-authored board (captured / AI keep existing terms). */
+  officialBoard: PublicOfficialBoard | null;
+  /** FINAL receipt reserves only — never shown before the board is final. */
+  reservePicks: PublicBoardPick[];
+  /** Owner/admin seeing the private live board while the public sees less. */
+  ownerPreview: boolean;
+  weeklyContent: WeeklyContentItem[];
 };
 
 export type ProfileBoardAccessSummary = {
@@ -334,6 +368,119 @@ export async function getPublicProfileBoard(input: {
     });
   }
 
+  const isOwner =
+    Boolean(input.viewer.profileId) &&
+    input.viewer.profileId === profile.id;
+  const historicallyPublic =
+    isWeekHistoricallyPublic(week, now) ||
+    isContestHistoricallyPublic(contest);
+  const contestIsFinal =
+    contest.status === "FINAL" || contest.status === "ARCHIVED";
+
+  const ownerAuthored =
+    (profile.profileType === "HUMAN" || profile.profileType === "CREATOR") &&
+    resolveSubmissionAuthority({
+      profileType: profile.profileType,
+      submission,
+    }) === "OWNER_AUTHORED";
+  const officialVersions =
+    ownerAuthored && submission
+      ? await loadOfficialBoardVersions(submission.id)
+      : { published: null, final: null };
+  const officialBoardFor = (
+    stage: OfficialBoardStage,
+  ): PublicOfficialBoard | null =>
+    ownerAuthored
+      ? {
+          stage,
+          publishedVersionNumber:
+            officialVersions.published?.versionNumber ?? null,
+          lastPublishedAt: officialVersions.published?.lastPublishedAt ?? null,
+          finalLockedAt: officialVersions.final?.boardLockedAt ?? null,
+        }
+      : null;
+  const defaultStage: OfficialBoardStage =
+    contestIsFinal && submission?.status === "GRADED"
+      ? "SCORING"
+      : officialVersions.final
+        ? "FINAL"
+        : timing.fullBoardLocked
+          ? "LOCKED"
+          : officialVersions.published
+            ? "PUBLISHED"
+            : "PROTECTED";
+  const weeklyContent = await listWeeklyContent({
+    profileId: profile.id,
+    weekId: week.id,
+    position: contest.position,
+  });
+
+  const loadStandings = async () => {
+    const entries = await prisma.contestEntry.findMany({
+      where: { contestId: contest.id, excluded: false },
+      select: {
+        rankableEntryId: true,
+        fantasyPoints: true,
+        actualRank: true,
+        game: {
+          select: {
+            id: true,
+            weekId: true,
+            homeTeam: true,
+            awayTeam: true,
+            startsAt: true,
+          },
+        },
+      },
+    });
+    const provisionalRanks = provisionalRanksFromPoints(entries);
+    return {
+      contestEntries: entries,
+      provisionalById: new Map(
+        provisionalRanks.map((row) => [row.item.rankableEntryId, row.rank]),
+      ),
+      finalActualById: new Map(
+        entries
+          .filter((entry) => entry.actualRank != null)
+          .map((entry) => [entry.rankableEntryId, entry.actualRank!]),
+      ),
+    };
+  };
+  const versionPicks = (
+    version: OfficialBoardVersionView,
+    reserves: boolean,
+    standings: Awaited<ReturnType<typeof loadStandings>>,
+  ): PublicBoardPick[] =>
+    version.picks
+      .filter((pick) => pick.isReserve === reserves)
+      .map((pick) => {
+        const currentActualRank = contestIsFinal
+          ? (standings.finalActualById.get(pick.rankableEntryId) ?? null)
+          : (standings.provisionalById.get(pick.rankableEntryId) ?? null);
+        return {
+          predictedRank: pick.boardRank,
+          rankableEntryId: pick.rankableEntryId,
+          name: pick.displayName,
+          team: pick.displayTeam,
+          opponent: "",
+          slotLocked: pick.slotLocked,
+          lockedAt: pick.lockedAt,
+          lockedRank: pick.lockedRank,
+          committedAt: pick.committedAt,
+          currentActualRank,
+          standingStatus: provisionalStandingStatus(
+            currentActualRank,
+            contest.rankingDepth,
+          ),
+          showExactHit:
+            contestIsFinal &&
+            currentActualRank != null &&
+            currentActualRank === pick.boardRank &&
+            currentActualRank <= contest.rankingDepth,
+          reserveSlot: pick.reserveSlot,
+        };
+      });
+
   const base: PublicBoardView = {
     allowed,
     gatedPremium,
@@ -375,9 +522,25 @@ export async function getPublicProfileBoard(input: {
       contest.status !== "FINAL" && contest.status !== "ARCHIVED",
     finalEyeqScore: submission?.normalizedScore ?? null,
     liveEyeq: null,
+    officialBoard: officialBoardFor(defaultStage),
+    reservePicks: [],
+    ownerPreview: false,
+    weeklyContent,
   };
 
-  if (!allowed) return base;
+  if (!allowed) {
+    // A published version is public by the owner's choice; the live board and
+    // reserves stay private. No unlock event: nothing gated was revealed.
+    const published = officialVersions.published;
+    if (!published || !submission) return base;
+    return {
+      ...base,
+      allowed: true,
+      reason: null,
+      officialBoard: officialBoardFor("PUBLISHED"),
+      picks: versionPicks(published, false, await loadStandings()),
+    };
+  }
   if (!submission) return base;
   if (publicBoardRestricted) {
     return {
@@ -387,13 +550,6 @@ export async function getPublicProfileBoard(input: {
         "This source ranking is stored internally and is not reproduced publicly. Performance metrics remain available.",
     };
   }
-
-  const isOwner =
-    Boolean(input.viewer.profileId) &&
-    input.viewer.profileId === profile.id;
-  const historicallyPublic =
-    isWeekHistoricallyPublic(week, now) ||
-    isContestHistoricallyPublic(contest);
 
   if (input.recordUnlock !== false) {
     if (input.viewer.profileId) {
@@ -424,35 +580,8 @@ export async function getPublicProfileBoard(input: {
     }
   }
 
-  const contestEntries = await prisma.contestEntry.findMany({
-    where: { contestId: contest.id, excluded: false },
-    select: {
-      rankableEntryId: true,
-      fantasyPoints: true,
-      actualRank: true,
-      game: {
-        select: {
-          id: true,
-          weekId: true,
-          homeTeam: true,
-          awayTeam: true,
-          startsAt: true,
-        },
-      },
-    },
-  });
-
-  const contestIsFinal =
-    contest.status === "FINAL" || contest.status === "ARCHIVED";
-  const provisional = provisionalRanksFromPoints(contestEntries);
-  const provisionalById = new Map(
-    provisional.map((row) => [row.item.rankableEntryId, row.rank]),
-  );
-  const finalActualById = new Map(
-    contestEntries
-      .filter((entry) => entry.actualRank != null)
-      .map((entry) => [entry.rankableEntryId, entry.actualRank!]),
-  );
+  const standings = await loadStandings();
+  const { contestEntries, provisionalById, finalActualById } = standings;
 
   const storedScoring =
     contestIsFinal && submission.status === "GRADED"
@@ -485,8 +614,25 @@ export async function getPublicProfileBoard(input: {
         })
       : [];
 
+  const publicAllowed = canViewCurrentWeekBoard({
+    viewer: { profileId: null, isAdmin: false },
+    targetProfileId: profile.id,
+    week,
+    contest,
+    entitlement: { canViewRevealBoards: false },
+    revealPreference,
+    creatorEnabled,
+    hasMatchingEntitlement: false,
+    now,
+  });
+  const ownerPreview = !publicAllowed && (isOwner || input.viewer.isAdmin);
+  const finalReceipt =
+    storedScoring == null && !ownerPreview ? officialVersions.final : null;
+
   const picks: PublicBoardPick[] =
-    storedScoring != null
+    finalReceipt != null
+      ? versionPicks(finalReceipt, false, standings)
+      : storedScoring != null
       ? storedScoring.map((row) => {
           const currentActualRank =
             finalActualById.get(row.rankableEntryId) ?? row.actualRank;
@@ -588,5 +734,15 @@ export async function getPublicProfileBoard(input: {
     liveEyeq,
     isLiveProvisional: !contestIsFinal,
     finalEyeqScore: submission.normalizedScore,
+    officialBoard: officialBoardFor(
+      storedScoring != null
+        ? "SCORING"
+        : finalReceipt != null
+          ? "FINAL"
+          : defaultStage,
+    ),
+    reservePicks:
+      finalReceipt != null ? versionPicks(finalReceipt, true, standings) : [],
+    ownerPreview,
   };
 }

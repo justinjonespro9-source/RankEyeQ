@@ -19,6 +19,7 @@ import {
   updateContestAction,
   updateContestResultsAction,
 } from "@/lib/admin-actions";
+import { getContestFinalReadiness } from "@/lib/admin/official-boards";
 import {
   canTransitionContest,
   CONTEST_STATUS_ACTIONS,
@@ -87,6 +88,7 @@ export default async function AdminContestDetailPage(
     }),
   ]);
 
+  const finalReadiness = await getContestFinalReadiness(contest.id);
   const draftCount = contest.submissions.filter((s) => s.status === "DRAFT").length;
   const submittedCount = contest.submissions.filter(
     (s) => s.status === "SUBMITTED",
@@ -197,6 +199,22 @@ export default async function AdminContestDetailPage(
           <p className="mt-3 text-xs text-warning">
             Grade requires actualRank values for at least Top{" "}
             {contest.rankingDepth} entries.
+          </p>
+        ) : null}
+        {finalReadiness ? (
+          <p
+            className={`mt-3 text-xs ${
+              finalReadiness.gradingBlockedUntilCaptured ? "text-danger" : "text-muted"
+            }`}
+            role={finalReadiness.gradingBlockedUntilCaptured ? "alert" : undefined}
+          >
+            Official Board FINAL: {finalReadiness.message}{" "}
+            <Link
+              href={`/admin/official-boards?weekId=${contest.weekId}`}
+              className="text-accent-ink hover:underline"
+            >
+              Official Boards →
+            </Link>
           </p>
         ) : null}
       </section>
