@@ -13,8 +13,11 @@ import {
   normalizePlayerFactualStats,
   playerFactsFromRecord,
   POST_FINAL_STAT_CORRECTION_ACTION,
+  PRE_GRADE_STAT_CORRECTION_ACTION,
+  PRE_GRADE_STAT_CORRECTION_RECALCULATED_ACTION,
   previewPostFinalStatCorrection,
   projectPositionRanksAfterFantasyChange,
+  resolveStatCorrectionMode,
 } from "@/lib/nfl/post-final-stat-correction";
 
 const {
@@ -31,7 +34,11 @@ const {
   calculateFinishes,
   gradeContestMock,
   reopenLiveGameMock,
+  ensureFinalsMock,
+  txFindContestStatus,
 } = vi.hoisted(() => ({
+  ensureFinalsMock: vi.fn(),
+  txFindContestStatus: vi.fn(),
   findUniquePlayerStat: vi.fn(),
   findUniqueDefenseStat: vi.fn(),
   findUniqueContest: vi.fn(),
@@ -64,6 +71,7 @@ type MockAuditCreateArgs = {
 };
 
 type MockTx = {
+  rankIQContest: { findUniqueOrThrow: typeof txFindContestStatus };
   playerWeekStat: { update: typeof updatePlayerStat };
   defenseWeekStat: { update: typeof updateDefenseStat };
   contestEntry: { update: typeof updateContestEntry };
@@ -116,6 +124,28 @@ vi.mock("@/lib/grading", () => ({
   gradeContest: (...args: unknown[]) => gradeContestMock(...args),
 }));
 
+vi.mock("@/lib/boards/official-board", () => ({
+  ensureOfficialBoardFinalsForContest: (...args: unknown[]) =>
+    ensureFinalsMock(...args),
+}));
+
+function mockTransactionClient() {
+  transaction.mockImplementation(async (fn: (tx: MockTx) => Promise<unknown>) =>
+    fn({
+      rankIQContest: { findUniqueOrThrow: txFindContestStatus },
+      playerWeekStat: { update: updatePlayerStat },
+      defenseWeekStat: { update: updateDefenseStat },
+      contestEntry: { update: updateContestEntry },
+      adminAuditLog: {
+        create: async (args: MockAuditCreateArgs) => {
+          createAudit(args.data ?? args);
+          return { id: "audit-1" };
+        },
+      },
+    }),
+  );
+}
+
 vi.mock("@/lib/admin/live-scoring", async () => {
   const actual = await vi.importActual<typeof import("@/lib/admin/live-scoring")>(
     "@/lib/admin/live-scoring",
@@ -135,6 +165,7 @@ function basePlayerStat(overrides: Record<string, unknown> = {}) {
     rankableEntryId: "player-a",
     fantasyPoints: 10,
     leagueActualRank: 5,
+    isProvisional: false,
     scoringVersion: "FANTASYTRACK_NFL_HALF_PPR_V2",
     passingYards: 0,
     passingTds: 0,
@@ -440,31 +471,304 @@ describe("post-FINAL correction validation + preview write-free", () => {
     expect(gradeContestMock).not.toHaveBeenCalled();
   });
 
-  it("rejects ordinary OPEN contest through post-FINAL path", async () => {
+  it("refuses an unverified (live) stat line — ordinary Live Scoring owns it", async () => {
+    findUniquePlayerStat.mockResolvedValue(
+      basePlayerStat({ isProvisional: true }),
+    );
     findUniqueContest.mockImplementation(async (args?: MockFindArgs) => {
       if (args?.where?.weekId_position) {
         return {
           id: "contest-wr",
           weekId: "week-2",
           position: "WR",
-          status: "OPEN",
+          status: "LOCKED",
           rankingDepth: 15,
         };
       }
       return {
         id: "contest-wr",
-        status: "OPEN",
+        status: "LOCKED",
         rankingDepth: 15,
         entries: [],
         submissions: [],
       };
     });
-    const result = await previewPostFinalStatCorrection({
+    const preview = await previewPostFinalStatCorrection({
       weekStatId: "pws-1",
       kind: "player",
       proposedStats: { receptions: 1 },
     });
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.error).toBe("stat_not_verified");
+
+    const applied = await applyPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: { receptions: 1 },
+      reason: "Box score typo",
+      sourceReference: "official box score",
+      adminUserId: "admin-1",
+      confirmHighImpact: true,
+    });
+    expect(applied.ok).toBe(false);
+    if (!applied.ok) expect(applied.error).toBe("stat_not_verified");
+    expect(transaction).not.toHaveBeenCalled();
+    expect(updatePlayerStat).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
+  });
+
+  it("refuses while the contest is GRADING", async () => {
+    findUniqueContest.mockImplementation(async () => ({
+      id: "contest-wr",
+      weekId: "week-2",
+      position: "WR",
+      status: "GRADING",
+      rankingDepth: 15,
+      entries: [],
+      submissions: [],
+    }));
+    const preview = await previewPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: { receptions: 1 },
+    });
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.error).toBe("contest_grading");
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveStatCorrectionMode — lifecycle routing", () => {
+  it.each([
+    ["OPEN", true, "PRE_GRADE"],
+    ["LOCKED", true, "PRE_GRADE"],
+    ["LIVE", true, "PRE_GRADE"],
+    ["FINAL", true, "POST_FINAL"],
+    ["ARCHIVED", true, "POST_FINAL"],
+    // Graded contests stay correctable even if a line was never flagged.
+    ["FINAL", false, "POST_FINAL"],
+  ] as const)("%s contest, verified=%s → %s", (status, verified, mode) => {
+    const result = resolveStatCorrectionMode({
+      contestStatus: status,
+      statVerified: verified,
+    });
+    expect(result).toEqual({ ok: true, mode });
+  });
+
+  it.each([
+    ["OPEN", false, "stat_not_verified"],
+    ["LOCKED", false, "stat_not_verified"],
+    ["LIVE", false, "stat_not_verified"],
+    ["GRADING", true, "contest_grading"],
+  ] as const)("%s contest, verified=%s → refused (%s)", (status, verified, error) => {
+    const result = resolveStatCorrectionMode({
+      contestStatus: status,
+      statVerified: verified,
+    });
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe(error);
+  });
+});
+
+describe("pre-grade verified correction (contest LOCKED, not graded)", () => {
+  const lockedContest = (actualRanks: [number | null, number | null]) => ({
+    id: "contest-wr",
+    weekId: "week-3",
+    position: "WR",
+    status: "LOCKED",
+    rankingDepth: 15,
+    entries: [
+      {
+        rankableEntryId: "player-a",
+        fantasyPoints: 60.3,
+        actualRank: actualRanks[0],
+        rankableEntry: { name: "Player A" },
+      },
+      {
+        rankableEntryId: "player-b",
+        fantasyPoints: 20,
+        actualRank: actualRanks[1],
+        rankableEntry: { name: "Player B" },
+      },
+    ],
+    submissions: [{ id: "sub-1" }],
+  });
+
+  function setup(actualRanks: [number | null, number | null] = [null, null]) {
+    vi.clearAllMocks();
+    findUniquePlayerStat.mockResolvedValue(
+      basePlayerStat({
+        weekId: "week-3",
+        receivingTds: 10,
+        fantasyPoints: 60.3,
+        leagueActualRank: null,
+        week: {
+          id: "week-3",
+          label: "Week 3",
+          status: "OPEN",
+          seasonId: "season-1",
+          fantasyScoringVersion: "FANTASYTRACK_NFL_HALF_PPR_V2",
+          season: { fantasyScoringVersion: "FANTASYTRACK_NFL_HALF_PPR_V2" },
+        },
+      }),
+    );
+    findUniqueContest.mockImplementation(async (args?: MockFindArgs) => {
+      if (args?.include?.entries || args?.where?.id) {
+        return lockedContest(actualRanks);
+      }
+      return {
+        id: "contest-wr",
+        weekId: "week-3",
+        position: "WR",
+        status: "LOCKED",
+        rankingDepth: 15,
+      };
+    });
+    findFirstContestEntry.mockResolvedValue({
+      id: "ce-1",
+      actualRank: actualRanks[0],
+      fantasyPoints: 60.3,
+    });
+    findManyEntries.mockResolvedValue([]);
+    txFindContestStatus.mockResolvedValue({ status: "LOCKED" });
+    mockTransactionClient();
+    createAudit.mockResolvedValue({ id: "audit-recalc" });
+    calculateFinishes.mockResolvedValue({
+      contestId: "contest-wr",
+      position: "WR",
+      ranked: 2,
+      tiedGroups: 0,
+      contestEntriesRanked: 2,
+      contestEntriesWithPoints: 2,
+      poolCount: 2,
+    });
+  }
+
+  const correctedLine = { receptions: 5, receivingYards: 50, receivingTds: 1 };
+  const correctedPoints = calculatePlayerLiveFantasyPoints(correctedLine);
+
+  it("previews a correction with zero writes and no regrade planned", async () => {
+    setup();
+    const result = await previewPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: correctedLine,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.preview.mode).toBe("PRE_GRADE");
+    expect(result.preview.regradeWillRun).toBe(false);
+    expect(result.preview.ranksProvisional).toBe(true);
+    expect(result.preview.contestRemainsFinal).toBe(false);
+    expect(result.preview.eyeqChanges).toBeNull();
+    expect(result.preview.oldFantasyPoints).toBe(60.3);
+    expect(result.preview.newFantasyPoints).toBe(correctedPoints);
+    expect(result.preview.changedFields).toEqual(["receivingTds"]);
+    // Provisional ranks come from current points (A 60.3 → 1st; corrected 11 → 2nd).
+    expect(result.preview.oldActualRank).toBe(1);
+    expect(result.preview.projectedActualRank).toBe(2);
+
+    expect(transaction).not.toHaveBeenCalled();
+    expect(updatePlayerStat).not.toHaveBeenCalled();
+    expect(updateContestEntry).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
+    expect(calculateFinishes).not.toHaveBeenCalled();
+    expect(gradeContestMock).not.toHaveBeenCalled();
+    expect(ensureFinalsMock).not.toHaveBeenCalled();
+  });
+
+  it("applies facts + canonical FP, keeps the line verified, never grades", async () => {
+    setup();
+    const result = await applyPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: correctedLine,
+      reason: "Rec TD entered as 10; box score shows 1",
+      sourceReference: "https://www.nfl.com/games/example",
+      adminUserId: "admin-1",
+      confirmHighImpact: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.mode).toBe("PRE_GRADE");
+    expect(result.regradeOccurred).toBe(false);
+    expect(result.finishesRecalculated).toBe(false);
+    expect(result.submissionsRegraded).toBe(0);
+
+    expect(updatePlayerStat).toHaveBeenCalledWith({
+      where: { id: "pws-1" },
+      data: expect.objectContaining({
+        receivingTds: 1,
+        fantasyPoints: correctedPoints,
+        isProvisional: false,
+      }),
+    });
+    expect(updateContestEntry).toHaveBeenCalledWith({
+      where: { id: "ce-1" },
+      data: { fantasyPoints: correctedPoints },
+    });
+    // No actualRank write (would lock the rest of the position's live scoring).
+    expect(calculateFinishes).not.toHaveBeenCalled();
+    expect(ensureFinalsMock).not.toHaveBeenCalled();
+    expect(gradeContestMock).not.toHaveBeenCalled();
+
+    const actions = createAudit.mock.calls.map(
+      (call: unknown[]) => (call[0] as { action?: string }).action,
+    );
+    expect(actions).toContain(PRE_GRADE_STAT_CORRECTION_ACTION);
+    expect(actions).toContain(PRE_GRADE_STAT_CORRECTION_RECALCULATED_ACTION);
+    expect(actions).not.toContain(POST_FINAL_STAT_CORRECTION_ACTION);
+    const applied = createAudit.mock.calls
+      .map((call: unknown[]) => call[0] as { action?: string; metadata?: Record<string, unknown> })
+      .find((row) => row.action === PRE_GRADE_STAT_CORRECTION_ACTION);
+    expect(applied?.metadata).toMatchObject({
+      mode: "PRE_GRADE",
+      contestStatus: "LOCKED",
+      statVerified: true,
+      regradeWillRun: false,
+      reason: "Rec TD entered as 10; box score shows 1",
+      sourceReference: "https://www.nfl.com/games/example",
+    });
+  });
+
+  it("refreshes already-persisted finishes but still never grades", async () => {
+    setup([1, 2]);
+    const result = await applyPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: correctedLine,
+      reason: "Rec TD entered as 10",
+      sourceReference: "box score",
+      adminUserId: "admin-1",
+      confirmHighImpact: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.finishesRecalculated).toBe(true);
+    expect(calculateFinishes).toHaveBeenCalledWith("contest-wr");
+    expect(ensureFinalsMock).not.toHaveBeenCalled();
+    expect(gradeContestMock).not.toHaveBeenCalled();
+    expect(result.regradeOccurred).toBe(false);
+  });
+
+  it("aborts without writes when the contest changes state after preview", async () => {
+    setup();
+    txFindContestStatus.mockResolvedValue({ status: "FINAL" });
+    const result = await applyPostFinalStatCorrection({
+      weekStatId: "pws-1",
+      kind: "player",
+      proposedStats: correctedLine,
+      reason: "Rec TD entered as 10",
+      sourceReference: "box score",
+      adminUserId: "admin-1",
+      confirmHighImpact: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("contest_state_changed");
+    expect(updatePlayerStat).not.toHaveBeenCalled();
+    expect(updateContestEntry).not.toHaveBeenCalled();
+    expect(calculateFinishes).not.toHaveBeenCalled();
+    expect(gradeContestMock).not.toHaveBeenCalled();
   });
 });
 
@@ -532,19 +836,8 @@ describe("post-FINAL apply orchestration", () => {
         rankableEntry: { name: "Player B" },
       },
     ]);
-    transaction.mockImplementation(async (fn: (tx: MockTx) => Promise<unknown>) =>
-      fn({
-        playerWeekStat: { update: updatePlayerStat },
-        defenseWeekStat: { update: updateDefenseStat },
-        contestEntry: { update: updateContestEntry },
-        adminAuditLog: {
-          create: async (args: MockAuditCreateArgs) => {
-            createAudit(args.data ?? args);
-            return { id: "audit-1" };
-          },
-        },
-      }),
-    );
+    txFindContestStatus.mockResolvedValue({ status: "FINAL" });
+    mockTransactionClient();
     calculateFinishes.mockResolvedValue({
       contestId: "contest-wr",
       position: "WR",
@@ -596,7 +889,10 @@ describe("post-FINAL apply orchestration", () => {
     expect(updatePlayerStat).toHaveBeenCalled();
     expect(updateContestEntry).toHaveBeenCalled();
     expect(calculateFinishes).toHaveBeenCalledWith("contest-wr");
+    expect(ensureFinalsMock).toHaveBeenCalledWith("contest-wr");
     expect(gradeContestMock).toHaveBeenCalledWith("contest-wr");
+    expect(result.mode).toBe("POST_FINAL");
+    expect(result.regradeOccurred).toBe(true);
     expect(result.contestStatus).toBe("FINAL");
     expect(result.weekStatus).toBe("COMPLETE");
     expect(result.submissionsRegraded).toBe(22);
@@ -743,7 +1039,7 @@ describe("admin action authorization wiring", () => {
     expect(source.match(/assertAdmin/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
-  it("UI distinguishes ordinary live editing from post-FINAL correction", () => {
+  it("UI distinguishes ordinary live editing from verified-stat correction", () => {
     const ui = readFileSync(
       join(process.cwd(), "components/admin/PostFinalStatCorrectionPanel.tsx"),
       "utf8",
@@ -752,10 +1048,16 @@ describe("admin action authorization wiring", () => {
       join(process.cwd(), "components/admin/LiveScoringConsole.tsx"),
       "utf8",
     );
-    expect(ui).toContain("Correct Final Stats");
+    expect(ui).toContain("Correct Verified Stats");
+    expect(ui.replace(/&apos;/g, "'").replace(/\s+/g, " ")).toContain(
+      "Correct a verified game's factual stats. If rankings have already been graded, the affected position will be regraded. Otherwise the corrected result will be used when grading occurs.",
+    );
+    expect(ui).toContain("PRE-GRADE CORRECTION");
+    expect(ui).toContain("POST-FINAL CORRECTION");
     expect(ui).toContain("Preview Impact");
     expect(ui).toContain("Apply Correction");
+    expect(ui).not.toContain("Correct Final Stats");
     expect(consoleSource).toContain("PostFinalStatCorrectionPanel");
-    expect(consoleSource).toContain("Weekly FINAL — use Correct Final Stats");
+    expect(consoleSource).toContain("Verified — use Correct Verified Stats");
   });
 });

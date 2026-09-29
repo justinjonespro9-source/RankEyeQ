@@ -573,7 +573,7 @@ function LiveScoringConsoleInner({
                 Verify &amp; Finalize Game
               </Button>
             ) : anyLocked ? (
-              <Badge tone="warning">Weekly FINAL — use Correct Final Stats</Badge>
+              <Badge tone="warning">Verified — use Correct Verified Stats</Badge>
             ) : (
               <Button
                 type="button"

@@ -1,5 +1,5 @@
 /**
- * Post-FINAL factual WeekStat correction — admin-only audited workflow.
+ * Verified factual WeekStat correction — admin-only audited workflow.
  *
  * Canonical chain (no parallel scoring):
  *   WeekStat factual fields
@@ -8,9 +8,17 @@
  *   → calculateLeagueActualFinishesForContest (position-scoped)
  *   → gradeContest (effective-board / EYEQ)
  *
- * Does NOT reopen the week or use ordinary live-scoring save paths.
+ * Modes (see resolveStatCorrectionMode):
+ *   PRE_GRADE  — verified stat line, contest not yet FINAL/ARCHIVED. Stops
+ *                after ContestEntry.fantasyPoints (finishes only if they were
+ *                already persisted). No grading, no FINAL capture; the normal
+ *                grading run picks the corrected result up.
+ *   POST_FINAL — FINAL/ARCHIVED contest. Full chain incl. targeted regrade.
+ * Unverified (provisional) lines stay on ordinary live-scoring saves.
+ *
+ * Does NOT reopen the week/game or use ordinary live-scoring save paths.
  * Does NOT mutate RankingPick.predictedRank / reserveEligiblePredecessorIds.
- * Week stays COMPLETE; contest ends FINAL after successful apply.
+ * Week and contest lifecycle are never advanced by a PRE_GRADE correction.
  */
 
 import { logAdminAction } from "@/lib/admin/audit";
@@ -31,7 +39,10 @@ import type {
   ContestStatus,
   WeekStatus,
 } from "@/lib/generated/prisma/client";
-import { calculateLeagueActualFinishesForContest } from "@/lib/nfl/actual-finishes";
+import {
+  calculateLeagueActualFinishesForContest,
+  type ActualFinishResult,
+} from "@/lib/nfl/actual-finishes";
 import { ensureOfficialBoardFinalsForContest } from "@/lib/boards/official-board";
 import { gradeContest } from "@/lib/grading";
 import { scoreableEffectivePicks } from "@/lib/reserves/from-submission";
@@ -43,6 +54,69 @@ export const POST_FINAL_STAT_CORRECTION_ACTION =
   "live_scoring.post_final_stat_correction";
 export const POST_FINAL_STAT_CORRECTION_RECALCULATED_ACTION =
   "live_scoring.post_final_stat_correction_recalculated";
+export const PRE_GRADE_STAT_CORRECTION_ACTION =
+  "live_scoring.pre_grade_stat_correction";
+export const PRE_GRADE_STAT_CORRECTION_RECALCULATED_ACTION =
+  "live_scoring.pre_grade_stat_correction_recalculated";
+
+export type StatCorrectionMode = "PRE_GRADE" | "POST_FINAL";
+
+const CORRECTION_ACTIONS: Record<
+  StatCorrectionMode,
+  { applied: string; recalculated: string; failed: string }
+> = {
+  PRE_GRADE: {
+    applied: PRE_GRADE_STAT_CORRECTION_ACTION,
+    recalculated: PRE_GRADE_STAT_CORRECTION_RECALCULATED_ACTION,
+    failed: "live_scoring.pre_grade_stat_correction_failed",
+  },
+  POST_FINAL: {
+    applied: POST_FINAL_STAT_CORRECTION_ACTION,
+    recalculated: POST_FINAL_STAT_CORRECTION_RECALCULATED_ACTION,
+    failed: "live_scoring.post_final_stat_correction_failed",
+  },
+};
+
+export type StatCorrectionModeResult =
+  | { ok: true; mode: StatCorrectionMode }
+  | {
+      ok: false;
+      error: "stat_not_verified" | "contest_grading";
+      message: string;
+    };
+
+/**
+ * FINAL/ARCHIVED contest → POST_FINAL (regrade). Otherwise the stat line must
+ * already be verified (game finalized) → PRE_GRADE; unverified lines belong to
+ * ordinary live scoring. GRADING is refused so a correction never races a run.
+ */
+export function resolveStatCorrectionMode(input: {
+  contestStatus: ContestStatus;
+  statVerified: boolean;
+}): StatCorrectionModeResult {
+  if (input.contestStatus === "FINAL" || input.contestStatus === "ARCHIVED") {
+    return { ok: true, mode: "POST_FINAL" };
+  }
+  if (input.contestStatus === "GRADING") {
+    return {
+      ok: false,
+      error: "contest_grading",
+      message:
+        "This position is being graded. Wait for grading to finish, then correct the verified stats.",
+    };
+  }
+  if (!input.statVerified) {
+    return {
+      ok: false,
+      error: "stat_not_verified",
+      message:
+        "This stat line is not verified yet. Use ordinary Live Scoring editing until the game is finalized.",
+    };
+  }
+  return { ok: true, mode: "PRE_GRADE" };
+}
+
+class ContestStateChangedError extends Error {}
 
 export const PLAYER_FACTUAL_KEYS = [
   "passingYards",
@@ -90,6 +164,11 @@ export type EyeqChangePreview = {
 };
 
 export type PostFinalStatCorrectionPreview = {
+  mode: StatCorrectionMode;
+  /** POST_FINAL only — PRE_GRADE never grades. */
+  regradeWillRun: boolean;
+  /** No persisted finishes yet: ranks are derived from current fantasy points. */
+  ranksProvisional: boolean;
   kind: PostFinalStatKind;
   weekStatId: string;
   weekId: string;
@@ -136,6 +215,9 @@ export type ApplyPostFinalStatCorrectionInput = {
 export type ApplyPostFinalStatCorrectionResult =
   | {
       ok: true;
+      mode: StatCorrectionMode;
+      regradeOccurred: boolean;
+      finishesRecalculated: boolean;
       auditLogId: string;
       recalculatedAuditLogId: string;
       contestId: string;
@@ -158,7 +240,9 @@ export type ApplyPostFinalStatCorrectionResult =
         | "missing_confirmation"
         | "not_found"
         | "week_mismatch"
-        | "contest_not_final"
+        | "stat_not_verified"
+        | "contest_grading"
+        | "contest_state_changed"
         | "invalid_stats"
         | "apply_failed";
       message: string;
@@ -348,6 +432,7 @@ type LoadedCorrectionTarget = {
   oldActualRank: number | null;
   oldLeagueActualRank: number | null;
   provider: string;
+  statVerified: boolean;
 };
 
 async function loadCorrectionTarget(input: {
@@ -410,6 +495,7 @@ async function loadCorrectionTarget(input: {
       oldActualRank: contestEntry.actualRank,
       oldLeagueActualRank: row.leagueActualRank,
       provider: row.provider,
+      statVerified: row.isProvisional === false,
     };
   }
 
@@ -464,6 +550,7 @@ async function loadCorrectionTarget(input: {
     oldActualRank: contestEntry.actualRank,
     oldLeagueActualRank: row.leagueActualRank,
     provider: row.provider,
+    statVerified: row.isProvisional === false,
   };
 }
 
@@ -563,14 +650,14 @@ export async function previewPostFinalStatCorrection(input: {
     };
   }
 
-  if (target.contestStatus !== "FINAL" && target.contestStatus !== "ARCHIVED") {
-    return {
-      ok: false,
-      error: "contest_not_final",
-      message:
-        "Post-FINAL correction requires a FINAL (or ARCHIVED) contest. Use ordinary live scoring while the week is open.",
-    };
+  const modeResult = resolveStatCorrectionMode({
+    contestStatus: target.contestStatus,
+    statVerified: target.statVerified,
+  });
+  if (!modeResult.ok) {
+    return { ok: false, error: modeResult.error, message: modeResult.message };
   }
+  const mode = modeResult.mode;
 
   const proposedFacts =
     input.kind === "player"
@@ -606,31 +693,55 @@ export async function previewPostFinalStatCorrection(input: {
     },
   });
 
+  const ranksProvisional = !contest.entries.some(
+    (entry) => entry.actualRank != null,
+  );
+  const baselineRankById = ranksProvisional
+    ? new Map(
+        assignCompetitionRanks(
+          contest.entries.filter((entry) => entry.fantasyPoints != null),
+          (entry) => entry.fantasyPoints as number,
+        ).map((row) => [row.item.rankableEntryId, row.rank]),
+      )
+    : null;
+  const baselineRank = (entry: {
+    rankableEntryId: string;
+    actualRank: number | null;
+  }) =>
+    baselineRankById
+      ? (baselineRankById.get(entry.rankableEntryId) ?? null)
+      : entry.actualRank;
+
   const projection = projectPositionRanksAfterFantasyChange({
     entries: contest.entries.map((entry) => ({
       rankableEntryId: entry.rankableEntryId,
       name: entry.rankableEntry.name,
       fantasyPoints: entry.fantasyPoints,
-      actualRank: entry.actualRank,
+      actualRank: baselineRank(entry),
     })),
     targetRankableEntryId: target.rankableEntryId,
     newFantasyPoints,
   });
 
-  const projectedActualById = new Map(
-    projection.projectedRanks.map((row) => [
-      row.rankableEntryId,
-      { actualRank: row.newRank, fantasyPoints: row.fantasyPoints },
-    ]),
-  );
-
-  const eyeq = await buildEyeqPreview({
-    contestId: contest.id,
-    rankingDepth: contest.rankingDepth,
-    projectedActualById,
-  });
+  let eyeq: { changes: EyeqChangePreview[]; limited: boolean } | null = null;
+  if (mode === "POST_FINAL") {
+    const projectedActualById = new Map(
+      projection.projectedRanks.map((row) => [
+        row.rankableEntryId,
+        { actualRank: row.newRank, fantasyPoints: row.fantasyPoints },
+      ]),
+    );
+    eyeq = await buildEyeqPreview({
+      contestId: contest.id,
+      rankingDepth: contest.rankingDepth,
+      projectedActualById,
+    });
+  }
 
   const preview: PostFinalStatCorrectionPreview = {
+    mode,
+    regradeWillRun: mode === "POST_FINAL",
+    ranksProvisional,
     kind: target.kind,
     weekStatId: target.weekStatId,
     weekId: target.weekId,
@@ -652,27 +763,33 @@ export async function previewPostFinalStatCorrection(input: {
     changedFields,
     oldFantasyPoints: target.oldFantasyPoints,
     newFantasyPoints,
-    oldActualRank: target.oldActualRank,
+    oldActualRank: baselineRank({
+      rankableEntryId: target.rankableEntryId,
+      actualRank: target.oldActualRank,
+    }),
     projectedActualRank: projection.projectedActualRank,
     rankChanges: projection.rankChanges,
     gradedSubmissionCount: contest.submissions.length,
-    eyeqChanges: eyeq.limited ? null : eyeq.changes,
-    eyeqPreviewLimited: eyeq.limited,
+    eyeqChanges: eyeq && !eyeq.limited ? eyeq.changes : null,
+    eyeqPreviewLimited: eyeq?.limited ?? false,
     unrelatedPositionsUnaffected: true,
     weekRemainsComplete: target.weekStatus === "COMPLETE",
-    contestRemainsFinal: true,
+    contestRemainsFinal: mode === "POST_FINAL",
   };
 
   return { ok: true, preview };
 }
 
 /**
- * Apply factual correction + position finishes + contest regrade.
+ * Apply factual correction (+ position finishes + contest regrade for POST_FINAL).
  *
  * Atomicity strategy (staged, recoverable):
- *  1. Short DB transaction: WeekStat factual+FP, ContestEntry.FP, start audit
- *  2. calculateLeagueActualFinishesForContest (position-only; existing chunked writes)
- *  3. gradeContest (ends FINAL; on failure restores prior FINAL)
+ *  1. Short DB transaction: re-check mode, WeekStat factual+FP, ContestEntry.FP,
+ *     start audit
+ *  2. calculateLeagueActualFinishesForContest (position-only; existing chunked
+ *     writes) — PRE_GRADE only when finishes were already persisted, so an
+ *     ungraded week never gains actualRank (which would lock live scoring)
+ *  3. POST_FINAL only: gradeContest (ends FINAL; on failure restores prior FINAL)
  *  4. Follow-up audit with before/after ranks + regrade counts
  *
  * Partial failure surfaces explicitly. Retry of the same correction is safe:
@@ -694,7 +811,7 @@ export async function applyPostFinalStatCorrection(
       ok: false,
       error: "missing_confirmation",
       message:
-        "High-impact confirmation is required before applying a post-FINAL correction.",
+        "High-impact confirmation is required before applying a verified stat correction.",
     };
   }
 
@@ -707,13 +824,16 @@ export async function applyPostFinalStatCorrection(
     return {
       ok: false,
       error:
-        previewResult.error === "contest_not_final"
-          ? "contest_not_final"
+        previewResult.error === "stat_not_verified" ||
+        previewResult.error === "contest_grading"
+          ? previewResult.error
           : "not_found",
       message: previewResult.message,
     };
   }
   const preview = previewResult.preview;
+  const mode = preview.mode;
+  const actions = CORRECTION_ACTIONS[mode];
   const target = await loadCorrectionTarget({
     weekStatId: input.weekStatId,
     kind: input.kind,
@@ -742,6 +862,20 @@ export async function applyPostFinalStatCorrection(
 
   try {
     await prisma.$transaction(async (tx) => {
+      const contestNow = await tx.rankIQContest.findUniqueOrThrow({
+        where: { id: target.contestId },
+        select: { status: true },
+      });
+      const modeNow = resolveStatCorrectionMode({
+        contestStatus: contestNow.status,
+        statVerified: target.statVerified,
+      });
+      if (!modeNow.ok || modeNow.mode !== mode) {
+        throw new ContestStateChangedError(
+          `Contest is now ${contestNow.status}; preview the correction again before applying.`,
+        );
+      }
+
       if (input.kind === "player") {
         await tx.playerWeekStat.update({
           where: { id: target.weekStatId },
@@ -773,12 +907,13 @@ export async function applyPostFinalStatCorrection(
       const audit = await tx.adminAuditLog.create({
         data: {
           adminUserId: input.adminUserId,
-          action: POST_FINAL_STAT_CORRECTION_ACTION,
+          action: actions.applied,
           entityType:
             input.kind === "player" ? "PlayerWeekStat" : "DefenseWeekStat",
           entityId: target.weekStatId,
           metadata: {
             stage: "stats_applied",
+            mode,
             adminUserId: input.adminUserId,
             seasonId: target.seasonId,
             weekId: target.weekId,
@@ -791,8 +926,10 @@ export async function applyPostFinalStatCorrection(
             rankableEntryId: target.rankableEntryId,
             weekStatId: target.weekStatId,
             contestId: target.contestId,
+            contestStatus: target.contestStatus,
             contestEntryId: target.contestEntryId,
             provider: target.provider,
+            statVerified: target.statVerified,
             reason: validated.reason,
             sourceReference: validated.sourceReference,
             beforeFacts: target.currentFacts,
@@ -801,9 +938,11 @@ export async function applyPostFinalStatCorrection(
             newFantasyPoints: preview.newFantasyPoints,
             oldActualRank: preview.oldActualRank,
             projectedActualRank: preview.projectedActualRank,
+            ranksProvisional: preview.ranksProvisional,
             changedFields: preview.changedFields,
             identicalNoOp,
             requiresRecalc: true,
+            regradeWillRun: preview.regradeWillRun,
             regradeOccurred: false,
             finishesRecalculated: false,
             unrelatedPositionsUnaffected: true,
@@ -818,14 +957,20 @@ export async function applyPostFinalStatCorrection(
     });
     weekStatUpdated = true;
 
-    const finishResult = await calculateLeagueActualFinishesForContest(
-      target.contestId,
-    );
-    finishesRecalculated = true;
+    let finishResult: ActualFinishResult | null = null;
+    if (mode === "POST_FINAL" || !preview.ranksProvisional) {
+      finishResult = await calculateLeagueActualFinishesForContest(
+        target.contestId,
+      );
+      finishesRecalculated = true;
+    }
 
-    await ensureOfficialBoardFinalsForContest(target.contestId);
-    const gradeResult = await gradeContest(target.contestId);
-    graded = true;
+    let gradeResult: Awaited<ReturnType<typeof gradeContest>> | null = null;
+    if (mode === "POST_FINAL") {
+      await ensureOfficialBoardFinalsForContest(target.contestId);
+      gradeResult = await gradeContest(target.contestId);
+      graded = true;
+    }
 
     const contestAfter = await prisma.rankIQContest.findUniqueOrThrow({
       where: { id: target.contestId },
@@ -858,11 +1003,12 @@ export async function applyPostFinalStatCorrection(
 
     const recalcAudit = await logAdminAction({
       adminUserId: input.adminUserId,
-      action: POST_FINAL_STAT_CORRECTION_RECALCULATED_ACTION,
+      action: actions.recalculated,
       entityType: "RankIQContest",
       entityId: target.contestId,
       metadata: {
         stage: "recalculated",
+        mode,
         correctionAuditLogId: auditLogId,
         weekId: target.weekId,
         position: target.position,
@@ -874,20 +1020,27 @@ export async function applyPostFinalStatCorrection(
         oldActualRank: preview.oldActualRank,
         newActualRank: entryAfter.actualRank,
         rankChanges: finalRankChanges,
-        finishResult: {
-          ranked: finishResult.ranked,
-          tiedGroups: finishResult.tiedGroups,
-          contestEntriesRanked: finishResult.contestEntriesRanked,
-        },
-        submissionsRegraded: gradeResult.graded,
-        submissionsSkipped: gradeResult.skipped,
+        ranksProvisional: preview.ranksProvisional,
+        finishesRecalculated,
+        finishResult: finishResult
+          ? {
+              ranked: finishResult.ranked,
+              tiedGroups: finishResult.tiedGroups,
+              contestEntriesRanked: finishResult.contestEntriesRanked,
+            }
+          : null,
+        submissionsRegraded: gradeResult?.graded ?? 0,
+        submissionsSkipped: gradeResult?.skipped ?? 0,
         identicalNoOp,
-        regradeOccurred: true,
+        regradeOccurred: graded,
       },
     });
 
     return {
       ok: true,
+      mode,
+      regradeOccurred: graded,
+      finishesRecalculated,
       auditLogId,
       recalculatedAuditLogId: recalcAudit.id,
       contestId: target.contestId,
@@ -895,14 +1048,21 @@ export async function applyPostFinalStatCorrection(
       oldFantasyPoints: preview.oldFantasyPoints,
       newFantasyPoints: entryAfter.fantasyPoints ?? preview.newFantasyPoints,
       oldActualRank: preview.oldActualRank,
-      newActualRank: entryAfter.actualRank,
+      newActualRank: entryAfter.actualRank ?? preview.projectedActualRank,
       rankChanges: finalRankChanges,
-      submissionsRegraded: gradeResult.graded,
+      submissionsRegraded: gradeResult?.graded ?? 0,
       weekStatus: weekAfter.status,
       contestStatus: contestAfter.status,
       identicalNoOp,
     };
   } catch (error) {
+    if (error instanceof ContestStateChangedError) {
+      return {
+        ok: false,
+        error: "contest_state_changed",
+        message: error.message,
+      };
+    }
     const contestStatus = (
       await prisma.rankIQContest
         .findUnique({
@@ -915,11 +1075,12 @@ export async function applyPostFinalStatCorrection(
     if (auditLogId) {
       await logAdminAction({
         adminUserId: input.adminUserId,
-        action: "live_scoring.post_final_stat_correction_failed",
+        action: actions.failed,
         entityType:
           input.kind === "player" ? "PlayerWeekStat" : "DefenseWeekStat",
         entityId: target.weekStatId,
         metadata: {
+          mode,
           correctionAuditLogId: auditLogId,
           weekStatUpdated,
           finishesRecalculated,
@@ -936,7 +1097,7 @@ export async function applyPostFinalStatCorrection(
       message:
         error instanceof Error
           ? error.message
-          : "Post-FINAL correction apply failed.",
+          : "Verified stat correction apply failed.",
       partialState: {
         weekStatUpdated,
         finishesRecalculated,

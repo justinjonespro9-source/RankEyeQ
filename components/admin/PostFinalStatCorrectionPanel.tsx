@@ -81,6 +81,8 @@ export function PostFinalStatCorrectionPanel({
     () => lockedEntries.find((e) => e.contestEntryId === contestEntryId) ?? null,
     [lockedEntries, contestEntryId],
   );
+  const selectedPostFinal =
+    selected?.contestStatus === "FINAL" || selected?.contestStatus === "ARCHIVED";
 
   const livePts = useMemo(() => {
     if (!selected) return 0;
@@ -159,7 +161,11 @@ export function PostFinalStatCorrectionPanel({
         return;
       }
       setMessage(
-        `Applied ${result.position} correction. FP ${result.oldFantasyPoints.toFixed(2)} → ${result.newFantasyPoints.toFixed(2)}; rank ${result.oldActualRank ?? "—"} → ${result.newActualRank ?? "—"}; regraded ${result.submissionsRegraded}. Week ${result.weekStatus}, contest ${result.contestStatus}.`,
+        `Applied ${result.position} correction. FP ${result.oldFantasyPoints.toFixed(2)} → ${result.newFantasyPoints.toFixed(2)}; rank ${result.oldActualRank ?? "—"} → ${result.newActualRank ?? "—"}; ${
+          result.regradeOccurred
+            ? `regraded ${result.submissionsRegraded}`
+            : "no regrade (not graded yet — used when grading occurs)"
+        }. Week ${result.weekStatus}, contest ${result.contestStatus}.`,
       );
       setPreview(null);
       setConfirmHighImpact(false);
@@ -173,11 +179,12 @@ export function PostFinalStatCorrectionPanel({
     <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-ink">Correct Final Stats</h3>
+          <h3 className="font-semibold text-ink">Correct Verified Stats</h3>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            This changes official factual results and may recalculate final EYEQ
-            scores. Ordinary live editing stays locked. Week remains COMPLETE;
-            only the affected position is regraded.
+            Correct a verified game&apos;s factual stats. If rankings have
+            already been graded, the affected position will be regraded.
+            Otherwise the corrected result will be used when grading occurs.
+            Ordinary live editing stays locked and the game stays verified.
           </p>
         </div>
         <Button
@@ -189,7 +196,7 @@ export function PostFinalStatCorrectionPanel({
             if (!open && selected) loadEntry(selected.contestEntryId);
           }}
         >
-          {open ? "Hide correction form" : "Correct Final Stats"}
+          {open ? "Hide correction form" : "Correct Verified Stats"}
         </Button>
       </div>
 
@@ -214,7 +221,9 @@ export function PostFinalStatCorrectionPanel({
 
           {selected ? (
             <div className="flex flex-wrap gap-2">
-              <Badge tone="warning">POST-FINAL CORRECTION</Badge>
+              <Badge tone="warning">
+                {selectedPostFinal ? "POST-FINAL CORRECTION" : "PRE-GRADE CORRECTION"}
+              </Badge>
               <Badge tone="neutral">{selected.position}</Badge>
               <Badge tone="neutral">
                 Live calc {livePts.toFixed(2)} pts
@@ -298,22 +307,30 @@ export function PostFinalStatCorrectionPanel({
                   {preview.newFantasyPoints.toFixed(2)}
                 </li>
                 <li>
-                  Actual rank: {preview.oldActualRank ?? "—"} →{" "}
+                  {preview.ranksProvisional ? "Provisional rank" : "Actual rank"}:{" "}
+                  {preview.oldActualRank ?? "—"} →{" "}
                   {preview.projectedActualRank ?? "—"}
                 </li>
                 <li>
-                  Position {preview.position} · contest {preview.contestStatus} ·
-                  week {preview.weekStatus}
+                  {preview.mode === "POST_FINAL"
+                    ? "POST-FINAL CORRECTION"
+                    : "PRE-GRADE CORRECTION"}{" "}
+                  · position {preview.position} · contest {preview.contestStatus}{" "}
+                  · week {preview.weekStatus}
                 </li>
                 <li>
-                  Rank changes: {preview.rankChanges.length} · graded
+                  Rank changes: {preview.rankChanges.length} ·{" "}
+                  {preview.mode === "POST_FINAL" ? "graded" : "eligible"}{" "}
                   submissions: {preview.gradedSubmissionCount}
                 </li>
                 <li>
-                  EYEQ score changes:{" "}
-                  {preview.eyeqPreviewLimited
-                    ? "preview limited (ranks/submission count only)"
-                    : preview.eyeqChanges?.length ?? 0}
+                  {preview.regradeWillRun
+                    ? `EYEQ score changes: ${
+                        preview.eyeqPreviewLimited
+                          ? "preview limited (ranks/submission count only)"
+                          : (preview.eyeqChanges?.length ?? 0)
+                      }`
+                    : "EYEQ: not graded yet — no regrade runs; grading will use the corrected result"}
                 </li>
                 <li>Unrelated positions unaffected: yes</li>
               </ul>
@@ -350,8 +367,9 @@ export function PostFinalStatCorrectionPanel({
                   onChange={(e) => setConfirmHighImpact(e.target.checked)}
                 />
                 <span>
-                  I understand this amends official FINAL results and will
-                  recalculate finishes + EYEQ for {preview.position} only.
+                  {preview.mode === "POST_FINAL"
+                    ? `I understand this amends official FINAL results and will recalculate finishes + EYEQ for ${preview.position} only.`
+                    : `I understand this amends verified ${preview.position} stats. No grading runs now; the corrected result is used when grading occurs.`}
                 </span>
               </label>
 
@@ -361,7 +379,9 @@ export function PostFinalStatCorrectionPanel({
                   disabled={pending || !confirmHighImpact}
                   onClick={applyCorrection}
                 >
-                  Apply Correction &amp; Regrade
+                  {preview.mode === "POST_FINAL"
+                    ? "Apply Correction & Regrade"
+                    : "Apply Correction"}
                 </Button>
               </div>
             </div>

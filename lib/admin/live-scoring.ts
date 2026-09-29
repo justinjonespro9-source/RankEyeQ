@@ -622,7 +622,7 @@ export async function saveLivePlayerStats(input: {
       fantasyPoints: entry.fantasyPoints ?? 0,
       skipped: true,
       reason:
-        "Locked — game stats finalized or week results are final (reopen game to correct)",
+        "Locked — game stats verified or week results are final (use Correct Verified Stats)",
       updatedAt: entry.updatedAt,
     };
   }
@@ -728,7 +728,7 @@ export async function saveLiveDefenseStats(input: {
       fantasyPoints: entry.fantasyPoints ?? 0,
       skipped: true,
       reason:
-        "Locked — game stats finalized or week results are final (reopen game to correct)",
+        "Locked — game stats verified or week results are final (use Correct Verified Stats)",
       updatedAt: entry.updatedAt,
     };
   }
