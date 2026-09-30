@@ -495,6 +495,8 @@ model User {
   playerWeekAvailabilityUpdates PlayerWeekAvailability[] @relation("PlayerWeekAvailabilityUpdatedBy")
   officialBoardVersionsAuthored OfficialBoardVersion[]
   weeklyContentSuppressed       WeeklyContent[]            @relation("WeeklyContentSuppressedBy")
+  waiverSnapshotsFrozen         WaiverSnapshot[]           @relation("WaiverSnapshotFrozenBy")
+  waiverSnapshotCorrections     WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionOperator")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -568,6 +570,7 @@ model Season {
   games    NflGame[]
   seasonPlayers SeasonPlayer[]
   activeRankingScoringVersion RankingScoringVersion? @relation("SeasonActiveScoringVersion", fields: [activeRankingScoringVersionId], references: [id], onDelete: SetNull)
+  waiverSnapshots WaiverSnapshot[]
 
   @@unique([year, sport])
 }
@@ -603,6 +606,7 @@ model Week {
   publicFromProfiles UniversalProfile[] @relation("ProfilePublicFromWeek")
   playerWeekAvailabilities PlayerWeekAvailability[]
   weeklyContent            WeeklyContent[]
+  waiverSnapshots          WaiverSnapshot[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -632,6 +636,7 @@ model NflGame {
   rankableEntries  RankableEntry[]
   playerWeekStats  PlayerWeekStat[]
   defenseWeekStats DefenseWeekStat[]
+  waiverSnapshotEntries WaiverSnapshotEntry[]
 
   @@unique([provider, externalId])
   @@index([seasonYear, weekNumber])
@@ -770,6 +775,8 @@ model RankableEntry {
   playerWeekStats  PlayerWeekStat[]
   defenseWeekStats DefenseWeekStat[]
   weekAvailabilities PlayerWeekAvailability[]
+  waiverSnapshotEntries     WaiverSnapshotEntry[]
+  waiverSnapshotCorrections WaiverSnapshotCorrection[]
 
   @@unique([provider, externalId])
   @@index([position, team])
@@ -1251,4 +1258,173 @@ model PolicyAcceptance {
 
   @@unique([userId, policyDocumentId])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — Official Waiver Snapshot evidence (Phase 1 foundation).
+// Separate from Rankings: no Rankings table references these models.
+// Frozen evidence is immutable; corrections create a new snapshot version.
+// Every relation is Restrict so Season/Week/player/user deletes cannot erase
+// competitive evidence (Week cascades from Season).
+// ---------------------------------------------------------------------------
+
+enum WaiverSnapshotStatus {
+  FROZEN
+  SUPERSEDED
+}
+
+enum WaiverEvidenceRole {
+  /// Row from the weekly ownership paste; evaluated for eligibility.
+  CANDIDATE
+  /// Targeted observation for a previously called player (may be >= 50%).
+  FOLLOW_UP
+}
+
+enum WaiverEligibility {
+  ELIGIBLE
+  EXCLUDED
+  /// Evidence only (FOLLOW_UP rows); never part of the Waiver pool.
+  OBSERVATION_ONLY
+}
+
+enum WaiverExclusionReason {
+  AT_OR_ABOVE_THRESHOLD
+  BYE
+  NO_SCHEDULED_GAME
+  HARD_UNAVAILABLE
+  NOT_ON_NFL_ROSTER
+  POSITION_MISMATCH
+  ADMIN_EXCLUDED
+}
+
+enum WaiverMatchMethod {
+  EXTERNAL_ID
+  EXACT_NAME_TEAM
+  ALIAS_TEAM
+  ADMIN_CONFIRMED
+}
+
+enum WaiverCorrectionCase {
+  PRE_SUBMISSION
+  OPEN_WITH_SUBMISSIONS
+  POST_LOCK
+  POST_GRADE
+}
+
+/// Records how a correction relates to boards. Post-lock competitive treatment
+/// is not authorized yet: such corrections are evidence-only until a policy exists.
+enum WaiverCorrectionPolicy {
+  NO_BOARD_EFFECT
+  /// Pre-lock: affected boards are flagged; owners may revise while open.
+  AFFECTED_BOARDS_FLAGGED
+  /// Post-lock / post-grade: evidence preserved; treatment requires a product decision.
+  POLICY_DECISION_REQUIRED
+}
+
+/// One frozen version of the Official Waiver Snapshot for a week.
+model WaiverSnapshot {
+  id                 String                @id @default(cuid())
+  seasonId           String
+  weekId             String
+  version            Int
+  status             WaiverSnapshotStatus  @default(FROZEN)
+  /// Equals weekId on the current version only; null once superseded (one current per week).
+  currentForWeekId   String?               @unique
+  /// Ownership threshold in basis points (5000 = 50.00%). Eligible iff rosteredBps < thresholdBps.
+  thresholdBps       Int                   @default(5000)
+  sourceLabel        String
+  sourceUrl          String?
+  observedAt         DateTime
+  frozenAt           DateTime              @default(now())
+  frozenByUserId     String
+  rawInputSha256     String
+  entriesFingerprint String
+  candidateCount     Int
+  eligibleCount      Int
+  excludedCount      Int
+  followUpCount      Int
+  supersedesId       String?               @unique
+  correctionCase     WaiverCorrectionCase?
+  correctionReason   String?
+  /// Provenance pointer to ManualImportLog.id (no FK; import logs stay independent).
+  manualImportLogId  String?               @unique
+
+  season          Season                     @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  week            Week                       @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  frozenBy        User                       @relation("WaiverSnapshotFrozenBy", fields: [frozenByUserId], references: [id], onDelete: Restrict)
+  supersedes      WaiverSnapshot?            @relation("WaiverSnapshotSupersedes", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy    WaiverSnapshot?            @relation("WaiverSnapshotSupersedes")
+  entries         WaiverSnapshotEntry[]
+  correctionsFrom WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionFrom")
+  correctionsTo   WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionTo")
+
+  @@unique([weekId, version])
+  @@index([seasonId, weekId])
+}
+
+/// Per-player evidence row copied at freeze. Never depends on mutable live rows.
+model WaiverSnapshotEntry {
+  id                              String                         @id @default(cuid())
+  snapshotId                      String
+  rankableEntryId                 String
+  evidenceRole                    WaiverEvidenceRole
+  position                        ContestPosition
+  displayNameAtFreeze             String
+  teamAtFreeze                    String?
+  /// Roster percentage in basis points (49.5% = 4950).
+  rosteredBps                     Int
+  sourceLabel                     String
+  sourceUrl                       String?
+  observedAt                      DateTime
+  inputLineNumber                 Int
+  inputLine                       String
+  matchMethod                     WaiverMatchMethod
+  eligibility                     WaiverEligibility
+  exclusionReason                 WaiverExclusionReason?
+  exclusionNote                   String?
+  nflGameId                       String?
+  opponentAtFreeze                String?
+  kickoffAtFreeze                 DateTime?
+  isByeAtFreeze                   Boolean
+  availabilityDesignationAtFreeze WeeklyAvailabilityDesignation?
+  rosterStatusAtFreeze            String?
+  availabilitySourceAtFreeze      String?
+  hardUnavailableAtFreeze         Boolean
+
+  snapshot      WaiverSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  rankableEntry RankableEntry  @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+  nflGame       NflGame?       @relation(fields: [nflGameId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, rankableEntryId])
+  @@index([rankableEntryId, snapshotId])
+  @@index([snapshotId, position, eligibility])
+}
+
+/// Field-level correction record linking an original and a corrected snapshot version.
+model WaiverSnapshotCorrection {
+  id                      String                 @id @default(cuid())
+  fromSnapshotId          String
+  toSnapshotId            String
+  rankableEntryId         String?
+  field                   String
+  originalValue           Json
+  correctedValue          Json
+  reason                  String
+  correctionCase          WaiverCorrectionCase
+  policy                  WaiverCorrectionPolicy
+  eligibilityBefore       WaiverEligibility?
+  eligibilityAfter        WaiverEligibility?
+  affectedSubmissionCount Int                    @default(0)
+  affectedCallIds         Json?
+  operatorUserId          String
+  createdAt               DateTime               @default(now())
+
+  fromSnapshot  WaiverSnapshot @relation("WaiverSnapshotCorrectionFrom", fields: [fromSnapshotId], references: [id], onDelete: Restrict)
+  toSnapshot    WaiverSnapshot @relation("WaiverSnapshotCorrectionTo", fields: [toSnapshotId], references: [id], onDelete: Restrict)
+  rankableEntry RankableEntry? @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+  operator      User           @relation("WaiverSnapshotCorrectionOperator", fields: [operatorUserId], references: [id], onDelete: Restrict)
+
+  @@index([toSnapshotId])
+  @@index([fromSnapshotId])
+  @@index([rankableEntryId])
 }
