@@ -128,6 +128,7 @@ describe("admin IA navigation config", () => {
       "Availability",
       "Exceptions",
       "Official Boards",
+      "Waivers",
       "Diagnostics",
       "Ops Status",
     ]);
@@ -136,6 +137,14 @@ describe("admin IA navigation config", () => {
       primaryHref: "/admin",
       secondaryHref: "/admin/official-boards",
     });
+  });
+
+  it("Waivers is an admin-only Weekly Ops > Operate destination, including snapshot detail routes", () => {
+    expect(isAdminCapabilityReachable("/admin/waivers")).toBe(true);
+    for (const path of ["/admin/waivers", "/admin/waivers?weekId=w1", "/admin/waivers/snapshots/s1"]) {
+      expect(resolveAdminNav(path)).toMatchObject({ family: "weekly-ops", primaryHref: "/admin", secondaryHref: "/admin/waivers" });
+    }
+    expect(ADMIN_PRIMARY_LINKS.map((link) => link.href)).not.toContain("/admin/waivers");
   });
 });
 

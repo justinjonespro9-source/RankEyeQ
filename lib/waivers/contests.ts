@@ -195,6 +195,7 @@ export async function openWaiverContestsForWeek(input: {
           existing: result.existing,
           refused: result.refused,
         } satisfies Prisma.InputJsonValue,
+        createdAt: now,
       },
     });
 

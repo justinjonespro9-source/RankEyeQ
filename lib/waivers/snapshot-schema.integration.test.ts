@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
+import { withFixtureMaintenance } from "@/lib/waivers/__fixtures__/competition";
 
 const suffix = `wsnap${Date.now().toString(36)}`;
 const seasonYear = 3800 + (Date.now() % 90);
@@ -109,14 +110,16 @@ describe("Waiver snapshot schema (local DB)", () => {
   });
 
   afterAll(async () => {
-    await prisma.waiverSnapshotCorrection.deleteMany({ where: { operatorUserId: userId } });
-    const snapshots = await prisma.waiverSnapshot.findMany({
-      where: { weekId },
-      orderBy: { version: "desc" },
-      select: { id: true },
+    await withFixtureMaintenance(async (tx) => {
+      await tx.waiverSnapshotCorrection.deleteMany({ where: { operatorUserId: userId } });
+      const snapshots = await tx.waiverSnapshot.findMany({
+        where: { weekId },
+        orderBy: { version: "desc" },
+        select: { id: true },
+      });
+      await tx.waiverSnapshotEntry.deleteMany({ where: { snapshotId: { in: snapshots.map((s) => s.id) } } });
+      for (const s of snapshots) await tx.waiverSnapshot.delete({ where: { id: s.id } });
     });
-    await prisma.waiverSnapshotEntry.deleteMany({ where: { snapshotId: { in: snapshots.map((s) => s.id) } } });
-    for (const s of snapshots) await prisma.waiverSnapshot.delete({ where: { id: s.id } });
     await prisma.nflGame.deleteMany({ where: { id: gameId } });
     await prisma.rankableEntry.deleteMany({ where: { id: { in: [playerAId, playerBId] } } });
     await prisma.week.deleteMany({ where: { id: weekId } });
@@ -125,14 +128,17 @@ describe("Waiver snapshot schema (local DB)", () => {
   });
 
   it("freezes a v1 snapshot with entries and defaults", async () => {
-    const v1 = await prisma.waiverSnapshot.create({ data: snapshotData(1, { currentForWeekId: weekId }) });
+    const v1 = await prisma.$transaction(async (tx) => {
+      const header = await tx.waiverSnapshot.create({ data: snapshotData(1, { currentForWeekId: weekId }) });
+      await tx.waiverSnapshotEntry.create({
+        data: { ...entryData(header.id, playerAId, 1), nflGameId: gameId, opponentAtFreeze: "SEA" },
+      });
+      await tx.waiverSnapshotEntry.create({ data: entryData(header.id, playerBId, 2) });
+      return header;
+    });
     v1Id = v1.id;
     expect(v1.status).toBe("FROZEN");
     expect(v1.thresholdBps).toBe(5000);
-    await prisma.waiverSnapshotEntry.create({
-      data: { ...entryData(v1Id, playerAId, 1), nflGameId: gameId, opponentAtFreeze: "SEA" },
-    });
-    await prisma.waiverSnapshotEntry.create({ data: entryData(v1Id, playerBId, 2) });
     expect(await prisma.waiverSnapshotEntry.count({ where: { snapshotId: v1Id } })).toBe(2);
   });
 

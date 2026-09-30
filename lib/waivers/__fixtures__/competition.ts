@@ -86,7 +86,52 @@ export async function createWaiverFixture(tag: string) {
     return players;
   }
 
-  async function addWeek(input: { firstKickoff?: Date | null } = {}) {
+  /** Uniquely named player with a season roster row (the snapshot name universe). */
+  async function addRosterPlayer(input: {
+    position: ContestPosition;
+    team: string;
+    label?: string;
+    nflStatus?: string;
+    activeOnNFLRoster?: boolean;
+    seasonPlayer?: boolean;
+    adminNotes?: string;
+  }): Promise<FixturePlayer & { team: string }> {
+    const name = `${input.label ?? `${input.position} Roster ${playerIds.length + 1}`} ${suffix}`;
+    const entry = await prisma.rankableEntry.create({
+      data: {
+        provider: "waivers-test",
+        externalId: `${suffix}-roster-${playerIds.length}`,
+        type: input.position === "DEF" ? "DEFENSE" : "PLAYER",
+        name,
+        shortName: name,
+        team: input.team,
+        position: input.position,
+        adminNotes: input.adminNotes ?? null,
+      },
+    });
+    playerIds.push(entry.id);
+    if (input.seasonPlayer !== false) {
+      await prisma.seasonPlayer.create({
+        data: {
+          seasonId: season.id,
+          rankableEntryId: entry.id,
+          displayName: name,
+          team: input.team,
+          position: input.position,
+          nflStatus: input.nflStatus ?? "ACTIVE",
+          activeOnNFLRoster: input.activeOnNFLRoster ?? true,
+        },
+      });
+    }
+    return { id: entry.id, position: input.position, name, team: input.team };
+  }
+
+  async function addWeek(
+    input: {
+      firstKickoff?: Date | null;
+      games?: Array<{ homeTeam: string; awayTeam: string; startsAt?: Date; status?: "SCHEDULED" | "POSTPONED" | "CANCELED" }>;
+    } = {},
+  ) {
     weekNumber += 1;
     const kickoff = input.firstKickoff === undefined ? futureFirstKickoff() : input.firstKickoff;
     const week = await prisma.week.create({
@@ -102,21 +147,52 @@ export async function createWaiverFixture(tag: string) {
     });
     weekIds.push(week.id);
     if (kickoff) {
-      await prisma.nflGame.create({
-        data: {
-          provider: "waivers-test",
-          externalId: `${suffix}-w${weekNumber}`,
-          seasonId: season.id,
-          weekId: week.id,
-          seasonYear: year,
-          weekNumber,
-          homeTeam: "SF",
-          awayTeam: "SEA",
-          startsAt: kickoff,
-        },
-      });
+      const games = input.games ?? [{ homeTeam: "SF", awayTeam: "SEA" }];
+      for (const [index, game] of games.entries()) {
+        await prisma.nflGame.create({
+          data: {
+            provider: "waivers-test",
+            externalId: `${suffix}-w${weekNumber}-${index}`,
+            seasonId: season.id,
+            weekId: week.id,
+            seasonYear: year,
+            weekNumber,
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            startsAt: game.startsAt ?? kickoff,
+            status: game.status ?? "SCHEDULED",
+          },
+        });
+      }
     }
     return { weekId: week.id, firstKickoff: kickoff };
+  }
+
+  async function setAvailability(
+    weekId: string,
+    rankableEntryId: string,
+    designation: "AVAILABLE" | "QUESTIONABLE" | "DOUBTFUL" | "OUT" | "INACTIVE" | "UNKNOWN",
+    extra: { manualOverride?: boolean } = {},
+  ) {
+    await prisma.playerWeekAvailability.upsert({
+      where: { weekId_rankableEntryId: { weekId, rankableEntryId } },
+      create: { weekId, rankableEntryId, designation, sourceType: "MANUAL", manualOverride: extra.manualOverride ?? false, observedAt: new Date() },
+      update: { designation, manualOverride: extra.manualOverride ?? false },
+    });
+  }
+
+  async function markRosterSynced(at: Date | null = new Date()) {
+    await prisma.season.update({ where: { id: season.id }, data: { rosterSyncedAt: at } });
+  }
+
+  /** Rankings weekly pool rows (read-only completeness cross-check). */
+  async function addRankingsPool(weekId: string, position: ContestPosition, rankableEntryIds: string[]) {
+    const contest = await prisma.rankIQContest.create({
+      data: { seasonId: season.id, weekId, position, title: `${position} ${suffix}`, rankingDepth: 5 },
+    });
+    for (const rankableEntryId of rankableEntryIds) {
+      await prisma.contestEntry.create({ data: { contestId: contest.id, rankableEntryId } });
+    }
   }
 
   async function freezeSnapshot(input: { weekId: string; rows: SnapshotRowSpec[]; supersedesId?: string }) {
@@ -203,17 +279,22 @@ export async function createWaiverFixture(tag: string) {
     });
   }
 
-  /**
-   * Simulates the lock instant passing: moves locksAt to `at` (default: now,
-   * i.e. after every write so far) and waits until the clock is past it.
-   */
-  async function passLock(contestId: string, at: Date = new Date()) {
+  /** Moves a contest's lock window so it locks at `at` (no waiting). */
+  async function moveLock(contestId: string, at: Date) {
     await withFixtureMaintenance((tx) =>
       tx.waiverContest.update({
         where: { id: contestId },
         data: { locksAt: at, opensAt: new Date(at.getTime() - 2 * HOUR) },
       }),
     );
+  }
+
+  /**
+   * Simulates the lock instant passing: moves locksAt to `at` (default: now,
+   * i.e. after every write so far) and waits until the clock is past it.
+   */
+  async function passLock(contestId: string, at: Date = new Date()) {
+    await moveLock(contestId, at);
     const waitMs = at.getTime() - Date.now() + 10;
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
     return at;
@@ -243,7 +324,9 @@ export async function createWaiverFixture(tag: string) {
       await tx.waiverSnapshotEntry.deleteMany({ where: { snapshotId: { in: snapshots.map((s) => s.id) } } });
       for (const snapshot of snapshots) await tx.waiverSnapshot.delete({ where: { id: snapshot.id } });
     });
+    await prisma.manualImportLog.deleteMany({ where: { adminUserId: { in: userIds } } });
     await prisma.playerWeekAvailability.deleteMany({ where: { weekId: { in: weekIds } } });
+    await prisma.rankIQContest.deleteMany({ where: { weekId: { in: weekIds } } });
     await prisma.nflGame.deleteMany({ where: { weekId: { in: weekIds } } });
     await prisma.week.deleteMany({ where: { id: { in: weekIds } } });
     await prisma.season.deleteMany({ where: { id: season.id } });
@@ -258,9 +341,14 @@ export async function createWaiverFixture(tag: string) {
     adminUserId: admin.id,
     addParticipant,
     addPlayers,
+    addRosterPlayer,
     addWeek,
+    setAvailability,
+    markRosterSynced,
+    addRankingsPool,
     freezeSnapshot,
     createContest,
+    moveLock,
     passLock,
     cleanup,
   };

@@ -77,6 +77,7 @@ export const WEEKLY_OPS_SECONDARY: readonly AdminNavGroup[] = [
       { href: "/admin/week-status", label: "Availability" },
       { href: "/admin/weekly-exceptions", label: "Exceptions" },
       { href: "/admin/official-boards", label: "Official Boards" },
+      { href: "/admin/waivers", label: "Waivers" },
       { href: "/admin/diagnostics", label: "Diagnostics" },
       { href: "/admin/ops", label: "Ops Status" },
     ],
@@ -103,6 +104,7 @@ export const ADMIN_PRESERVED_ROUTES = [
   "/admin/weekly-pools",
   "/admin/weekly-exceptions",
   "/admin/official-boards",
+  "/admin/waivers",
   "/admin/seasons",
   "/admin/data",
   "/admin/contests",
@@ -143,6 +145,7 @@ const WEEKLY_OPS_PREFIXES = [
   "/admin/week-status",
   "/admin/weekly-exceptions",
   "/admin/official-boards",
+  "/admin/waivers",
   "/admin/diagnostics",
   "/admin/ops",
 ] as const;

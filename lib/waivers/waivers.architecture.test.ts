@@ -49,7 +49,7 @@ function normalizeSpecifier(fromFile: string, specifier: string): string {
   return specifier;
 }
 
-/** DB-free modules: scoring/shape/lock-time/validation/fingerprint/access predicates. */
+/** DB-free modules (keys are paths under lib/waivers without extension). */
 const PURE_MODULES = [
   "constants",
   "precision",
@@ -61,16 +61,46 @@ const PURE_MODULES = [
   "call-validation",
   "fingerprint",
   "access",
+  "snapshot/input",
+  "snapshot/match",
+  "snapshot/eligibility",
+  "snapshot/completeness",
+  "snapshot/preview-model",
+  "snapshot/correct-model",
+  "snapshot/errors",
 ];
-/** Phase 2 competition services and server actions (DB + auth allowed). */
-const SERVICE_MODULES = ["clock", "contests", "submissions", "corrections", "access-queries", "actions"];
+/** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
+const SERVICE_MODULES = [
+  "clock",
+  "contests",
+  "submissions",
+  "corrections",
+  "access-queries",
+  "actions",
+  "snapshot/facts",
+  "snapshot/preview",
+  "snapshot/freeze",
+  "snapshot/correct",
+  "snapshot/queries",
+  "snapshot/actions",
+];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/fantasy/competition-rank",
   "lib/db-target-guard",
   "lib/timing/chicago",
   "node:crypto",
+  /** Snapshot matching / parsing / schedule predicates (pure, shared with Rankings imports). */
+  "lib/nfl/player-identity",
+  "lib/nfl/player-aliases",
+  "lib/nfl/manual/parse-common",
+  "lib/providers/nfl/eligibility",
 ]);
+/**
+ * The pure weekly-availability resolver (exact module only). Its DB store and
+ * the Rankings availability engine stay banned.
+ */
+const ALLOWED_EXACT_EXCEPTIONS = new Set(["lib/eligibility/player-week-availability"]);
 const ALLOWED_TYPE_ONLY_IMPORTS = new Set(["lib/generated/prisma/client"]);
 const SERVICE_RUNTIME_IMPORTS = new Set([
   "lib/db",
@@ -81,6 +111,15 @@ const SERVICE_RUNTIME_IMPORTS = new Set([
   "lib/rate-limit",
   "lib/request-ip",
   "lib/log",
+  "next/cache",
+]);
+/** The only UI allowed to import Waivers, and what it may import at runtime. */
+const WAIVERS_UI_DIRS = ["app/admin/waivers", "components/admin/waivers"];
+const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
+  "lib/waivers/actions",
+  "lib/waivers/snapshot/actions",
+  "lib/waivers/snapshot/queries",
+  "lib/waivers/constants",
 ]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
@@ -101,7 +140,7 @@ const BANNED_PREFIXES = [
   "lib/nfl/player-availability",
 ];
 
-const moduleName = (file: string) => path.basename(file).replace(/\.ts$/, "");
+const moduleName = (file: string) => path.relative(WAIVERS_DIR, file).replace(/\.ts$/, "").split(path.sep).join("/");
 
 function referencesWaivers(fromFile: string, source: string): boolean {
   return readImports(source).some((ref) =>
@@ -134,10 +173,8 @@ function checkWaiversScriptGuard(
 
 describe("Waivers architecture isolation", () => {
   it("lib/waivers source files exist", () => {
-    const names = waiverSourceFiles().map((f) => path.basename(f)).sort();
-    expect(names).toEqual(
-      [...PURE_MODULES, ...SERVICE_MODULES, "script-guard"].map((name) => `${name}.ts`).sort(),
-    );
+    const names = waiverSourceFiles().map(moduleName).sort();
+    expect(names).toEqual([...PURE_MODULES, ...SERVICE_MODULES, "script-guard"].sort());
   });
 
   it("lib/waivers imports only its tiered allowlist (services may use DB/auth; nothing uses Rankings)", () => {
@@ -147,6 +184,7 @@ describe("Waivers architecture isolation", () => {
       const isService = SERVICE_MODULES.includes(moduleName(file));
       for (const ref of readImports(source)) {
         const target = normalizeSpecifier(file, ref.specifier);
+        if (ALLOWED_EXACT_EXCEPTIONS.has(target)) continue;
         if (BANNED_PREFIXES.some((prefix) => target === prefix || target.startsWith(prefix))) {
           violations.push(`${path.relative(ROOT, file)} -> ${ref.specifier} (banned)`);
           continue;
@@ -174,10 +212,10 @@ describe("Waivers architecture isolation", () => {
     }
   });
 
-  it("only actions.ts is a server-action module, and it exports only async functions", () => {
+  it("only the actions modules are server-action modules, and they export only async functions", () => {
     for (const file of waiverSourceFiles()) {
       const source = readFileSync(file, "utf8");
-      const isActions = moduleName(file) === "actions";
+      const isActions = moduleName(file) === "actions" || moduleName(file) === "snapshot/actions";
       expect(/^\s*["']use server["']/.test(source), path.relative(ROOT, file)).toBe(isActions);
       if (!isActions) continue;
       const exports = [...source.matchAll(/^export\s+(?!type\b)(\w+(?:\s+\w+)?)/gm)].map((m) => m[1]);
@@ -208,16 +246,44 @@ describe("Waivers architecture isolation", () => {
     expect(hits).toEqual([]);
   });
 
-  it("no module outside lib/waivers imports lib/waivers (Waivers is unwired: no UI, routes or navigation)", () => {
+  it("only the admin Waivers UI imports lib/waivers, and only its actions, read-only queries and constants", () => {
     const roots = ["app", "components", "lib", "scripts", "prisma"].map((d) => path.join(ROOT, d));
     const offenders: string[] = [];
     for (const root of roots) {
       for (const file of walk(root)) {
         if (file.startsWith(WAIVERS_DIR + path.sep)) continue;
-        if (referencesWaivers(file, readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+        const source = readFileSync(file, "utf8");
+        if (!referencesWaivers(file, source)) continue;
+        const rel = path.relative(ROOT, file).split(path.sep).join("/");
+        if (!WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`))) {
+          offenders.push(rel);
+          continue;
+        }
+        for (const ref of readImports(source)) {
+          const target = normalizeSpecifier(file, ref.specifier);
+          if (!target.startsWith("lib/waivers") || ref.typeOnly) continue;
+          if (!WAIVERS_UI_RUNTIME_IMPORTS.has(target)) offenders.push(`${rel} -> ${ref.specifier}`);
+          if (target === "lib/waivers/snapshot/queries" && !rel.startsWith("app/")) offenders.push(`${rel} -> queries outside a server page`);
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("Waivers routes exist only under /admin and the nav link is admin-only", () => {
+    const routeDirs = walk(path.join(ROOT, "app"))
+      .map((file) => path.relative(ROOT, path.dirname(file)).split(path.sep).join("/"))
+      .filter((dir) => /(^|\/)waivers(\/|$)/i.test(dir));
+    expect(routeDirs.every((dir) => dir.startsWith("app/admin/waivers"))).toBe(true);
+    const linkers: string[] = [];
+    for (const root of ["app", "components", "lib"].map((d) => path.join(ROOT, d))) {
+      for (const file of walk(root)) {
+        if (/\.test\.ts$/.test(file)) continue;
+        if (/["'`]\/admin\/waivers/.test(readFileSync(file, "utf8"))) linkers.push(path.relative(ROOT, file).split(path.sep).join("/"));
+      }
+    }
+    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", ...WAIVERS_UI_DIRS];
+    expect(linkers.filter((file) => !allowed.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)))).toEqual([]);
   });
 
   it("every script that touches Waivers calls the Waivers DB target guard", () => {

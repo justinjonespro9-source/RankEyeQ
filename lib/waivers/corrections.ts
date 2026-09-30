@@ -45,6 +45,105 @@ export async function computeWaiverCorrectionImpact(
   return impact;
 }
 
+export type WaiverFinalBoard = {
+  submissionId: string;
+  revisionId: string;
+  calls: Array<{ callId: string; slot: number; rankableEntryId: string }>;
+};
+
+/**
+ * Final boards of a contest whose lock has passed: the stamped locked revision,
+ * or else the latest SUBMISSION revision created before locksAt. Read-only —
+ * never stamps, so it is safe inside any caller's transaction.
+ */
+export async function loadFinalWaiverBoards(
+  db: WaiverDb,
+  input: { contestId: string; locksAt: Date },
+): Promise<WaiverFinalBoard[]> {
+  const callSelect = {
+    orderBy: { slot: "asc" },
+    select: { id: true, slot: true, snapshotEntry: { select: { rankableEntryId: true } } },
+  } as const;
+  const submissions = await db.waiverSubmission.findMany({
+    where: { contestId: input.contestId, status: { in: ["SUBMITTED", "LOCKED"] } },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      lockedRevision: { select: { id: true, calls: callSelect } },
+      revisions: {
+        where: { kind: "SUBMISSION", createdAt: { lt: input.locksAt } },
+        orderBy: [{ createdAt: "desc" }, { revisionNumber: "desc" }],
+        take: 1,
+        select: { id: true, calls: callSelect },
+      },
+    },
+  });
+  const boards: WaiverFinalBoard[] = [];
+  for (const submission of submissions) {
+    const revision = submission.lockedRevision ?? submission.revisions[0];
+    if (!revision) continue;
+    boards.push({
+      submissionId: submission.id,
+      revisionId: revision.id,
+      calls: revision.calls.map((call) => ({ callId: call.id, slot: call.slot, rankableEntryId: call.snapshotEntry.rankableEntryId })),
+    });
+  }
+  return boards;
+}
+
+/** Current-revision boards of a contest (what owners have now, before lock). Read-only. */
+export async function loadCurrentWaiverBoards(db: WaiverDb, input: { contestId: string }): Promise<WaiverFinalBoard[]> {
+  const submissions = await db.waiverSubmission.findMany({
+    where: { contestId: input.contestId, currentRevisionId: { not: null } },
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      currentRevision: {
+        select: {
+          id: true,
+          calls: { orderBy: { slot: "asc" }, select: { id: true, slot: true, snapshotEntry: { select: { rankableEntryId: true } } } },
+        },
+      },
+    },
+  });
+  return submissions.flatMap((submission) =>
+    submission.currentRevision
+      ? [
+          {
+            submissionId: submission.id,
+            revisionId: submission.currentRevision.id,
+            calls: submission.currentRevision.calls.map((call) => ({
+              callId: call.id,
+              slot: call.slot,
+              rankableEntryId: call.snapshotEntry.rankableEntryId,
+            })),
+          },
+        ]
+      : [],
+  );
+}
+
+/**
+ * After lock: final (locked) board calls on players who are not eligible
+ * candidates of `snapshotId` at the contest position. Evidence only — nothing
+ * is re-pinned, voided or rescored.
+ */
+export async function computeLockedWaiverCorrectionImpact(
+  db: WaiverDb,
+  input: { contestId: string; position: ContestPosition; locksAt: Date; snapshotId: string },
+): Promise<WaiverCorrectionImpact> {
+  const pool = await loadWaiverPool(db, { snapshotId: input.snapshotId, position: input.position });
+  const eligible = new Set(pool.map((row) => row.rankableEntryId));
+  const impact: WaiverCorrectionImpact = { affectedSubmissionIds: [], affectedCallIds: [] };
+  for (const board of await loadFinalWaiverBoards(db, input)) {
+    const affected = board.calls.filter((call) => !eligible.has(call.rankableEntryId));
+    if (affected.length === 0) continue;
+    impact.affectedSubmissionIds.push(board.submissionId);
+    impact.affectedCallIds.push(...affected.map((call) => call.callId));
+  }
+  return impact;
+}
+
 export type WaiverRepinOutcome =
   | ({
       contestId: string;
@@ -125,6 +224,7 @@ export async function repinWaiverContestsOnSupersession(
       entityType: "WaiverSnapshot",
       entityId: target.id,
       metadata: { fromSnapshotId: input.fromSnapshotId, outcomes } satisfies Prisma.InputJsonValue,
+      createdAt: await readWaiverClock(tx),
     },
   });
   return outcomes;
