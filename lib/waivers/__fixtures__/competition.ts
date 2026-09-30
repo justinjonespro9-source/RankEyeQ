@@ -1,0 +1,282 @@
+import { prisma } from "@/lib/db";
+import type { ContestPosition, ProfileType, Prisma } from "@/lib/generated/prisma/client";
+import { WAIVER_EYEQ_V1, WAIVER_MAX_CALLS, WAIVER_RESULT_FIELD_SIZE, WAIVER_POSITIONS } from "@/lib/waivers/constants";
+import { resolveWaiverLocksAt } from "@/lib/waivers/lock-time";
+
+/**
+ * Local-DB fixtures for Waiver competition integration tests. Everything is
+ * namespaced by a unique suffix and removed by `cleanup()`, which uses the
+ * fixture-maintenance switch documented in the Phase 2 migration.
+ */
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+export const MAINTENANCE_SQL = "SET LOCAL rankeyeq.waiver_fixture_maintenance = 'on'";
+
+export type FixturePlayer = { id: string; position: ContestPosition; name: string };
+
+export type SnapshotRowSpec = {
+  player: FixturePlayer;
+  eligibility?: "ELIGIBLE" | "EXCLUDED" | "OBSERVATION_ONLY";
+  evidenceRole?: "CANDIDATE" | "FOLLOW_UP";
+  rosteredBps?: number;
+};
+
+export async function withFixtureMaintenance<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(MAINTENANCE_SQL);
+    return fn(tx);
+  });
+}
+
+/** First kickoff comfortably in the future whose Tuesday 7 PM CT lock precedes it. */
+export function futureFirstKickoff(daysAhead = 9): Date {
+  let kickoff = new Date(Date.now() + daysAhead * DAY);
+  for (let i = 0; i < 3 && !resolveWaiverLocksAt(kickoff).ok; i += 1) {
+    kickoff = new Date(kickoff.getTime() + DAY);
+  }
+  return kickoff;
+}
+
+export async function createWaiverFixture(tag: string) {
+  const suffix = `${tag}${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+  const year = 3900 + Math.floor(Math.random() * 90);
+  const season = await prisma.season.create({ data: { year, sport: `WAIVERS-${suffix}`, active: false } });
+
+  const userIds: string[] = [];
+  const profileIds: string[] = [];
+  const playerIds: string[] = [];
+  const weekIds: string[] = [];
+  let weekNumber = 0;
+
+  const admin = await prisma.user.create({ data: { email: `waivers-admin-${suffix}@example.test`, role: "ADMIN" } });
+  userIds.push(admin.id);
+
+  async function addParticipant(label: string, profileType: ProfileType = "HUMAN", status: "ACTIVE" | "SUSPENDED" = "ACTIVE") {
+    const profile = await prisma.universalProfile.create({
+      data: { username: `w_${label}_${suffix}`.slice(0, 60), displayName: label, profileType, status },
+    });
+    profileIds.push(profile.id);
+    const user = await prisma.user.create({
+      data: { email: `waivers-${label}-${suffix}@example.test`, universalProfileId: profile.id },
+    });
+    userIds.push(user.id);
+    return { userId: user.id, profileId: profile.id };
+  }
+
+  async function addPlayers(position: ContestPosition, count: number): Promise<FixturePlayer[]> {
+    const players: FixturePlayer[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const name = `${position} Player ${i + 1}`;
+      const entry = await prisma.rankableEntry.create({
+        data: {
+          provider: "waivers-test",
+          externalId: `${suffix}-${position}-${playerIds.length}`,
+          type: position === "DEF" ? "DEFENSE" : "PLAYER",
+          name,
+          shortName: name,
+          team: "SF",
+          position,
+        },
+      });
+      playerIds.push(entry.id);
+      players.push({ id: entry.id, position, name });
+    }
+    return players;
+  }
+
+  async function addWeek(input: { firstKickoff?: Date | null } = {}) {
+    weekNumber += 1;
+    const kickoff = input.firstKickoff === undefined ? futureFirstKickoff() : input.firstKickoff;
+    const week = await prisma.week.create({
+      data: {
+        seasonId: season.id,
+        weekNumber,
+        label: `W${weekNumber}`,
+        startsAt: new Date(Date.now() - DAY),
+        endsAt: new Date(Date.now() + 14 * DAY),
+        status: "OPEN",
+        isTest: true,
+      },
+    });
+    weekIds.push(week.id);
+    if (kickoff) {
+      await prisma.nflGame.create({
+        data: {
+          provider: "waivers-test",
+          externalId: `${suffix}-w${weekNumber}`,
+          seasonId: season.id,
+          weekId: week.id,
+          seasonYear: year,
+          weekNumber,
+          homeTeam: "SF",
+          awayTeam: "SEA",
+          startsAt: kickoff,
+        },
+      });
+    }
+    return { weekId: week.id, firstKickoff: kickoff };
+  }
+
+  async function freezeSnapshot(input: { weekId: string; rows: SnapshotRowSpec[]; supersedesId?: string }) {
+    const previous = await prisma.waiverSnapshot.findFirst({
+      where: { weekId: input.weekId },
+      orderBy: { version: "desc" },
+      select: { id: true, version: true },
+    });
+    const version = (previous?.version ?? 0) + 1;
+    return prisma.$transaction(async (tx) => {
+      if (input.supersedesId) {
+        await tx.waiverSnapshot.update({
+          where: { id: input.supersedesId },
+          data: { status: "SUPERSEDED", currentForWeekId: null },
+        });
+      }
+      const eligibleCount = input.rows.filter((r) => (r.eligibility ?? "ELIGIBLE") === "ELIGIBLE" && (r.evidenceRole ?? "CANDIDATE") === "CANDIDATE").length;
+      const snapshot = await tx.waiverSnapshot.create({
+        data: {
+          seasonId: season.id,
+          weekId: input.weekId,
+          version,
+          currentForWeekId: input.weekId,
+          sourceLabel: "Sleeper",
+          observedAt: new Date(Date.now() - HOUR),
+          frozenByUserId: admin.id,
+          rawInputSha256: `raw-${suffix}-${version}`,
+          entriesFingerprint: `fp-${suffix}-${version}`,
+          candidateCount: input.rows.filter((r) => (r.evidenceRole ?? "CANDIDATE") === "CANDIDATE").length,
+          eligibleCount,
+          excludedCount: input.rows.filter((r) => r.eligibility === "EXCLUDED").length,
+          followUpCount: input.rows.filter((r) => r.evidenceRole === "FOLLOW_UP").length,
+          supersedesId: input.supersedesId ?? null,
+          correctionCase: input.supersedesId ? "OPEN_WITH_SUBMISSIONS" : null,
+          correctionReason: input.supersedesId ? "fixture correction" : null,
+        },
+      });
+      let line = 0;
+      for (const row of input.rows) {
+        line += 1;
+        const role = row.evidenceRole ?? "CANDIDATE";
+        const eligibility = role === "FOLLOW_UP" ? "OBSERVATION_ONLY" : (row.eligibility ?? "ELIGIBLE");
+        await tx.waiverSnapshotEntry.create({
+          data: {
+            snapshotId: snapshot.id,
+            rankableEntryId: row.player.id,
+            evidenceRole: role,
+            position: row.player.position,
+            displayNameAtFreeze: row.player.name,
+            teamAtFreeze: "SF",
+            rosteredBps: row.rosteredBps ?? (eligibility === "EXCLUDED" ? 6000 : 1200),
+            sourceLabel: "Sleeper",
+            observedAt: new Date(Date.now() - HOUR),
+            inputLineNumber: line,
+            inputLine: `${row.player.name}, SF`,
+            matchMethod: "EXACT_NAME_TEAM",
+            eligibility,
+            exclusionReason: eligibility === "EXCLUDED" ? "AT_OR_ABOVE_THRESHOLD" : null,
+            isByeAtFreeze: false,
+            hardUnavailableAtFreeze: false,
+          },
+        });
+      }
+      return snapshot;
+    });
+  }
+
+  /** Direct contest row (bypasses the opening service) locking `locksInMs` from now. */
+  async function createContest(input: { weekId: string; snapshotId: string; position: ContestPosition; locksInMs?: number }) {
+    const locksAt = new Date(Date.now() + (input.locksInMs ?? HOUR));
+    const position = input.position as (typeof WAIVER_POSITIONS)[number];
+    return prisma.waiverContest.create({
+      data: {
+        weekId: input.weekId,
+        position: input.position,
+        snapshotId: input.snapshotId,
+        maxCalls: WAIVER_MAX_CALLS[position],
+        resultFieldSize: WAIVER_RESULT_FIELD_SIZE[position],
+        scoringVersion: WAIVER_EYEQ_V1.slug,
+        opensAt: new Date(locksAt.getTime() - 2 * HOUR),
+        locksAt,
+        openedByUserId: admin.id,
+      },
+    });
+  }
+
+  /**
+   * Simulates the lock instant passing: moves locksAt to `at` (default: now,
+   * i.e. after every write so far) and waits until the clock is past it.
+   */
+  async function passLock(contestId: string, at: Date = new Date()) {
+    await withFixtureMaintenance((tx) =>
+      tx.waiverContest.update({
+        where: { id: contestId },
+        data: { locksAt: at, opensAt: new Date(at.getTime() - 2 * HOUR) },
+      }),
+    );
+    const waitMs = at.getTime() - Date.now() + 10;
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    return at;
+  }
+
+  async function cleanup() {
+    await withFixtureMaintenance(async (tx) => {
+      const contests = await tx.waiverContest.findMany({ where: { weekId: { in: weekIds } }, select: { id: true } });
+      const contestIds = contests.map((c) => c.id);
+      const submissions = await tx.waiverSubmission.findMany({ where: { contestId: { in: contestIds } }, select: { id: true } });
+      const submissionIds = submissions.map((s) => s.id);
+      await tx.waiverSubmission.updateMany({
+        where: { id: { in: submissionIds } },
+        data: { currentRevisionId: null, lockedRevisionId: null },
+      });
+      await tx.waiverCall.deleteMany({ where: { revision: { submissionId: { in: submissionIds } } } });
+      await tx.waiverSubmissionRevision.deleteMany({ where: { submissionId: { in: submissionIds } } });
+      await tx.waiverSubmission.deleteMany({ where: { id: { in: submissionIds } } });
+      await tx.waiverContest.deleteMany({ where: { id: { in: contestIds } } });
+      await tx.adminAuditLog.deleteMany({ where: { adminUserId: { in: userIds } } });
+      const snapshots = await tx.waiverSnapshot.findMany({
+        where: { weekId: { in: weekIds } },
+        orderBy: { version: "desc" },
+        select: { id: true },
+      });
+      await tx.waiverSnapshotCorrection.deleteMany({ where: { toSnapshotId: { in: snapshots.map((s) => s.id) } } });
+      await tx.waiverSnapshotEntry.deleteMany({ where: { snapshotId: { in: snapshots.map((s) => s.id) } } });
+      for (const snapshot of snapshots) await tx.waiverSnapshot.delete({ where: { id: snapshot.id } });
+    });
+    await prisma.playerWeekAvailability.deleteMany({ where: { weekId: { in: weekIds } } });
+    await prisma.nflGame.deleteMany({ where: { weekId: { in: weekIds } } });
+    await prisma.week.deleteMany({ where: { id: { in: weekIds } } });
+    await prisma.season.deleteMany({ where: { id: season.id } });
+    await prisma.rankableEntry.deleteMany({ where: { id: { in: playerIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await prisma.universalProfile.deleteMany({ where: { id: { in: profileIds } } });
+  }
+
+  return {
+    suffix,
+    seasonId: season.id,
+    adminUserId: admin.id,
+    addParticipant,
+    addPlayers,
+    addWeek,
+    freezeSnapshot,
+    createContest,
+    passLock,
+    cleanup,
+  };
+}
+
+export type WaiverFixture = Awaited<ReturnType<typeof createWaiverFixture>>;
+
+/** Expects a promise to be rejected by a named Waiver database guard. */
+export async function expectDbGuard(promise: Promise<unknown>, code: "WAIVER_LOCKED" | "WAIVER_INVALID" | "WAIVER_IMMUTABLE") {
+  let error: unknown = null;
+  try {
+    await promise;
+  } catch (caught) {
+    error = caught;
+  }
+  if (!error) throw new Error(`Expected ${code} rejection, but the write succeeded`);
+  const message = error instanceof Error ? error.message : String(error);
+  if (!message.includes(code)) throw new Error(`Expected ${code}, got: ${message.slice(0, 300)}`);
+}

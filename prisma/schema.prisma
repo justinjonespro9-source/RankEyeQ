@@ -263,6 +263,7 @@ model UniversalProfile {
   officialBoardPublications OfficialBoardPublication[]
   officialBoardVersions     OfficialBoardVersion[]
   weeklyContent             WeeklyContent[]
+  waiverSubmissions         WaiverSubmission[]
 
   @@index([publicFromWeekId])
 }
@@ -497,6 +498,9 @@ model User {
   weeklyContentSuppressed       WeeklyContent[]            @relation("WeeklyContentSuppressedBy")
   waiverSnapshotsFrozen         WaiverSnapshot[]           @relation("WaiverSnapshotFrozenBy")
   waiverSnapshotCorrections     WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionOperator")
+  waiverContestsOpened          WaiverContest[]            @relation("WaiverContestOpenedBy")
+  waiverSubmissionsCreated      WaiverSubmission[]         @relation("WaiverSubmissionCreatedBy")
+  waiverRevisionsAuthored       WaiverSubmissionRevision[] @relation("WaiverRevisionAuthor")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -607,6 +611,7 @@ model Week {
   playerWeekAvailabilities PlayerWeekAvailability[]
   weeklyContent            WeeklyContent[]
   waiverSnapshots          WaiverSnapshot[]
+  waiverContests           WaiverContest[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -1357,6 +1362,8 @@ model WaiverSnapshot {
   entries         WaiverSnapshotEntry[]
   correctionsFrom WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionFrom")
   correctionsTo   WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionTo")
+  contests        WaiverContest[]
+  revisions       WaiverSubmissionRevision[]
 
   @@unique([weekId, version])
   @@index([seasonId, weekId])
@@ -1394,6 +1401,7 @@ model WaiverSnapshotEntry {
   snapshot      WaiverSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
   rankableEntry RankableEntry  @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
   nflGame       NflGame?       @relation(fields: [nflGameId], references: [id], onDelete: Restrict)
+  calls         WaiverCall[]
 
   @@unique([snapshotId, rankableEntryId])
   @@index([rankableEntryId, snapshotId])
@@ -1427,4 +1435,130 @@ model WaiverSnapshotCorrection {
   @@index([toSnapshotId])
   @@index([fromSnapshotId])
   @@index([rankableEntryId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — competition foundation (Phase 2).
+// Separate from Rankings contests/submissions. Revisions and calls are
+// append-only; lock authority is the database clock (see the migration's
+// trigger backstops). No grading, results or reveal surfaces yet.
+// ---------------------------------------------------------------------------
+
+enum WaiverContestStatus {
+  OPEN
+  LOCKED
+}
+
+enum WaiverSubmissionStatus {
+  DRAFT
+  SUBMITTED
+  LOCKED
+}
+
+enum WaiverRevisionKind {
+  DRAFT
+  SUBMISSION
+}
+
+/// One Waiver Podium per week and position. The effective phase is derived
+/// from locksAt; stored LOCKED is a lazy, idempotent stamp.
+model WaiverContest {
+  id              String              @id @default(cuid())
+  weekId          String
+  position        ContestPosition
+  /// Pinned snapshot version. Changes only through a pre-lock supersession.
+  snapshotId      String
+  status          WaiverContestStatus @default(OPEN)
+  /// Copied from WAIVER_MAX_CALLS / WAIVER_RESULT_FIELD_SIZE at open.
+  maxCalls        Int
+  resultFieldSize Int
+  scoringVersion  String
+  opensAt         DateTime
+  /// Tuesday 7:00 PM America/Chicago before the week's first kickoff.
+  locksAt         DateTime
+  openedByUserId  String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  week        Week               @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  snapshot    WaiverSnapshot     @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  openedBy    User               @relation("WaiverContestOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  submissions WaiverSubmission[]
+
+  @@unique([weekId, position])
+  @@index([snapshotId])
+}
+
+/// One Waiver board per contest and profile. Board content lives in
+/// append-only revisions; the submission only points at them.
+model WaiverSubmission {
+  id                 String                 @id @default(cuid())
+  contestId          String
+  universalProfileId String
+  /// Login that created the board; one board per login per contest.
+  createdByUserId    String
+  authority          SubmissionAuthority
+  status             WaiverSubmissionStatus @default(DRAFT)
+  currentRevisionId  String?                @unique
+  /// Final SUBMISSION revision created before locksAt (set by the lock stamp).
+  lockedRevisionId   String?                @unique
+  /// Instant of the latest SUBMISSION revision.
+  submittedAt        DateTime?
+  /// Equals the contest's locksAt once stamped.
+  lockedAt           DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  contest          WaiverContest              @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile           @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  createdBy        User                       @relation("WaiverSubmissionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  currentRevision  WaiverSubmissionRevision?  @relation("WaiverSubmissionCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
+  lockedRevision   WaiverSubmissionRevision?  @relation("WaiverSubmissionLockedRevision", fields: [lockedRevisionId], references: [id], onDelete: Restrict)
+  revisions        WaiverSubmissionRevision[] @relation("WaiverSubmissionRevisions")
+
+  @@unique([contestId, universalProfileId])
+  @@unique([contestId, createdByUserId])
+  @@index([contestId, status])
+}
+
+/// Immutable board revision (DRAFT or SUBMISSION). Never updated or deleted.
+model WaiverSubmissionRevision {
+  id             String             @id @default(cuid())
+  submissionId   String
+  revisionNumber Int
+  kind           WaiverRevisionKind
+  /// Snapshot version this board was validated against.
+  snapshotId     String
+  /// 0 on a SUBMISSION revision is an explicit abstention.
+  callCount      Int
+  fingerprint    String
+  authorUserId   String
+  /// Authoritative database-clock instant of the write (no default).
+  createdAt      DateTime
+
+  submission WaiverSubmission  @relation("WaiverSubmissionRevisions", fields: [submissionId], references: [id], onDelete: Restrict)
+  snapshot   WaiverSnapshot    @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  author     User              @relation("WaiverRevisionAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  calls      WaiverCall[]
+  currentFor WaiverSubmission? @relation("WaiverSubmissionCurrentRevision")
+  lockedFor  WaiverSubmission? @relation("WaiverSubmissionLockedRevision")
+
+  @@unique([submissionId, revisionNumber])
+  @@index([submissionId, kind, createdAt])
+}
+
+/// One ordered call (slot 1 = WIN, 2 = PLACE, 3 = SHOW, 4, 5) on the frozen
+/// eligible snapshot row it was validated against.
+model WaiverCall {
+  id              String @id @default(cuid())
+  revisionId      String
+  slot            Int
+  snapshotEntryId String
+
+  revision      WaiverSubmissionRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  snapshotEntry WaiverSnapshotEntry      @relation(fields: [snapshotEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([revisionId, slot])
+  @@unique([revisionId, snapshotEntryId])
+  @@index([snapshotEntryId])
 }

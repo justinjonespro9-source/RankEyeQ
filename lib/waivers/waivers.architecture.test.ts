@@ -33,8 +33,10 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+const FIXTURES_DIR = path.join(WAIVERS_DIR, "__fixtures__");
+
 function waiverSourceFiles(): string[] {
-  return walk(WAIVERS_DIR).filter((file) => !/\.test\.ts$/.test(file));
+  return walk(WAIVERS_DIR).filter((file) => !/\.test\.ts$/.test(file) && !file.startsWith(FIXTURES_DIR + path.sep));
 }
 
 function normalizeSpecifier(fromFile: string, specifier: string): string {
@@ -47,8 +49,59 @@ function normalizeSpecifier(fromFile: string, specifier: string): string {
   return specifier;
 }
 
-const ALLOWED_RUNTIME_IMPORTS = new Set(["lib/fantasy/competition-rank", "lib/db-target-guard"]);
+/** DB-free modules: scoring/shape/lock-time/validation/fingerprint/access predicates. */
+const PURE_MODULES = [
+  "constants",
+  "precision",
+  "board-shape",
+  "scoring",
+  "production",
+  "ranking",
+  "lock-time",
+  "call-validation",
+  "fingerprint",
+  "access",
+];
+/** Phase 2 competition services and server actions (DB + auth allowed). */
+const SERVICE_MODULES = ["clock", "contests", "submissions", "corrections", "access-queries", "actions"];
+
+const ALLOWED_RUNTIME_IMPORTS = new Set([
+  "lib/fantasy/competition-rank",
+  "lib/db-target-guard",
+  "lib/timing/chicago",
+  "node:crypto",
+]);
 const ALLOWED_TYPE_ONLY_IMPORTS = new Set(["lib/generated/prisma/client"]);
+const SERVICE_RUNTIME_IMPORTS = new Set([
+  "lib/db",
+  "lib/generated/prisma/client",
+  "lib/auth/session",
+  "lib/auth/participation",
+  "lib/admin/access",
+  "lib/rate-limit",
+  "lib/request-ip",
+  "lib/log",
+]);
+/** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
+const BANNED_PREFIXES = [
+  "lib/submissions",
+  "lib/submission",
+  "lib/contest",
+  "lib/official-board",
+  "lib/boards",
+  "lib/reserves",
+  "lib/eligibility",
+  "lib/scoring",
+  "lib/grading",
+  "lib/leaderboard",
+  "lib/consensus",
+  "lib/timing/week",
+  "lib/timing/submission",
+  "lib/creator-verification",
+  "lib/nfl/player-availability",
+];
+
+const moduleName = (file: string) => path.basename(file).replace(/\.ts$/, "");
 
 function referencesWaivers(fromFile: string, source: string): boolean {
   return readImports(source).some((ref) =>
@@ -68,8 +121,8 @@ function checkWaiversScriptGuard(
   const touchesWaivers =
     /waiver/i.test(path.basename(fileName)) ||
     /lib\/waivers/.test(source) ||
-    /\.waiverSnapshot(?:Entry|Correction)?\b/.test(source) ||
-    /"WaiverSnapshot(?:Entry|Correction)?"/.test(source);
+    /\.waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call)\b/.test(source) ||
+    /"Waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call)"/.test(source);
   if (!touchesWaivers) return { isWaiversScript: false, ok: true };
   const importsGuard =
     /import\s*\{[^}]*\bassertWaiversScriptDatabaseTarget\b[^}]*\}\s*from\s*["'][^"']*lib\/waivers\/script-guard["']/.test(
@@ -83,40 +136,65 @@ describe("Waivers architecture isolation", () => {
   it("lib/waivers source files exist", () => {
     const names = waiverSourceFiles().map((f) => path.basename(f)).sort();
     expect(names).toEqual(
-      [
-        "board-shape.ts",
-        "constants.ts",
-        "precision.ts",
-        "production.ts",
-        "ranking.ts",
-        "scoring.ts",
-        "script-guard.ts",
-      ].sort(),
+      [...PURE_MODULES, ...SERVICE_MODULES, "script-guard"].map((name) => `${name}.ts`).sort(),
     );
   });
 
-  it("lib/waivers imports only its allowlist (no Prisma client runtime, no Rankings modules)", () => {
+  it("lib/waivers imports only its tiered allowlist (services may use DB/auth; nothing uses Rankings)", () => {
     const violations: string[] = [];
     for (const file of waiverSourceFiles()) {
       const source = readFileSync(file, "utf8");
+      const isService = SERVICE_MODULES.includes(moduleName(file));
       for (const ref of readImports(source)) {
         const target = normalizeSpecifier(file, ref.specifier);
+        if (BANNED_PREFIXES.some((prefix) => target === prefix || target.startsWith(prefix))) {
+          violations.push(`${path.relative(ROOT, file)} -> ${ref.specifier} (banned)`);
+          continue;
+        }
         if (target.startsWith("lib/waivers/")) continue;
         if (ALLOWED_RUNTIME_IMPORTS.has(target)) continue;
         if (ref.typeOnly && ALLOWED_TYPE_ONLY_IMPORTS.has(target)) continue;
+        if (isService && SERVICE_RUNTIME_IMPORTS.has(target)) continue;
         violations.push(`${path.relative(ROOT, file)} -> ${ref.specifier}${ref.typeOnly ? " (type)" : ""}`);
       }
     }
     expect(violations).toEqual([]);
   });
 
-  it("pure scoring/precision/shape/production/ranking modules never import the DB guard or DB", () => {
-    const pure = ["constants", "precision", "board-shape", "scoring", "production", "ranking"];
-    for (const name of pure) {
+  it("pure modules never import the DB, auth, the DB guard, or Waiver service modules", () => {
+    for (const name of PURE_MODULES) {
       const file = path.join(WAIVERS_DIR, `${name}.ts`);
-      const imports = readImports(readFileSync(file, "utf8")).map((r) => normalizeSpecifier(file, r.specifier));
-      expect(imports.filter((i) => i === "lib/db" || i === "lib/db-target-guard")).toEqual([]);
+      const refs = readImports(readFileSync(file, "utf8"));
+      const imports = refs.map((r) => normalizeSpecifier(file, r.specifier));
+      expect(imports.filter((i) => i === "lib/db" || i === "lib/db-target-guard" || i.startsWith("lib/auth"))).toEqual([]);
+      expect(
+        imports.filter((i) => i.startsWith("lib/waivers/") && !PURE_MODULES.includes(i.slice("lib/waivers/".length))),
+      ).toEqual([]);
+      expect(refs.filter((r) => !r.typeOnly && normalizeSpecifier(file, r.specifier) === "lib/generated/prisma/client")).toEqual([]);
     }
+  });
+
+  it("only actions.ts is a server-action module, and it exports only async functions", () => {
+    for (const file of waiverSourceFiles()) {
+      const source = readFileSync(file, "utf8");
+      const isActions = moduleName(file) === "actions";
+      expect(/^\s*["']use server["']/.test(source), path.relative(ROOT, file)).toBe(isActions);
+      if (!isActions) continue;
+      const exports = [...source.matchAll(/^export\s+(?!type\b)(\w+(?:\s+\w+)?)/gm)].map((m) => m[1]);
+      expect(exports.every((kind) => kind === "async function")).toBe(true);
+    }
+  });
+
+  it("application code never enables the fixture-maintenance trigger bypass", () => {
+    const roots = ["app", "components", "lib", "scripts"].map((d) => path.join(ROOT, d));
+    const offenders: string[] = [];
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep)) continue;
+        if (/waiver_fixture_maintenance/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("no alphabetical tie helper, leaderboard qualification, or percentile badges in lib/waivers", () => {
@@ -130,7 +208,7 @@ describe("Waivers architecture isolation", () => {
     expect(hits).toEqual([]);
   });
 
-  it("no module outside lib/waivers imports lib/waivers (Phase 1 is unwired)", () => {
+  it("no module outside lib/waivers imports lib/waivers (Waivers is unwired: no UI, routes or navigation)", () => {
     const roots = ["app", "components", "lib", "scripts", "prisma"].map((d) => path.join(ROOT, d));
     const offenders: string[] = [];
     for (const root of roots) {
@@ -163,6 +241,13 @@ describe("checkWaiversScriptGuard (synthetic sources)", () => {
   it("flags a Waivers script that touches the DB without the guard", () => {
     const src = `import { prisma } from "@/lib/db";\nawait prisma.waiverSnapshot.findMany();`;
     expect(checkWaiversScriptGuard("scripts/list.ts", src)).toEqual({ isWaiversScript: true, ok: false });
+  });
+
+  it("flags a script that touches Phase 2 competition delegates without the guard", () => {
+    for (const delegate of ["waiverContest", "waiverSubmission", "waiverSubmissionRevision", "waiverCall"]) {
+      const src = `import { prisma } from "@/lib/db";\nawait prisma.${delegate}.count();`;
+      expect(checkWaiversScriptGuard("scripts/x.ts", src)).toEqual({ isWaiversScript: true, ok: false });
+    }
   });
 
   it("flags a script named for waivers even without delegate usage", () => {

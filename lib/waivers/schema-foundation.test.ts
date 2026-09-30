@@ -18,7 +18,22 @@ function blocks(schema: string): Block[] {
 }
 
 const ALL = blocks(SCHEMA);
-const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
+const PHASE1_MODEL_NAMES = ["WaiverSnapshot", "WaiverSnapshotCorrection", "WaiverSnapshotEntry"];
+const PHASE1_ENUM_NAMES = [
+  "WaiverCorrectionCase",
+  "WaiverCorrectionPolicy",
+  "WaiverEligibility",
+  "WaiverEvidenceRole",
+  "WaiverExclusionReason",
+  "WaiverMatchMethod",
+  "WaiverSnapshotStatus",
+];
+/** Phase 2 competition objects are covered by competition-schema.test.ts. */
+const PHASE2_MODEL_NAMES = ["WaiverCall", "WaiverContest", "WaiverSubmission", "WaiverSubmissionRevision"];
+const PHASE2_ENUM_NAMES = ["WaiverContestStatus", "WaiverRevisionKind", "WaiverSubmissionStatus"];
+const PHASE2_MIGRATION = "20261001000000_waivers_competition_foundation";
+const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
+const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
 
 function sqlStatements(sql: string): string[] {
@@ -32,21 +47,10 @@ function sqlStatements(sql: string): string[] {
 }
 
 describe("Waivers schema foundation (static)", () => {
-  it("adds exactly three Waiver models and seven Waiver enums", () => {
-    expect(WAIVER_MODELS.map((b) => b.name).sort()).toEqual(
-      ["WaiverSnapshot", "WaiverSnapshotCorrection", "WaiverSnapshotEntry"].sort(),
-    );
-    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual(
-      [
-        "WaiverCorrectionCase",
-        "WaiverCorrectionPolicy",
-        "WaiverEligibility",
-        "WaiverEvidenceRole",
-        "WaiverExclusionReason",
-        "WaiverMatchMethod",
-        "WaiverSnapshotStatus",
-      ].sort(),
-    );
+  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 adds only its own)", () => {
+    expect(WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES].sort());
+    expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES, ...PHASE2_MODEL_NAMES].sort());
+    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual([...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES].sort());
   });
 
   it("every Waiver foreign key is onDelete: Restrict (frozen evidence is delete-protected)", () => {
@@ -83,19 +87,19 @@ describe("Waivers schema foundation (static)", () => {
         expect(line).toMatch(/^\s*\w+\s+Waiver\w+\[\](\s+@relation\("\w+"\))?\s*$/);
       }
     }
-    expect([...new Set(touched)].sort()).toEqual(["NflGame", "RankableEntry", "Season", "User", "Week"]);
+    expect([...new Set(touched)].sort()).toEqual(["NflGame", "RankableEntry", "Season", "UniversalProfile", "User", "Week"]);
   });
 });
 
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("is the only migration that mentions Waiver objects", () => {
+  it("only the Phase 1 and Phase 2 Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
       .map((d) => d.name);
-    expect(mentioning).toEqual([WAIVERS_MIGRATION]);
+    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION]);
   });
 
   it("contains only CREATE TYPE/TABLE/INDEX and ADD CONSTRAINT on Waiver objects", () => {
