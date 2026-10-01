@@ -68,6 +68,15 @@ const PURE_MODULES = [
   "snapshot/preview-model",
   "snapshot/correct-model",
   "snapshot/errors",
+  "canonical/contract",
+  "canonical/serialization",
+  "canonical/artifact-types",
+  "canonical/artifact-verifier",
+  "canonical/team-crosswalk",
+  "canonical/disposition",
+  "canonical/identity",
+  "canonical/policy",
+  "canonical/preflight-model",
 ];
 /** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
 const SERVICE_MODULES = [
@@ -83,6 +92,7 @@ const SERVICE_MODULES = [
   "snapshot/correct",
   "snapshot/queries",
   "snapshot/actions",
+  "canonical/preflight",
 ];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
@@ -230,6 +240,23 @@ describe("Waivers architecture isolation", () => {
       for (const file of walk(root)) {
         if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep)) continue;
         if (/waiver_fixture_maintenance/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("canonical consumer modules never write, run raw SQL, or contact SNG", () => {
+    const offenders: string[] = [];
+    for (const file of waiverSourceFiles().filter((f) => moduleName(f).startsWith("canonical/"))) {
+      const source = readFileSync(file, "utf8");
+      for (const banned of [
+        /\b\w+\s*\.\s*\w+\s*\.\s*(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/,
+        /\$(?:executeRaw|queryRaw|transaction)/,
+        /\bfetch\s*\(/,
+        /https?:\/\//,
+        /sng-labs\//,
+      ]) {
+        if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
       }
     }
     expect(offenders).toEqual([]);
