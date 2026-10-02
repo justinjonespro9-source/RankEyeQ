@@ -8,9 +8,10 @@ import {
 } from "@/lib/navigation";
 
 describe("primary navigation", () => {
-  it("exposes This Week, My Ranks, and core destinations", () => {
+  it("exposes This Week, Waivers, My Ranks, and core destinations", () => {
     expect(PRIMARY_NAV.map((link) => link.label)).toEqual([
       "This Week",
+      "Waivers",
       "My Ranks",
       "Consensus",
       "Results",
@@ -44,6 +45,16 @@ describe("primary navigation", () => {
     expect(isPrimaryNavActive("/rank/qb", thisWeek)).toBe(true);
     expect(isPrimaryNavActive("/my-ranks", myRanks)).toBe(true);
     expect(isPrimaryNavActive("/my-ranks", thisWeek)).toBe(false);
+  });
+
+  it("highlights Waivers only for /waivers and keeps it separate from Rankings", () => {
+    const waivers = PRIMARY_NAV.find((link) => link.label === "Waivers")!;
+    const thisWeek = PRIMARY_NAV.find((link) => link.label === "This Week")!;
+    expect(waivers.href).toBe("/waivers");
+    expect(isPrimaryNavActive("/waivers", waivers)).toBe(true);
+    expect(isPrimaryNavActive("/rank", waivers)).toBe(false);
+    expect(isPrimaryNavActive("/waivers", thisWeek)).toBe(false);
+    expect(isPrimaryNavActive("/admin/waivers", waivers)).toBe(false);
   });
 
   it("highlights Leaderboards for rankers without live results", () => {

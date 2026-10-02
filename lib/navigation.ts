@@ -7,6 +7,7 @@ export type NavLink = {
 
 export const PRIMARY_NAV: NavLink[] = [
   { href: "/rank", label: "This Week", activePrefixes: ["/rank"] },
+  { href: "/waivers", label: "Waivers", activePrefixes: ["/waivers"] },
   { href: "/my-ranks", label: "My Ranks", activePrefixes: ["/my-ranks"] },
   { href: "/consensus", label: "Consensus", activePrefixes: ["/consensus"] },
   {

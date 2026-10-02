@@ -21,6 +21,9 @@ export type SnapshotRowSpec = {
   eligibility?: "ELIGIBLE" | "EXCLUDED" | "OBSERVATION_ONLY";
   evidenceRole?: "CANDIDATE" | "FOLLOW_UP";
   rosteredBps?: number;
+  team?: string;
+  opponent?: string;
+  nflGameId?: string;
 };
 
 export async function withFixtureMaintenance<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -242,7 +245,9 @@ export async function createWaiverFixture(tag: string) {
             evidenceRole: role,
             position: row.player.position,
             displayNameAtFreeze: row.player.name,
-            teamAtFreeze: "SF",
+            teamAtFreeze: row.team ?? "SF",
+            opponentAtFreeze: row.opponent ?? null,
+            nflGameId: row.nflGameId ?? null,
             rosteredBps: row.rosteredBps ?? (eligibility === "EXCLUDED" ? 6000 : 1200),
             sourceLabel: "Sleeper",
             observedAt: new Date(Date.now() - HOUR),

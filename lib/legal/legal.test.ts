@@ -132,6 +132,7 @@ describe("primary navigation unchanged", () => {
   it("keeps core destinations without legal clutter", () => {
     expect(PRIMARY_NAV.map((link) => link.label)).toEqual([
       "This Week",
+      "Waivers",
       "My Ranks",
       "Consensus",
       "Results",

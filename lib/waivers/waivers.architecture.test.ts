@@ -77,6 +77,8 @@ const PURE_MODULES = [
   "canonical/identity",
   "canonical/policy",
   "canonical/preflight-model",
+  "play-model",
+  "consensus-model",
 ];
 /** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
 const SERVICE_MODULES = [
@@ -93,6 +95,7 @@ const SERVICE_MODULES = [
   "snapshot/queries",
   "snapshot/actions",
   "canonical/preflight",
+  "play-queries",
 ];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
@@ -123,13 +126,25 @@ const SERVICE_RUNTIME_IMPORTS = new Set([
   "lib/log",
   "next/cache",
 ]);
-/** The only UI allowed to import Waivers, and what it may import at runtime. */
+/** The admin UI allowed to import Waivers, and what it may import at runtime. */
 const WAIVERS_UI_DIRS = ["app/admin/waivers", "components/admin/waivers"];
 const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/actions",
   "lib/waivers/snapshot/actions",
   "lib/waivers/snapshot/queries",
   "lib/waivers/constants",
+]);
+/**
+ * The public play surface: board actions, pure display models, and the public
+ * read model (server page only). Never snapshot/admin modules or raw services.
+ */
+const PUBLIC_WAIVERS_UI_DIRS = ["app/waivers", "components/waivers"];
+const PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS = new Set([
+  "lib/waivers/actions",
+  "lib/waivers/constants",
+  "lib/waivers/play-model",
+  "lib/waivers/consensus-model",
+  "lib/waivers/play-queries",
 ]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
@@ -273,7 +288,7 @@ describe("Waivers architecture isolation", () => {
     expect(hits).toEqual([]);
   });
 
-  it("only the admin Waivers UI imports lib/waivers, and only its actions, read-only queries and constants", () => {
+  it("only the admin and public Waivers UIs import lib/waivers, each from its own runtime allowlist", () => {
     const roots = ["app", "components", "lib", "scripts", "prisma"].map((d) => path.join(ROOT, d));
     const offenders: string[] = [];
     for (const root of roots) {
@@ -282,26 +297,49 @@ describe("Waivers architecture isolation", () => {
         const source = readFileSync(file, "utf8");
         if (!referencesWaivers(file, source)) continue;
         const rel = path.relative(ROOT, file).split(path.sep).join("/");
-        if (!WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`))) {
+        const isAdminUi = WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
+        const isPublicUi = PUBLIC_WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
+        if (!isAdminUi && !isPublicUi) {
           offenders.push(rel);
           continue;
         }
+        const allowed = isAdminUi ? WAIVERS_UI_RUNTIME_IMPORTS : PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS;
         for (const ref of readImports(source)) {
           const target = normalizeSpecifier(file, ref.specifier);
           if (!target.startsWith("lib/waivers") || ref.typeOnly) continue;
-          if (!WAIVERS_UI_RUNTIME_IMPORTS.has(target)) offenders.push(`${rel} -> ${ref.specifier}`);
-          if (target === "lib/waivers/snapshot/queries" && !rel.startsWith("app/")) offenders.push(`${rel} -> queries outside a server page`);
+          if (!allowed.has(target)) offenders.push(`${rel} -> ${ref.specifier}`);
+          if ((target === "lib/waivers/snapshot/queries" || target === "lib/waivers/play-queries") && !rel.startsWith("app/")) {
+            offenders.push(`${rel} -> queries outside a server page`);
+          }
         }
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it("Waivers routes exist only under /admin and the nav link is admin-only", () => {
+  it("the public play surface never calls the admin opening action or reads admin notes", () => {
+    const offenders: string[] = [];
+    for (const dir of PUBLIC_WAIVERS_UI_DIRS) {
+      for (const file of walk(path.join(ROOT, dir))) {
+        const source = readFileSync(file, "utf8");
+        for (const banned of [/openWaiverContestsAction/, /adminNotes/, /exclusionNote/, /correctionReason/, /\binputLine\b/]) {
+          if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
+        }
+      }
+    }
+    const queries = readFileSync(path.join(WAIVERS_DIR, "play-queries.ts"), "utf8");
+    for (const banned of [/adminNotes/, /exclusionNote/, /correctionReason/, /\binputLine\b/, /sourceUrl/]) {
+      if (banned.test(queries)) offenders.push(`play-queries.ts: ${banned}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("Waivers routes exist only under /admin plus the single public /waivers page; admin links stay admin-only", () => {
     const routeDirs = walk(path.join(ROOT, "app"))
       .map((file) => path.relative(ROOT, path.dirname(file)).split(path.sep).join("/"))
       .filter((dir) => /(^|\/)waivers(\/|$)/i.test(dir));
-    expect(routeDirs.every((dir) => dir.startsWith("app/admin/waivers"))).toBe(true);
+    expect(routeDirs.filter((dir) => !dir.startsWith("app/admin/waivers") && dir !== "app/waivers")).toEqual([]);
+    expect(routeDirs).toContain("app/waivers");
     const linkers: string[] = [];
     for (const root of ["app", "components", "lib"].map((d) => path.join(ROOT, d))) {
       for (const file of walk(root)) {
