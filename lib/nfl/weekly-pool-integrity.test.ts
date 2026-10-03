@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   canonicalDefenseExternalId,
   defenseEntryIdentityKey,
@@ -103,6 +103,12 @@ describe("mutable weekly pool guards", () => {
 
 describe("weekly pool sync integration", () => {
   const suffix = `pool-integrity-${Date.now()}`;
+
+  afterAll(async () => {
+    await prisma.rankableEntry.deleteMany({
+      where: { externalId: { contains: suffix } },
+    });
+  });
 
   it("prunes stale legacy mock entries from open week and preserves admin exclusions", async () => {
     const season = await prisma.season.create({
