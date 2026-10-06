@@ -444,7 +444,7 @@ export function assembleWaiverSnapshotPreview(input: {
 
   const scheduled = context.games.filter((game) => game.status !== "CANCELED");
   const firstKickoff = scheduled.length > 0 ? new Date(Math.min(...scheduled.map((game) => game.startsAt.getTime()))) : null;
-  const lock = firstKickoff ? resolveWaiverLocksAt(firstKickoff) : null;
+  const lock = firstKickoff ? resolveWaiverLocksAt(firstKickoff, context.week.id) : null;
   const contestsCanOpen = Boolean(lock?.ok && context.now.getTime() < lock.locksAt.getTime());
 
   const issues: WaiverPreviewIssue[] = [];
@@ -503,7 +503,7 @@ export function assembleWaiverSnapshotPreview(input: {
     });
   }
   if (lock && !lock.ok) {
-    confirm("LOCK_UNRESOLVABLE", "Tuesday 7:00 PM CT is not before the first kickoff; this snapshot is evidence only and contests cannot open");
+    confirm("LOCK_UNRESOLVABLE", "The Waiver lock is not before the first kickoff; this snapshot is evidence only and contests cannot open");
   } else if (lock && !contestsCanOpen) {
     confirm("AFTER_LOCK", "This week's Waiver lock has passed; this snapshot is evidence only and cannot open contests");
   }

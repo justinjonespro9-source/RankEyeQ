@@ -33,7 +33,7 @@ export class WaiverSubmissionError extends Error {
 }
 
 export const WAIVER_LOCKED_MESSAGE =
-  "This Waiver Podium locked at Tuesday 7:00 PM CT — boards can no longer be created or changed";
+  "This Waiver Podium is locked — boards can no longer be created or changed";
 
 export type WaiverBoardWriteInput = {
   contestId: string;

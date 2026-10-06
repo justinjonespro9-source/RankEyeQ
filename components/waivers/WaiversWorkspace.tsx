@@ -40,7 +40,7 @@ const DRAFT_SAVE_DELAY_MS = 1200;
 let carriedFeedback: { contestId: string; text: string } | null = null;
 
 const ERROR_COPY: Record<string, string> = {
-  LOCKED: "This position locked at Tuesday 7:00 PM CT. Boards can no longer be changed.",
+  LOCKED: "This position is locked. Boards can no longer be changed.",
   SIGNED_OUT: "Sign in to submit Waiver picks.",
   NEEDS_SETUP: "Finish profile setup to submit Waiver picks.",
   RATE_LIMITED: "Too many saves in a short time. Wait a moment and try again.",

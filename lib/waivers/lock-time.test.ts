@@ -6,6 +6,8 @@ import {
   isWaiverRevealAllowed,
   resolveWaiverLocksAt,
   validateWaiverOpeningWindow,
+  WAIVER_LOCK_HOUR_CHICAGO,
+  WAIVER_LOCK_OVERRIDES,
   waiverPhaseAt,
 } from "@/lib/waivers/lock-time";
 
@@ -57,6 +59,38 @@ describe("resolveWaiverLocksAt — no override", () => {
 
   it("a Tuesday kickoff after 7:00 PM CT is still valid", () => {
     expect(resolveWaiverLocksAt(chicago(2026, 10, 27, 19, 1)).ok).toBe(true);
+  });
+});
+
+describe("resolveWaiverLocksAt — per-week overrides", () => {
+  const WEEK_5 = "cmurulv5d000006p0zghkgky7";
+  const week5FirstKickoff = new Date("2026-10-09T00:15:00.000Z");
+
+  it("only 2026 Week 5 is overridden, to Tue Oct 6 10:00 PM CDT", () => {
+    expect(Object.keys(WAIVER_LOCK_OVERRIDES)).toEqual([WEEK_5]);
+    expect(resolveWaiverLocksAt(week5FirstKickoff, WEEK_5)).toEqual({
+      ok: true,
+      locksAt: new Date("2026-10-07T03:00:00.000Z"),
+    });
+    expect(new Date("2026-10-07T03:00:00.000Z")).toEqual(chicago(2026, 10, 6, 22, 0));
+  });
+
+  it("every other week keeps the Tuesday 7:00 PM CT default", () => {
+    expect(resolveWaiverLocksAt(week5FirstKickoff)).toEqual({
+      ok: true,
+      locksAt: new Date("2026-10-07T00:00:00.000Z"),
+    });
+    expect(resolveWaiverLocksAt(week5FirstKickoff, "some-other-week")).toEqual({
+      ok: true,
+      locksAt: new Date("2026-10-07T00:00:00.000Z"),
+    });
+    expect(WAIVER_LOCK_HOUR_CHICAGO).toBe(19);
+  });
+
+  it("an override at or after the first kickoff is still refused", () => {
+    const result = resolveWaiverLocksAt(new Date("2026-10-07T03:00:00.000Z"), WEEK_5);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("LOCK_NOT_BEFORE_FIRST_KICKOFF");
   });
 });
 

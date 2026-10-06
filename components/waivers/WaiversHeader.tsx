@@ -56,7 +56,8 @@ export function WaiversHeader({ weekLabel }: { weekLabel: string | null }) {
             by submitting it with no calls.
           </li>
           <li>
-            Boards lock Tuesday at 7:00 PM CT. You can revise a submitted board until then. Unsubmitted drafts
+            Boards lock at the posted lock time, normally Tuesday at 7:00 PM CT. You can revise a submitted board
+            until then. Unsubmitted drafts
             don&apos;t count.
           </li>
           <li>Everyone&apos;s calls stay hidden until lock. Consensus appears right after.</li>

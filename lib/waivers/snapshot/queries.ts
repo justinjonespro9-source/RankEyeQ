@@ -28,7 +28,7 @@ export async function loadWaiverWeekOps(weekId: string) {
   const games = await prisma.nflGame.findMany({ where: { weekId }, select: { startsAt: true, status: true } });
   const scheduled = games.filter((game) => game.status !== "CANCELED");
   const firstKickoff = scheduled.length ? new Date(Math.min(...scheduled.map((game) => game.startsAt.getTime()))) : null;
-  const lock = firstKickoff ? resolveWaiverLocksAt(firstKickoff) : null;
+  const lock = firstKickoff ? resolveWaiverLocksAt(firstKickoff, weekId) : null;
   const availabilityRows = await prisma.playerWeekAvailability.count({ where: { weekId } });
   const latestAvailability = await prisma.playerWeekAvailability.aggregate({ where: { weekId }, _max: { observedAt: true } });
 

@@ -82,8 +82,9 @@ export type OpenWaiverContestsResult = {
 
 /**
  * Manually opens the week's Waiver Podiums against the current frozen snapshot.
- * Lock = Tuesday 7:00 PM America/Chicago before the first kickoff, with no
- * override. A position with no eligible players is refused, never opened.
+ * Lock = Tuesday 7:00 PM America/Chicago before the first kickoff, unless the
+ * week has an approved WAIVER_LOCK_OVERRIDES entry. A position with no eligible
+ * players is refused, never opened.
  */
 export async function openWaiverContestsForWeek(input: {
   adminUserId: string;
@@ -115,11 +116,11 @@ export async function openWaiverContestsForWeek(input: {
       throw new WaiverContestError("NO_SCHEDULE", "The week has no scheduled NFL games");
     }
 
-    const lock = resolveWaiverLocksAt(firstKickoff);
+    const lock = resolveWaiverLocksAt(firstKickoff, input.weekId);
     if (!lock.ok) {
       throw new WaiverContestError(
         "LOCK_NOT_BEFORE_FIRST_KICKOFF",
-        "Tuesday 7:00 PM CT is not before the week's first kickoff; Waiver contests cannot open",
+        "The Waiver lock is not before the week's first kickoff; Waiver contests cannot open",
       );
     }
 

@@ -28,13 +28,24 @@ export function computeWaiverLocksAt(firstKickoff: Date): Date {
   return zonedLocalToUtc(tuesday.year, tuesday.month, tuesday.day, WAIVER_LOCK_HOUR_CHICAGO, 0);
 }
 
+/**
+ * Approved one-off lock instants keyed by Week id. Every other week uses the
+ * Tuesday 7:00 PM CT default. A contest's locksAt is immutable once opened, so
+ * an entry only affects contests opened after it ships.
+ */
+export const WAIVER_LOCK_OVERRIDES: Readonly<Record<string, string>> = {
+  // 2026 Week 5 — inaugural Production launch, extended to Tue Oct 6 10:00 PM CDT.
+  cmurulv5d000006p0zghkgky7: "2026-10-07T03:00:00.000Z",
+};
+
 export type WaiverLockResolution =
   | { ok: true; locksAt: Date }
   | { ok: false; reason: "LOCK_NOT_BEFORE_FIRST_KICKOFF"; locksAt: Date };
 
-/** The V1 lock has no override: it must fall strictly before the week's first kickoff. */
-export function resolveWaiverLocksAt(firstKickoff: Date): WaiverLockResolution {
-  const locksAt = computeWaiverLocksAt(firstKickoff);
+/** Week lock (override, else the V1 default); it must fall strictly before the week's first kickoff. */
+export function resolveWaiverLocksAt(firstKickoff: Date, weekId?: string): WaiverLockResolution {
+  const override = weekId ? WAIVER_LOCK_OVERRIDES[weekId] : undefined;
+  const locksAt = override ? new Date(override) : computeWaiverLocksAt(firstKickoff);
   if (locksAt.getTime() >= firstKickoff.getTime()) {
     return { ok: false, reason: "LOCK_NOT_BEFORE_FIRST_KICKOFF", locksAt };
   }
