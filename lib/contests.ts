@@ -11,6 +11,7 @@ import {
   getWeeklyChallenges,
   NFL_WEEK_KEY,
 } from "@/lib/contest";
+import { selectCurrentWeek } from "@/lib/current-week";
 import { getSamplePlayers } from "@/lib/mock-players";
 import { getPlayerResearchMapForContest } from "@/lib/player-research-queries";
 import { parsePlayerResearchWindow } from "@/lib/player-research";
@@ -32,10 +33,7 @@ export type PublicContestCard = PositionChallenge & {
   dbStatus?: ContestStatus;
 };
 
-/**
- * Current NFL week for public ranking surfaces.
- * Prefer the highest weekNumber among non-test OPEN weeks (then LOCKED, then COMPLETE).
- */
+/** Current NFL week for public ranking surfaces (see selectCurrentWeek). */
 async function getActiveWeek() {
   const activeSeason = await prisma.season.findFirst({
     where: { active: true, sport: "NFL" },
@@ -49,11 +47,7 @@ async function getActiveWeek() {
 
   if (!activeSeason) return null;
 
-  const openWeek =
-    activeSeason.weeks.find((week) => week.status === "OPEN") ??
-    activeSeason.weeks.find((week) => week.status === "LOCKED") ??
-    activeSeason.weeks.find((week) => week.status === "COMPLETE") ??
-    activeSeason.weeks[0];
+  const openWeek = selectCurrentWeek(activeSeason.weeks);
 
   if (!openWeek) return null;
 

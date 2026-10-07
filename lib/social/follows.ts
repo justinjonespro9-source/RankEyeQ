@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/db";
+import {
+  profileCanFollow,
+  profileCanGainFollowers,
+  profileIsIdentifiableCompetitor,
+} from "@/lib/social/follow-eligibility";
 
 export class FollowError extends Error {
   constructor(message: string) {
@@ -49,6 +54,7 @@ export async function followProfile(input: {
     }),
     prisma.universalProfile.findUnique({
       where: { id: input.followedProfileId },
+      include: { expertSource: { select: { sourceKind: true } } },
     }),
   ]);
 
@@ -56,14 +62,18 @@ export async function followProfile(input: {
   if (follower.profileType !== "HUMAN") {
     throw new FollowError("Only human accounts can follow profiles");
   }
-  if (follower.status === "SUSPENDED") {
+  if (!profileCanFollow(follower)) {
     throw new FollowError("Suspended accounts cannot follow");
   }
   if (!followed) throw new FollowError("Profile not found");
-  if (followed.profileType === "BENCHMARK" || followed.profileType === "CREATOR") {
-    throw new FollowError("Expert and Creator competitors cannot be followed");
+  const target = {
+    profileType: followed.profileType,
+    expertSourceKind: followed.expertSource?.sourceKind ?? null,
+  };
+  if (!profileIsIdentifiableCompetitor(target)) {
+    throw new FollowError("Consensus and publisher benchmarks cannot be followed");
   }
-  if (followed.status === "SUSPENDED") {
+  if (!profileCanGainFollowers({ ...target, status: followed.status })) {
     throw new FollowError("This profile cannot gain new followers");
   }
 

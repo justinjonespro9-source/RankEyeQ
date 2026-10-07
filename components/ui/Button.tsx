@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md" | "lg";
+type Size = "xs" | "sm" | "md" | "lg";
 
 const variantClasses: Record<Variant, string> = {
   primary:
@@ -15,6 +15,7 @@ const variantClasses: Record<Variant, string> = {
 };
 
 const sizeClasses: Record<Size, string> = {
+  xs: "min-h-7 px-2.5 py-0.5 text-xs",
   sm: "min-h-9 px-3 py-1.5 text-sm",
   md: "min-h-11 px-4 py-2.5 text-sm",
   lg: "min-h-12 px-6 py-3 text-base",

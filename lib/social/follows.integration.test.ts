@@ -86,23 +86,54 @@ describe("follow graph", () => {
     expect(counts.followers).toBe(0);
   });
 
-  it("cannot follow a benchmark source", async () => {
-    const bench = await prisma.universalProfile.create({
-      data: {
-        username: `fol_bm_${suffix}`,
-        displayName: "Follow Benchmark",
-        profileType: "BENCHMARK",
-      },
-    });
-    extraIds.push(bench.id);
-    await expect(
-      followProfile({
-        followerProfileId: humanA,
-        followedProfileId: bench.id,
+  it("follows analyst Expert and Creator competitors through the same follow graph", async () => {
+    const [bench, creator] = await Promise.all([
+      prisma.universalProfile.create({
+        data: {
+          username: `fol_bm_${suffix}`,
+          displayName: "Follow Expert",
+          profileType: "BENCHMARK",
+          expertSource: { create: { sourceKind: "ANALYST", analystName: "Follow Expert", publicationName: "Test Pub" } },
+        },
       }),
-    ).rejects.toMatchObject({
-      message: "Expert and Creator competitors cannot be followed",
-    });
+      prisma.universalProfile.create({
+        data: { username: `fol_cr_${suffix}`, displayName: "Follow Creator", profileType: "CREATOR" },
+      }),
+    ]);
+    extraIds.push(bench.id, creator.id);
+    await followProfile({ followerProfileId: humanA, followedProfileId: bench.id });
+    await followProfile({ followerProfileId: humanA, followedProfileId: creator.id });
+    expect((await getFollowCounts(bench.id)).followers).toBe(1);
+    expect((await getFollowCounts(creator.id)).followers).toBe(1);
+  });
+
+  it("publisher / site consensus, legacy publisher shells and unclassified benchmarks cannot be followed", async () => {
+    const kinds = ["PUBLISHER_CONSENSUS", "SITE_CONSENSUS", "PUBLISHER", null] as const;
+    const profiles = await Promise.all(
+      kinds.map((sourceKind, i) =>
+        prisma.universalProfile.create({
+          data: {
+            username: `fol_pc${i}_${suffix}`,
+            displayName: `Follow Consensus ${i}`,
+            profileType: "BENCHMARK",
+            ...(sourceKind ? { expertSource: { create: { sourceKind, publicationName: "Test Consensus" } } } : {}),
+          },
+        }),
+      ),
+    );
+    extraIds.push(...profiles.map((p) => p.id));
+    for (const p of profiles) {
+      await expect(followProfile({ followerProfileId: humanA, followedProfileId: p.id })).rejects.toMatchObject({
+        message: "Consensus and publisher benchmarks cannot be followed",
+      });
+      expect((await getFollowCounts(p.id)).followers).toBe(0);
+    }
+  });
+
+  it("non-human profiles still cannot follow", async () => {
+    await expect(
+      followProfile({ followerProfileId: aiId, followedProfileId: humanA }),
+    ).rejects.toMatchObject({ message: "Only human accounts can follow profiles" });
   });
 
   it("cannot follow self", async () => {

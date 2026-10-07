@@ -17,6 +17,7 @@ import {
   parseDiscoveryPosition,
 } from "@/lib/social/discovery";
 import { getFollowingIdSet } from "@/lib/social/follows";
+import { followControlFor } from "@/lib/social/follow-eligibility";
 
 import { publicPageMetadata } from "@/lib/seo";
 
@@ -61,6 +62,12 @@ export default async function RankersPage({
   );
   const auth = await getAuthContext();
   const viewerId = auth?.universalProfile?.id ?? null;
+  const followViewer = {
+    signedIn: Boolean(auth),
+    profileId: viewerId,
+    profileType: auth?.universalProfile?.profileType ?? null,
+    status: auth?.universalProfile?.status ?? null,
+  };
 
   const [{ rows, seasonYear }, followingIds] = await Promise.all([
     getRankerDiscovery({ position, filter, minContests }),
@@ -174,16 +181,18 @@ export default async function RankersPage({
                   </p>
                 </div>
               </div>
-              {viewerId !== row.universalProfileId &&
-              row.profileType !== "BENCHMARK" &&
-              row.profileType !== "CREATOR" ? (
+              {followControlFor({
+                viewer: followViewer,
+                target: {
+                  profileId: row.universalProfileId,
+                  profileType: row.profileType,
+                  expertSourceKind: row.expertSourceKind,
+                },
+              }) !== "hidden" ? (
                 <FollowButton
                   targetProfileId={row.universalProfileId}
                   initialFollowing={followingIds.has(row.universalProfileId)}
-                  signedIn={Boolean(auth)}
-                  canFollow={
-                    !auth || auth.universalProfile?.profileType === "HUMAN"
-                  }
+                  signedIn={followViewer.signedIn}
                 />
               ) : null}
             </li>

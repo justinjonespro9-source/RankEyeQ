@@ -28,6 +28,7 @@ import { profileBoardHref } from "@/lib/board-routes";
 import { getProfileCurrentWeekBoardSummaries } from "@/lib/public-board";
 import { evaluateProfileQualification } from "@/lib/social/creator";
 import { getFollowCounts, isFollowing } from "@/lib/social/follows";
+import { followControlFor } from "@/lib/social/follow-eligibility";
 import { buildProfileOverview } from "@/lib/profile-modules";
 import { prisma } from "@/lib/db";
 import type { ProductKey, UniversalProfile } from "@/types/user";
@@ -261,6 +262,21 @@ export default async function ProfilePage(
     })),
   });
 
+  const followControl = followControlFor({
+    viewer: {
+      signedIn: Boolean(authCtx),
+      profileId: viewerProfile?.id ?? null,
+      profileType: viewerProfile?.profileType ?? null,
+      status: viewerProfile?.status ?? null,
+    },
+    target: {
+      profileId: view.profileId,
+      profileType: view.profileType,
+      expertSourceKind: view.expertSourceKind,
+      status: view.status,
+    },
+  });
+
   return (
     <Container className="py-12 sm:py-16">
       <ProfileHeader
@@ -274,17 +290,16 @@ export default async function ProfilePage(
         followingCount={followCounts.following}
         scoringDisclosure={scoringDisclosure}
         expertSourceKind={view.expertSourceKind}
-        follow={{
-          signedIn: Boolean(authCtx),
-          viewerIsFollowing,
-          canFollow:
-            !isOwner &&
-            view.status !== "SUSPENDED" &&
-            view.profileType !== "BENCHMARK" &&
-            view.profileType !== "CREATOR" &&
-            viewerProfile?.profileType === "HUMAN",
-          targetProfileId: view.profileId,
-        }}
+        follow={
+          followControl === "hidden"
+            ? undefined
+            : {
+                signedIn: Boolean(authCtx),
+                viewerIsFollowing,
+                canFollow: followControl === "follow",
+                targetProfileId: view.profileId,
+              }
+        }
         creator={{
           enabled: qualification.status === "ENABLED",
           qualified:

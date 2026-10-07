@@ -6,6 +6,7 @@ import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { CreatorBadge } from "@/components/social/CreatorBadge";
 import { FollowButton } from "@/components/social/FollowButton";
+import { profileCanFollow } from "@/lib/social/follow-eligibility";
 import { getAuthContext } from "@/lib/auth/session";
 import { formatRankIqScore } from "@/lib/scoring";
 import {
@@ -174,7 +175,7 @@ export default async function FollowingPage({
                 targetProfileId={item.profileId}
                 initialFollowing
                 signedIn
-                canFollow={profile.profileType === "HUMAN"}
+                canFollow={profileCanFollow(profile)}
               />
             </li>
           ))}

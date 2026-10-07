@@ -14,12 +14,14 @@ export function FollowButton({
   signedIn,
   canFollow = true,
   size = "sm",
+  align = "end",
 }: {
   targetProfileId: string;
   initialFollowing: boolean;
   signedIn: boolean;
   canFollow?: boolean;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
+  align?: "start" | "end";
 }) {
   const router = useRouter();
   const [following, setFollowing] = useState(initialFollowing);
@@ -39,7 +41,7 @@ export function FollowButton({
   }
 
   return (
-    <div className="inline-flex flex-col items-end gap-1">
+    <div className={`inline-flex flex-col gap-1 ${align === "start" ? "items-start" : "items-end"}`}>
       <Button
         type="button"
         size={size}

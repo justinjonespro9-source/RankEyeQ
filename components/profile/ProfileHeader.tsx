@@ -114,7 +114,7 @@ export function ProfileHeader({
     featuredLinkUrl: profile.featuredLinkUrl,
   });
   const claimable = showClaimCta;
-  const showFollow = Boolean(follow && !isOwner && !isAuthFree);
+  const showFollow = Boolean(follow && !isOwner);
   const identityBadges = (
     <>
       <Badge

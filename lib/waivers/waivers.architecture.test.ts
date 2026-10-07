@@ -79,6 +79,7 @@ const PURE_MODULES = [
   "canonical/preflight-model",
   "play-model",
   "consensus-model",
+  "leaderboard-model",
 ];
 /** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
 const SERVICE_MODULES = [
@@ -96,6 +97,7 @@ const SERVICE_MODULES = [
   "snapshot/actions",
   "canonical/preflight",
   "play-queries",
+  "leaderboard-queries",
 ];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
@@ -146,6 +148,15 @@ const PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/consensus-model",
   "lib/waivers/play-queries",
 ]);
+/**
+ * The shared leaderboard experience (Rankings | Waivers): the read-only
+ * leaderboard queries from the server page, and the pure leaderboard model.
+ */
+const LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS: Readonly<Record<string, ReadonlySet<string>>> = {
+  "app/leaderboards": new Set(["lib/waivers/leaderboard-model", "lib/waivers/leaderboard-queries"]),
+  "components/leaderboards": new Set(["lib/waivers/leaderboard-model"]),
+};
+const QUERY_MODULES = new Set(["lib/waivers/snapshot/queries", "lib/waivers/play-queries", "lib/waivers/leaderboard-queries"]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
   "lib/submissions",
@@ -288,7 +299,7 @@ describe("Waivers architecture isolation", () => {
     expect(hits).toEqual([]);
   });
 
-  it("only the admin and public Waivers UIs import lib/waivers, each from its own runtime allowlist", () => {
+  it("only the admin, public Waivers and leaderboard UIs import lib/waivers, each from its own runtime allowlist", () => {
     const roots = ["app", "components", "lib", "scripts", "prisma"].map((d) => path.join(ROOT, d));
     const offenders: string[] = [];
     for (const root of roots) {
@@ -299,19 +310,39 @@ describe("Waivers architecture isolation", () => {
         const rel = path.relative(ROOT, file).split(path.sep).join("/");
         const isAdminUi = WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
         const isPublicUi = PUBLIC_WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
-        if (!isAdminUi && !isPublicUi) {
+        const leaderboardDir = Object.keys(LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS).find((dir) => rel.startsWith(`${dir}/`));
+        if (!isAdminUi && !isPublicUi && !leaderboardDir) {
           offenders.push(rel);
           continue;
         }
-        const allowed = isAdminUi ? WAIVERS_UI_RUNTIME_IMPORTS : PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS;
+        const allowed = isAdminUi
+          ? WAIVERS_UI_RUNTIME_IMPORTS
+          : isPublicUi
+            ? PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS
+            : LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS[leaderboardDir!];
         for (const ref of readImports(source)) {
           const target = normalizeSpecifier(file, ref.specifier);
           if (!target.startsWith("lib/waivers") || ref.typeOnly) continue;
           if (!allowed.has(target)) offenders.push(`${rel} -> ${ref.specifier}`);
-          if ((target === "lib/waivers/snapshot/queries" || target === "lib/waivers/play-queries") && !rel.startsWith("app/")) {
+          if (QUERY_MODULES.has(target) && !rel.startsWith("app/")) {
             offenders.push(`${rel} -> queries outside a server page`);
           }
         }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the Waivers leaderboard read path never writes, grades, or stamps locks", () => {
+    const offenders: string[] = [];
+    for (const name of ["leaderboard-queries", "leaderboard-model"]) {
+      const source = readFileSync(path.join(WAIVERS_DIR, `${name}.ts`), "utf8");
+      for (const banned of [
+        /\b\w+\s*\.\s*\w+\s*\.\s*(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/,
+        /\$(?:executeRaw|transaction)/,
+        /\b(?:scoreWaiverBoard|computeWaiverProduction|exclusiveLockWaiver\w*|stampWaiver\w*|loadFinalWaiverBoards|loadCurrentWaiverBoards)\s*\(/,
+      ]) {
+        if (banned.test(source)) offenders.push(`${name}.ts: ${banned}`);
       }
     }
     expect(offenders).toEqual([]);

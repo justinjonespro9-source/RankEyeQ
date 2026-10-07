@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getWeeklyLeaderboard, type LeaderboardRow } from "@/lib/leaderboards";
 import { submissionIsEligible } from "@/lib/contest-lifecycle";
+import { selectCurrentWeek } from "@/lib/current-week";
 import { toUiPosition } from "@/lib/contest-defaults";
 import { ctaForContestState, hrefForContestState } from "@/lib/homepage-cta";
 import type {
@@ -107,12 +108,7 @@ export async function getHomepageData(activeProfileId?: string | null) {
     };
   }
 
-  const week =
-    season.weeks.find((w) => w.status === "OPEN") ??
-    season.weeks.find((w) => w.status === "LOCKED") ??
-    season.weeks.find((w) => w.status === "COMPLETE") ??
-    season.weeks[0] ??
-    null;
+  const week = selectCurrentWeek(season.weeks);
 
   const contests = week
     ? await prisma.rankIQContest.findMany({
@@ -147,8 +143,8 @@ export async function getHomepageData(activeProfileId?: string | null) {
       shortLabel: contest.position,
       rankingDepth: contest.rankingDepth,
       contestStatus: contest.status,
-      lockLabel: formatLockLabel(week.fullLockAt ?? contest.locksAt),
-      locksAt: week.fullLockAt ?? contest.locksAt,
+      lockLabel: formatLockLabel(week?.fullLockAt ?? contest.locksAt),
+      locksAt: week?.fullLockAt ?? contest.locksAt,
       submittedCount,
       profileSubmissionStatus: profileSubmission?.status ?? null,
       ctaLabel: ctaForContestState(

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { selectCurrentWeek } from "@/lib/current-week";
 import {
   profileAppearsOnPublicSurfaces,
   weekIsPubliclyVisibleForProfile,
@@ -523,9 +524,100 @@ export async function getActiveSeasonAndWeek() {
     },
   });
   if (!season) return null;
-  const week =
-    season.weeks.find((w) => w.status === "OPEN" || w.status === "LOCKED") ??
-    season.weeks.find((w) => w.status === "COMPLETE") ??
-    season.weeks[0];
+  const week = selectCurrentWeek(season.weeks) ?? undefined;
   return { season, week };
+}
+
+export type LeaderboardCompetitorIdentity = Pick<
+  LeaderboardRow,
+  | "universalProfileId"
+  | "username"
+  | "displayName"
+  | "avatarUrl"
+  | "profileType"
+  | "expertPublisher"
+  | "expertSourceKind"
+  | "creatorBrand"
+>;
+
+/**
+ * Identity for competitors on another discipline's board (Waivers), with the
+ * same public-visibility and legacy-publisher rules the Rankings boards apply.
+ * Entries whose profile is not publicly visible for that week are dropped.
+ */
+export async function publicLeaderboardIdentitiesForWeeks<
+  T extends { universalProfileId: string; weekId: string },
+>(
+  entries: ReadonlyArray<T>,
+): Promise<{
+  entries: T[];
+  identities: Map<string, LeaderboardCompetitorIdentity>;
+}> {
+  if (entries.length === 0) return { entries: [], identities: new Map() };
+  const profileIds = [...new Set(entries.map((entry) => entry.universalProfileId))];
+  const weekIds = [...new Set(entries.map((entry) => entry.weekId))];
+  const [profiles, weeks] = await Promise.all([
+    prisma.universalProfile.findMany({
+      where: { id: { in: profileIds } },
+      include: { expertSource: true, creatorCompetitor: true, publicFromWeek: true },
+    }),
+    prisma.week.findMany({
+      where: { id: { in: weekIds } },
+      select: { id: true, seasonId: true, weekNumber: true, startsAt: true },
+    }),
+  ]);
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const weekById = new Map(weeks.map((week) => [week.id, week]));
+  const identities = new Map<string, LeaderboardCompetitorIdentity>();
+  const visible: T[] = [];
+  for (const entry of entries) {
+    const profile = profileById.get(entry.universalProfileId);
+    const week = weekById.get(entry.weekId);
+    if (!profile || !week) continue;
+    if (profile.expertSource?.sourceKind === EXPERT_SOURCE_KIND.PUBLISHER) continue;
+    const visibility = {
+      profileType: profile.profileType,
+      competitorActive: profile.competitorActive,
+      publicVisible: profile.publicVisible,
+      publicFromWeekId: profile.publicFromWeekId,
+      publicFromWeek: profile.publicFromWeek,
+    };
+    if (!profileAppearsOnPublicSurfaces(visibility)) continue;
+    if (!weekIsPubliclyVisibleForProfile(visibility, week)) continue;
+    if (!identities.has(profile.id)) {
+      const agg = emptyAgg(profile);
+      identities.set(profile.id, {
+        universalProfileId: agg.universalProfileId,
+        username: agg.username,
+        displayName: agg.displayName,
+        avatarUrl: agg.avatarUrl,
+        profileType: agg.profileType,
+        expertPublisher: agg.expertPublisher,
+        expertSourceKind: agg.expertSourceKind,
+        creatorBrand: agg.creatorBrand,
+      });
+    }
+    visible.push(entry);
+  }
+  return { entries: visible, identities };
+}
+
+/** Latest non-test week in the season with graded results in a finalized contest. */
+export async function getLatestGradedWeekId(
+  seasonId: string,
+): Promise<string | null> {
+  const submission = await prisma.rankingSubmission.findFirst({
+    where: {
+      status: "GRADED",
+      normalizedScore: { not: null },
+      contest: {
+        seasonId,
+        status: { in: ["FINAL", "ARCHIVED"] },
+        week: { isTest: false },
+      },
+    },
+    orderBy: { contest: { week: { weekNumber: "desc" } } },
+    select: { contest: { select: { weekId: true } } },
+  });
+  return submission?.contest.weekId ?? null;
 }

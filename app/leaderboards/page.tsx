@@ -1,32 +1,65 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Container } from "@/components/layout/Container";
 import { LeaderboardsSubnav } from "@/components/layout/LeaderboardsSubnav";
 import { AdPlacement } from "@/components/sponsors/AdPlacement";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ProfileLink } from "@/components/ui/ProfileLink";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { FollowButton } from "@/components/social/FollowButton";
-import { LeaderboardRowMetrics } from "@/components/leaderboards/LeaderboardRowMetrics";
+import {
+  BoardTable,
+  WaiverBoardTable,
+  type RowFollow,
+} from "@/components/leaderboards/LeaderboardTables";
 import { getAuthContext, isAdminRole } from "@/lib/auth/session";
 import {
   isAdminTestPreviewRequested,
   resolveIncludeTestWeeks,
 } from "@/lib/admin/test-preview";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
-import { isPublisherConsensusSource } from "@/lib/expert-identity";
 import {
   getActiveSeasonAndWeek,
+  getLatestGradedWeekId,
   getSeasonLeaderboard,
   getWeeklyLeaderboard,
+  leaderboardRowMatchesFilter,
+  publicLeaderboardIdentitiesForWeeks,
   type LeaderboardFilter,
   type LeaderboardRow,
 } from "@/lib/leaderboards";
+import {
+  leaderboardWeekOptions,
+  parseLeaderboardWeekParam,
+  resolveLeaderboardWeek,
+} from "@/lib/leaderboard-weeks";
+import {
+  leaderboardHref,
+  parseLeaderboardDiscipline,
+  type LeaderboardDiscipline,
+} from "@/lib/leaderboard-url";
 import { prisma } from "@/lib/db";
 import { publicPageMetadata } from "@/lib/seo";
 import { SEASON_LEADERBOARD_NOTE } from "@/lib/weekly-messaging";
 import { getFollowerCountsForProfiles, getFollowingIdSet } from "@/lib/social/follows";
+import { followControlFor } from "@/lib/social/follow-eligibility";
+import { formatContestClock } from "@/lib/timing/chicago";
 import { logServerEvent } from "@/lib/log";
+import {
+  aggregateWaiverLeaderboard,
+  inauguralWaiverWeek,
+  parseWaiverLeaderboardPosition,
+  resolveWaiverLeaderboardWeek,
+  waiverLeaderboardEmptyCopy,
+  waiverLeaderboardState,
+  waiverLeaderboardWeekOptions,
+  waiverWeekLocksAt,
+  type WaiverLeaderboardState,
+} from "@/lib/waivers/leaderboard-model";
+import {
+  loadGradedWaiverBoards,
+  loadWaiverLeaderboardWeeks,
+  readWaiverLeaderboardClock,
+} from "@/lib/waivers/leaderboard-queries";
 
 export const metadata: Metadata = publicPageMetadata({
   title: 'Leaderboards',
@@ -36,6 +69,13 @@ export const metadata: Metadata = publicPageMetadata({
 });
 
 export const dynamic = "force-dynamic";
+
+type Discipline = LeaderboardDiscipline;
+
+const DISCIPLINES: { key: Discipline; label: string }[] = [
+  { key: "rankings", label: "Rankings" },
+  { key: "waivers", label: "Waivers" },
+];
 
 const POSITIONS: { key: "ALL" | ContestPosition; label: string }[] = [
   { key: "ALL", label: "Overall" },
@@ -55,113 +95,33 @@ const FILTERS: { key: LeaderboardFilter; label: string }[] = [
   { key: "PUBLISHER", label: "Publisher Consensus" },
 ];
 
-function BoardTable({
-  rows,
-  follow,
-  viewCard,
+function ChipRow({
+  label,
+  items,
+  className = "mb-4",
 }: {
-  rows: LeaderboardRow[];
-  follow?: {
-    signedIn: boolean;
-    viewerProfileId: string | null;
-    followingIds: Set<string>;
-    followerCounts: Map<string, number>;
-    canFollow: boolean;
-  };
-  /** Position weekly boards only — never Overall. */
-  viewCard?: {
-    weekNumber: number;
-    position: ContestPosition;
-  } | null;
+  label: string;
+  items: { key: string; label: string; href: string; active: boolean; title?: string; activeClass?: string }[];
+  className?: string;
 }) {
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        title="No graded contests yet"
-        description="Leaderboards fill in after contests are graded. Contests played will stay visible for thin samples."
-        actionHref="/rank"
-        actionLabel="Build rankings"
-      />
-    );
-  }
-
   return (
-    <ol className="divide-y divide-border">
-      {rows.map((entry) => {
-        const cardHref =
-          viewCard != null
-            ? `/profile/${entry.username}/rankings/${viewCard.weekNumber}/${viewCard.position.toLowerCase()}`
-            : null;
-        return (
-          <li
-            key={entry.universalProfileId}
-            className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="font-display w-7 shrink-0 text-center text-base font-semibold tabular-nums text-ink sm:w-8">
-                {entry.rank}
-              </span>
-              <div className="min-w-0 flex-1">
-                <ProfileLink
-                  username={entry.username}
-                  displayName={entry.displayName}
-                  avatarUrl={entry.avatarUrl}
-                  profileType={entry.profileType}
-                  isAi={entry.profileType === "AI"}
-                  isExpert={
-                    entry.profileType === "BENCHMARK" &&
-                    !isPublisherConsensusSource(entry.expertSourceKind)
-                  }
-                  isCreator={entry.profileType === "CREATOR"}
-                  expertPublisher={entry.expertPublisher}
-                  expertSourceKind={entry.expertSourceKind}
-                  creatorBrand={entry.creatorBrand}
-                  aiModel={
-                    entry.profileType === "AI" ? entry.displayName : null
-                  }
-                />
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {follow &&
-                  entry.profileType !== "BENCHMARK" &&
-                  entry.profileType !== "CREATOR" &&
-                  entry.profileType !== "AI" ? (
-                    <p className="text-xs text-muted">
-                      {follow.followerCounts.get(entry.universalProfileId) ??
-                        0}{" "}
-                      followers
-                    </p>
-                  ) : null}
-                  {cardHref ? (
-                    <Link
-                      href={cardHref}
-                      className="text-xs font-medium text-accent-ink hover:underline"
-                    >
-                      View Card
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <div className="w-full min-w-0 sm:w-auto sm:shrink-0">
-              <LeaderboardRowMetrics row={entry} />
-            </div>
-            {follow &&
-            follow.viewerProfileId !== entry.universalProfileId &&
-            entry.profileType !== "BENCHMARK" &&
-            entry.profileType !== "CREATOR" ? (
-              <FollowButton
-                targetProfileId={entry.universalProfileId}
-                initialFollowing={follow.followingIds.has(
-                  entry.universalProfileId,
-                )}
-                signedIn={follow.signedIn}
-                canFollow={follow.canFollow}
-              />
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
+    <div className={`${className} flex flex-wrap gap-2`} aria-label={label}>
+      {items.map((item) => (
+        <Link
+          key={item.key}
+          href={item.href}
+          title={item.title}
+          aria-current={item.active ? "page" : undefined}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium tabular-nums ${
+            item.active
+              ? (item.activeClass ?? "bg-accent-soft text-ink")
+              : "border border-border bg-surface-elevated text-ink"
+          }`}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </div>
   );
 }
 
@@ -169,15 +129,18 @@ export default async function LeaderboardsPage({
   searchParams,
 }: {
   searchParams: Promise<{
+    discipline?: string;
     scope?: string;
     position?: string;
     filter?: string;
     test?: string;
     adminTest?: string;
     weekId?: string;
+    week?: string;
   }>;
 }) {
   const params = await searchParams;
+  const discipline = parseLeaderboardDiscipline(params.discipline);
   const scope = params.scope === "season" ? "season" : "weekly";
 
   let auth;
@@ -201,9 +164,11 @@ export default async function LeaderboardsPage({
     adminTestPreview: isAdminTestPreviewRequested(params),
     legacyTestParam: params.test === "1",
   });
-  const positionParam = (params.position?.toUpperCase() ?? "ALL") as
-    | "ALL"
-    | ContestPosition;
+  const positionParam = (
+    discipline === "waivers"
+      ? parseWaiverLeaderboardPosition(params.position)
+      : (params.position?.toUpperCase() ?? "ALL")
+  ) as "ALL" | ContestPosition;
   const filter = ([
     "ALL",
     "HUMAN",
@@ -236,87 +201,233 @@ export default async function LeaderboardsPage({
 
   const position =
     positionParam === "ALL" ? undefined : (positionParam as ContestPosition);
+  const positionLabel = positionParam === "ALL" ? "Overall" : positionParam;
+  const requestedWeekNumber = parseLeaderboardWeekParam(params.week);
 
-  let rows: LeaderboardRow[] = [];
-  let title = "Leaderboards";
-  const testWeek =
-    includeTest && params.weekId
-      ? await prisma.week.findUnique({
-          where: { id: params.weekId },
-          include: { season: true },
-        })
-      : null;
-
-  try {
-    if (testWeek?.isTest) {
-      rows = await getWeeklyLeaderboard({
-        weekId: testWeek.id,
-        position,
-        filter,
-        includeTest: true,
-      });
-      title = `[TEST] ${testWeek.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
-    } else if (context?.week && scope === "weekly") {
-      rows = await getWeeklyLeaderboard({
-        weekId: context.week.id,
-        position,
-        filter,
-      });
-      title = `${context.week.label} · ${positionParam === "ALL" ? "Overall" : positionParam}`;
-    } else if (context?.season) {
-      rows = await getSeasonLeaderboard({
-        seasonId: context.season.id,
-        position,
-        filter,
-      });
-      title = `${context.season.year} Season · ${positionParam === "ALL" ? "Overall" : positionParam}`;
-    }
-  } catch (error) {
-    logServerEvent(
-      "leaderboards.query_failed",
-      {
-        route: "/leaderboards",
-        step: "leaderboard_query",
-        scope,
-        position: positionParam,
-        filter,
-        weekId: testWeek?.id ?? context?.week?.id ?? null,
-        message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
-      },
-      "error",
-    );
-    throw error;
-  }
-
-  const followingIds = auth?.universalProfile
-    ? await getFollowingIdSet(auth.universalProfile.id)
+  const viewer = {
+    signedIn: Boolean(auth),
+    profileId: auth?.universalProfile?.id ?? null,
+    profileType: auth?.universalProfile?.profileType ?? null,
+    status: auth?.universalProfile?.status ?? null,
+  };
+  const followingIds = viewer.profileId
+    ? await getFollowingIdSet(viewer.profileId)
     : new Set<string>();
-  const followerCounts = await getFollowerCountsForProfiles(
-    rows.map((row) => row.universalProfileId),
-  );
+  const follow: RowFollow = (profile) => ({
+    control: followControlFor({
+      viewer,
+      target: {
+        profileId: profile.universalProfileId,
+        profileType: profile.profileType,
+        expertSourceKind: profile.expertSourceKind,
+      },
+    }),
+    initialFollowing: followingIds.has(profile.universalProfileId),
+  });
 
-  const viewCardWeekNumber =
-    testWeek?.isTest
-      ? testWeek.weekNumber
-      : scope === "weekly" && context?.week
-        ? context.week.weekNumber
-        : null;
-  const viewCard =
-    viewCardWeekNumber != null && position != null
-      ? { weekNumber: viewCardWeekNumber, position }
-      : null;
+  let title = "Leaderboards";
+  let note = "";
+  let board: ReactNode = null;
+  let weekChips: { key: string; label: string; href: string; active: boolean; title?: string }[] = [];
+  let carriedWeekNumber: number | null = null;
 
   function href(next: {
+    discipline?: Discipline;
     scope?: string;
     position?: string;
     filter?: string;
+    week?: number | null;
   }) {
-    const query = new URLSearchParams({
+    return leaderboardHref({
+      discipline: next.discipline ?? discipline,
       scope: next.scope ?? scope,
       position: next.position ?? positionParam,
       filter: next.filter ?? filter,
+      week: next.week === undefined ? carriedWeekNumber : next.week,
     });
-    return `/leaderboards?${query.toString()}`;
+  }
+
+  if (discipline === "rankings") {
+    let rows: LeaderboardRow[] = [];
+    const testWeek =
+      includeTest && params.weekId
+        ? await prisma.week.findUnique({
+            where: { id: params.weekId },
+            include: { season: true },
+          })
+        : null;
+
+    const weekOptions = context
+      ? leaderboardWeekOptions(context.season.weeks)
+      : [];
+    let weeklyWeek = context?.week ?? null;
+
+    try {
+      if (testWeek?.isTest) {
+        rows = await getWeeklyLeaderboard({
+          weekId: testWeek.id,
+          position,
+          filter,
+          includeTest: true,
+        });
+        title = `[TEST] ${testWeek.label} · ${positionLabel}`;
+      } else if (context?.week && scope === "weekly") {
+        weeklyWeek =
+          resolveLeaderboardWeek({
+            options: weekOptions,
+            requestedWeekNumber,
+            latestGradedWeekId: await getLatestGradedWeekId(context.season.id),
+            currentWeekId: context.week.id,
+          }) ?? context.week;
+        rows = await getWeeklyLeaderboard({
+          weekId: weeklyWeek.id,
+          position,
+          filter,
+        });
+        title = `${weeklyWeek.label} · ${positionLabel}`;
+      } else if (context?.season) {
+        rows = await getSeasonLeaderboard({
+          seasonId: context.season.id,
+          position,
+          filter,
+        });
+        title = `${context.season.year} Season · ${positionLabel}`;
+      }
+    } catch (error) {
+      logServerEvent(
+        "leaderboards.query_failed",
+        {
+          route: "/leaderboards",
+          step: "leaderboard_query",
+          scope,
+          position: positionParam,
+          filter,
+          weekId: testWeek?.id ?? weeklyWeek?.id ?? null,
+          message: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+        },
+        "error",
+      );
+      throw error;
+    }
+
+    const followerCounts = await getFollowerCountsForProfiles(
+      rows.map((row) => row.universalProfileId),
+    );
+
+    const viewCardWeekNumber =
+      testWeek?.isTest
+        ? testWeek.weekNumber
+        : scope === "weekly" && weeklyWeek
+          ? weeklyWeek.weekNumber
+          : null;
+    const viewCard =
+      viewCardWeekNumber != null && position != null
+        ? { weekNumber: viewCardWeekNumber, position }
+        : null;
+
+    const selectedWeekNumber =
+      scope === "weekly" ? (weeklyWeek?.weekNumber ?? null) : requestedWeekNumber;
+    carriedWeekNumber = weekOptions.some((week) => week.weekNumber === selectedWeekNumber)
+      ? selectedWeekNumber
+      : null;
+
+    if (scope === "weekly" && !testWeek?.isTest) {
+      weekChips = weekOptions.map((week) => ({
+        key: week.id,
+        label: `W${week.weekNumber}`,
+        title: week.label,
+        href: href({ week: week.weekNumber }),
+        active: weeklyWeek?.id === week.id,
+      }));
+    }
+
+    note = `${
+      scope === "season" ? SEASON_LEADERBOARD_NOTE : "Weekly results for the selected NFL week."
+    } ${
+      context
+        ? position
+          ? "Profile opens identity; View Card opens that week’s graded position board."
+          : "Click any profile to open their RankEyeQ page."
+        : "No active season found."
+    }`;
+    board = (
+      <BoardTable rows={rows} follow={follow} followerCounts={followerCounts} viewCard={viewCard} />
+    );
+  } else {
+    const waiverWeeks = context ? await loadWaiverLeaderboardWeeks(context.season.id) : [];
+    const options = waiverLeaderboardWeekOptions(waiverWeeks);
+    const gradedBoards = await loadGradedWaiverBoards(options.map((week) => week.id));
+    const gradedWeekIds = new Set(gradedBoards.map((b) => b.weekId));
+    const week = resolveWaiverLeaderboardWeek({ options, requestedWeekNumber, gradedWeekIds });
+    const inaugural = inauguralWaiverWeek(options);
+    const waiverPosition = parseWaiverLeaderboardPosition(positionParam);
+    const now = await readWaiverLeaderboardClock();
+
+    const weekLocksAt = week ? waiverWeekLocksAt(week, waiverPosition) : null;
+    const state: WaiverLeaderboardState = waiverLeaderboardState({
+      scope,
+      position: waiverPosition,
+      options,
+      week,
+      gradedWeekIds,
+      now,
+    });
+
+    carriedWeekNumber = scope === "weekly" ? (week?.weekNumber ?? null) : requestedWeekNumber;
+    if (!options.some((option) => option.weekNumber === carriedWeekNumber)) carriedWeekNumber = null;
+    if (scope === "weekly") {
+      weekChips = options.map((option) => ({
+        key: option.id,
+        label: `W${option.weekNumber}`,
+        title: option.label,
+        href: href({ week: option.weekNumber }),
+        active: week?.id === option.id,
+      }));
+    }
+
+    title =
+      scope === "season"
+        ? `${context?.season.year ?? ""} Waivers Season · ${positionLabel}`.trim()
+        : `${week ? `${week.label} ` : ""}Waivers · ${positionLabel}`;
+    note =
+      scope === "season"
+        ? `Season standings roll up official graded Waivers weeks only${
+            inaugural ? ` — Waivers began in ${inaugural.label}` : ""
+          }. Weeks before launch never count against anyone.`
+        : "Weekly Waivers results for the selected week. Overall combines every graded position contest.";
+
+    if (state.kind === "GRADED") {
+      const scopedBoards =
+        scope === "season" ? gradedBoards : gradedBoards.filter((b) => b.weekId === week?.id);
+      const visible = await publicLeaderboardIdentitiesForWeeks(scopedBoards);
+      const classBoards = visible.entries.filter((b) => {
+        const identity = visible.identities.get(b.universalProfileId);
+        return identity != null && leaderboardRowMatchesFilter(identity, filter);
+      });
+      const rows = aggregateWaiverLeaderboard(classBoards, waiverPosition);
+      board =
+        rows.length > 0 ? (
+          <WaiverBoardTable rows={rows} identities={visible.identities} follow={follow} />
+        ) : (
+          <EmptyState
+            title="No graded Waivers boards for this filter"
+            description="Try another position or competitor class."
+          />
+        );
+    } else {
+      const copy = waiverLeaderboardEmptyCopy(
+        state,
+        weekLocksAt ? formatContestClock(weekLocksAt) : null,
+      );
+      board = (
+        <EmptyState
+          title={copy.title}
+          description={copy.description}
+          actionHref={state.kind === "LIVE" ? "/waivers" : undefined}
+          actionLabel={state.kind === "LIVE" ? "Make your Waiver calls" : undefined}
+        />
+      );
+    }
   }
 
   return (
@@ -324,89 +435,80 @@ export default async function LeaderboardsPage({
       <SectionHeading
         eyebrow="Accuracy ladder"
         title="Leaderboards"
-        description="Average EYEQ Score across graded weekly contests. Season view rolls up weekly results — not season-long projection rankings."
+        description={
+          discipline === "waivers"
+            ? "Average Waiver EyeQ across graded Waivers weeks. Every value comes from official Waivers grading."
+            : "Average EYEQ Score across graded weekly contests. Season view rolls up weekly results — not season-long projection rankings."
+        }
       />
       <LeaderboardsSubnav />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {[
+      <div
+        className="mb-5 inline-flex rounded-lg border border-border bg-surface-elevated p-1"
+        role="tablist"
+        aria-label="Leaderboard discipline"
+      >
+        {DISCIPLINES.map((item) => (
+          <Link
+            key={item.key}
+            href={href({ discipline: item.key, week: null })}
+            role="tab"
+            aria-selected={discipline === item.key}
+            className={`rounded-md px-4 py-1.5 text-sm font-semibold ${
+              discipline === item.key ? "bg-ink text-off-white" : "text-ink hover:bg-surface"
+            }`}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+
+      <ChipRow
+        label="Time scope"
+        items={[
           ["weekly", "Weekly"],
           ["season", "Season"],
-        ].map(([key, label]) => (
-          <Link
-            key={key}
-            href={href({ scope: key })}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-              scope === key
-                ? "bg-accent text-ink"
-                : "border border-border bg-surface-elevated text-ink"
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
-      </div>
+        ].map(([key, label]) => ({
+          key,
+          label,
+          href: href({ scope: key }),
+          active: scope === key,
+          activeClass: "bg-accent text-ink",
+        }))}
+      />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {POSITIONS.map((item) => (
-          <Link
-            key={item.key}
-            href={href({ position: item.key })}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-              positionParam === item.key
-                ? "bg-accent-soft text-ink"
-                : "border border-border bg-surface-elevated text-ink"
-            }`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </div>
+      {weekChips.length > 0 ? <ChipRow label="NFL week" items={weekChips} /> : null}
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        {FILTERS.map((item) => (
-          <Link
-            key={item.key}
-            href={href({ filter: item.key })}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-              filter === item.key
-                ? "bg-ink text-off-white"
-                : "border border-border bg-surface-elevated text-ink"
-            }`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </div>
+      <ChipRow
+        label="Position"
+        items={POSITIONS.map((item) => ({
+          key: item.key,
+          label: item.label,
+          href: href({ position: item.key }),
+          active: positionParam === item.key,
+        }))}
+      />
+
+      <ChipRow
+        label="Competitor class"
+        className="mb-6"
+        items={FILTERS.map((item) => ({
+          key: item.key,
+          label: item.label,
+          href: href({ filter: item.key }),
+          active: filter === item.key,
+          activeClass: "bg-ink text-off-white",
+        }))}
+      />
 
       <AdPlacement placementKey="leaderboard_inline" className="mb-6" />
 
       <section className="rounded-lg border border-border bg-surface-elevated">
         <div className="border-b border-border px-5 py-4">
           <h2 className="font-display text-xl font-semibold text-ink">{title}</h2>
-          <p className="mt-1 text-sm text-muted">
-            {scope === "season"
-              ? SEASON_LEADERBOARD_NOTE
-              : "Weekly results for the selected NFL week."}{" "}
-            {context
-              ? position
-                ? "Profile opens identity; View Card opens that week’s graded position board."
-                : "Click any profile to open their RankEyeQ page."
-              : "No active season found."}
-          </p>
+          <p className="mt-1 text-sm text-muted">{note}</p>
         </div>
-        <BoardTable
-          rows={rows}
-          viewCard={viewCard}
-          follow={{
-            signedIn: Boolean(auth),
-            viewerProfileId: auth?.universalProfile?.id ?? null,
-            followingIds,
-            followerCounts,
-            canFollow:
-              !auth || auth.universalProfile?.profileType === "HUMAN",
-          }}
-        />
+        {board}
       </section>
     </Container>
   );
