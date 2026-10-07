@@ -22,7 +22,8 @@ export type PreflightIssueCode =
   | "SNAPSHOT_CANONICAL_CONFLICT"
   | "CANONICAL_RESULT_BLOCKED"
   | "WEEK_MISMATCH"
-  | "ARTIFACT_NOT_VERIFIED";
+  | "ARTIFACT_NOT_VERIFIED"
+  | "FROZEN_IDENTITY_MISMATCH";
 export type PreflightIssue = { code: PreflightIssueCode; detail: string; snapshotEntryId?: string };
 
 export type PreflightAdvisoryCode =
@@ -39,6 +40,8 @@ export type PreflightSnapshotEntry = {
   displayNameAtFreeze: string;
   teamAtFreeze: string | null;
   isByeAtFreeze: boolean;
+  /** Identity key stored at freeze; null on rows frozen before Stage 4B.1. */
+  frozenIdentity: { provider: string; externalId: string } | null;
   rankable: { provider: string; externalId: string; team: string; active: boolean; adminNotes: string | null; name: string };
 };
 
@@ -56,7 +59,10 @@ export type PreflightRow = {
   snapshotPosition: string;
   /** Diagnostic only; never used for matching. */
   displayNameAtFreeze: string;
+  /** The identity used for matching: frozen when recorded, otherwise live. */
   rankeyeqIdentity: { provider: string; externalId: string };
+  identitySource: "FROZEN_AT_SNAPSHOT" | "LIVE_NOT_FROZEN";
+  liveIdentity: { provider: string; externalId: string };
   consumerKey: CanonicalConsumerKey | null;
   matched: boolean;
   canonical: {
@@ -98,6 +104,8 @@ export type WaiverCanonicalPreflight = {
     defIdentityMalformed: number;
     conflicts: number;
     positionMismatch: number;
+    frozenIdentityMismatch: number;
+    identityNotFrozen: number;
     byClass: Partial<Record<WaiverCanonicalClass, number>>;
   };
 };
@@ -105,11 +113,12 @@ export type WaiverCanonicalPreflight = {
 const isPoolMember = (entry: PreflightSnapshotEntry) => entry.evidenceRole === "CANDIDATE" && entry.eligibility === "ELIGIBLE";
 
 function toIdentity(entry: PreflightSnapshotEntry): RankEyeQIdentity {
+  const key = entry.frozenIdentity ?? entry.rankable;
   return {
     rankableEntryId: entry.rankableEntryId,
     position: entry.position,
-    provider: entry.rankable.provider,
-    externalId: entry.rankable.externalId,
+    provider: key.provider,
+    externalId: key.externalId,
     team: entry.rankable.team,
     active: entry.rankable.active,
     adminNotes: entry.rankable.adminNotes,
@@ -138,12 +147,15 @@ export function evaluateWaiverCanonicalPreflight(input: {
 }): WaiverCanonicalPreflight {
   const { snapshot, verified } = input;
   const blockers: PreflightIssue[] = [];
-  const advisories: WaiverCanonicalPreflight["advisories"] = [
-    {
+  const advisories: WaiverCanonicalPreflight["advisories"] = [];
+  const pool = snapshot.entries.filter(isPoolMember);
+  const unfrozen = pool.filter((entry) => entry.frozenIdentity === null).length;
+  if (unfrozen > 0) {
+    advisories.push({
       code: "IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT",
-      detail: "snapshot rows reference mutable RankableEntry identity; provider/externalId are read live until the Stage 4B identity freeze",
-    },
-  ];
+      detail: `${unfrozen} of ${pool.length} pool rows were frozen before the identity key was recorded; their provider/externalId are read live from RankableEntry`,
+    });
+  }
   if (input.artifactIssues && input.artifactIssues.length > 0) {
     blockers.push({ code: "ARTIFACT_NOT_VERIFIED", detail: input.artifactIssues.map((i) => i.code).join(", ") });
   }
@@ -156,7 +168,6 @@ export function evaluateWaiverCanonicalPreflight(input: {
   }
 
   const index = verified ? indexCanonicalLedger(verified.artifact) : null;
-  const pool = snapshot.entries.filter(isPoolMember);
   if (pool.some((entry) => entry.position === "DEF")) {
     advisories.push({
       code: "TEAM_CROSSWALK_PENDING_PRODUCER_CONFIRMATION",
@@ -168,6 +179,14 @@ export function evaluateWaiverCanonicalPreflight(input: {
     const identity = toIdentity(entry);
     const match = index ? matchRankEyeQIdentity(identity, index) : { ...rankEyeQIdentityRisks(identity), participant: null };
     const issues: PreflightIssue[] = match.issues.map((issue) => ({ ...issue, snapshotEntryId: entry.snapshotEntryId }));
+    const frozen = entry.frozenIdentity;
+    if (frozen && (frozen.provider !== entry.rankable.provider || frozen.externalId !== entry.rankable.externalId)) {
+      issues.push({
+        code: "FROZEN_IDENTITY_MISMATCH",
+        detail: `frozen ${frozen.provider}:${frozen.externalId}; live ${entry.rankable.provider}:${entry.rankable.externalId}`,
+        snapshotEntryId: entry.snapshotEntryId,
+      });
+    }
     const canonical = match.participant ? canonicalView(match.participant) : null;
     let conflicts: SnapshotCanonicalConflict[] = [];
     if (canonical && verified) {
@@ -189,7 +208,9 @@ export function evaluateWaiverCanonicalPreflight(input: {
       rankableEntryId: entry.rankableEntryId,
       snapshotPosition: entry.position,
       displayNameAtFreeze: entry.displayNameAtFreeze,
-      rankeyeqIdentity: { provider: entry.rankable.provider, externalId: entry.rankable.externalId },
+      rankeyeqIdentity: { provider: identity.provider, externalId: identity.externalId },
+      identitySource: frozen ? "FROZEN_AT_SNAPSHOT" : "LIVE_NOT_FROZEN",
+      liveIdentity: { provider: entry.rankable.provider, externalId: entry.rankable.externalId },
       consumerKey: match.consumerKey,
       matched: canonical !== null,
       canonical,
@@ -245,6 +266,8 @@ export function evaluateWaiverCanonicalPreflight(input: {
       defIdentityMalformed: count("DEF_IDENTITY_MALFORMED"),
       conflicts: count("SNAPSHOT_CANONICAL_CONFLICT"),
       positionMismatch: rows.filter((row) => row.positionMismatch).length,
+      frozenIdentityMismatch: count("FROZEN_IDENTITY_MISMATCH"),
+      identityNotFrozen: unfrozen,
       byClass,
     },
   };

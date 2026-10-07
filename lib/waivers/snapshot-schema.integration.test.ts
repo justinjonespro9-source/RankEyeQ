@@ -23,8 +23,12 @@ function entryData(snapshotId: string, rankableEntryId: string, line: number) {
     eligibility: "ELIGIBLE" as const,
     isByeAtFreeze: false,
     hardUnavailableAtFreeze: false,
+    identityProviderAtFreeze: identities.get(rankableEntryId)!.provider,
+    identityExternalIdAtFreeze: identities.get(rankableEntryId)!.externalId,
   };
 }
+
+const identities = new Map<string, { provider: string; externalId: string }>();
 
 function snapshotData(version: number, extra: Record<string, unknown> = {}) {
   return {
@@ -107,6 +111,7 @@ describe("Waiver snapshot schema (local DB)", () => {
     );
     playerAId = a.id;
     playerBId = b.id;
+    for (const player of [a, b]) identities.set(player.id, { provider: player.provider, externalId: player.externalId });
   });
 
   afterAll(async () => {

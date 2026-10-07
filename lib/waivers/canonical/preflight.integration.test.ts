@@ -103,7 +103,8 @@ describe("canonical identity preflight (read-only)", () => {
   it("evaluates identity risks alone when no artifact text is supplied", async () => {
     const report = await buildWaiverCanonicalPreflight(prisma, { snapshotId });
     expect(report).toMatchObject({ ledgerEvaluated: false, ready: false, artifact: null });
-    expect(report.advisories.map((a) => a.code)).toEqual(["IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT", "LEDGER_NOT_EVALUATED"]);
+    expect(report.advisories.map((a) => a.code)).toEqual(["LEDGER_NOT_EVALUATED"]);
+    expect(report.rows.every((row) => row.identitySource === "FROZEN_AT_SNAPSHOT")).toBe(true);
   });
 
   it("rejects an unknown snapshot", async () => {

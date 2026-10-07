@@ -52,8 +52,34 @@ export async function lockWaiverWeek(tx: Prisma.TransactionClient, weekId: strin
   if (rows.length === 0) throw new WaiverSnapshotError("NOT_FOUND", "Week not found");
 }
 
-export function waiverSnapshotEntryRows(snapshotId: string, entries: ReadonlyArray<WaiverPreviewEntry>): Prisma.WaiverSnapshotEntryCreateManyInput[] {
-  return entries.map((entry) => ({
+export type WaiverFrozenIdentity = { provider: string; externalId: string };
+
+/** Canonical identity key of each RankableEntry as read inside the freezing transaction. */
+export async function loadWaiverFrozenIdentities(
+  tx: Prisma.TransactionClient,
+  rankableEntryIds: ReadonlyArray<string>,
+): Promise<Map<string, WaiverFrozenIdentity>> {
+  const rows = await tx.rankableEntry.findMany({
+    where: { id: { in: [...new Set(rankableEntryIds)] } },
+    select: { id: true, provider: true, externalId: true },
+  });
+  return new Map(rows.map((row) => [row.id, { provider: row.provider, externalId: row.externalId }]));
+}
+
+export function waiverSnapshotEntryRows(
+  snapshotId: string,
+  entries: ReadonlyArray<WaiverPreviewEntry>,
+  identities: ReadonlyMap<string, WaiverFrozenIdentity>,
+): Prisma.WaiverSnapshotEntryCreateManyInput[] {
+  return entries.map((entry) => {
+    const identity = identities.get(entry.rankableEntryId);
+    if (!identity) throw new WaiverSnapshotError("BLOCKED", "A snapshot entry has no canonical identity to freeze", { rankableEntryId: entry.rankableEntryId });
+    return waiverSnapshotEntryRow(snapshotId, entry, identity);
+  });
+}
+
+function waiverSnapshotEntryRow(snapshotId: string, entry: WaiverPreviewEntry, identity: WaiverFrozenIdentity): Prisma.WaiverSnapshotEntryCreateManyInput {
+  return {
     snapshotId,
     rankableEntryId: entry.rankableEntryId,
     evidenceRole: entry.evidenceRole,
@@ -78,7 +104,9 @@ export function waiverSnapshotEntryRows(snapshotId: string, entries: ReadonlyArr
     rosterStatusAtFreeze: entry.rosterStatusAtFreeze,
     availabilitySourceAtFreeze: entry.availabilitySourceAtFreeze,
     hardUnavailableAtFreeze: entry.hardUnavailableAtFreeze,
-  }));
+    identityProviderAtFreeze: identity.provider,
+    identityExternalIdAtFreeze: identity.externalId,
+  };
 }
 
 /** Game event status per entry (no column exists for it) — kept in import-log metadata. */
@@ -214,7 +242,8 @@ export async function freezeWaiverSnapshot(input: WaiverFreezeInput): Promise<Wa
       },
       select: { id: true, version: true },
     });
-    await tx.waiverSnapshotEntry.createMany({ data: waiverSnapshotEntryRows(snapshot.id, preview.entries) });
+    const identities = await loadWaiverFrozenIdentities(tx, preview.entries.map((entry) => entry.rankableEntryId));
+    await tx.waiverSnapshotEntry.createMany({ data: waiverSnapshotEntryRows(snapshot.id, preview.entries, identities) });
     await tx.adminAuditLog.create({
       data: {
         adminUserId: input.adminUserId,

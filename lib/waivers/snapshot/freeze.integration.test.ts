@@ -109,8 +109,17 @@ describe("freezeWaiverSnapshot", () => {
     });
 
     const stored = await prisma.waiverSnapshotEntry.findMany({ where: { snapshotId: snapshot.id }, orderBy: { rankableEntryId: "asc" } });
-    const expected = waiverSnapshotEntryRows(snapshot.id, preview.entries).sort((a, b) => (a.rankableEntryId < b.rankableEntryId ? -1 : 1));
+    const live = await prisma.rankableEntry.findMany({
+      where: { id: { in: stored.map((row) => row.rankableEntryId) } },
+      select: { id: true, provider: true, externalId: true },
+    });
+    const liveIdentities = new Map(live.map((row) => [row.id, { provider: row.provider, externalId: row.externalId }]));
+    const expected = waiverSnapshotEntryRows(snapshot.id, preview.entries, liveIdentities).sort((a, b) => (a.rankableEntryId < b.rankableEntryId ? -1 : 1));
     expect(stored).toEqual(expected.map((row) => ({ ...row, id: expect.any(String) })));
+    for (const row of stored) {
+      expect(row.identityProviderAtFreeze).toBe(liveIdentities.get(row.rankableEntryId)!.provider);
+      expect(row.identityExternalIdAtFreeze).toBe(liveIdentities.get(row.rankableEntryId)!.externalId);
+    }
 
     const log = await prisma.manualImportLog.findUniqueOrThrow({ where: { id: snapshot.manualImportLogId! } });
     expect(log).toMatchObject({ adminUserId: f.adminUserId, weekId, importType: "WAIVER_OWNERSHIP_SNAPSHOT", createdAt: result.frozenAt, createdCount: 5 });
@@ -239,7 +248,15 @@ describe("freezeWaiverSnapshot", () => {
     const result = await freezeWaiverSnapshot({ ...request, followUpAcks: acks });
     expect(result.counts).toMatchObject({ followUpCount: 1, candidateCount: 1 });
     const riserEntry = await prisma.waiverSnapshotEntry.findFirstOrThrow({ where: { snapshotId: result.snapshotId, rankableEntryId: riser.id } });
-    expect(riserEntry).toMatchObject({ evidenceRole: "FOLLOW_UP", eligibility: "OBSERVATION_ONLY", rosteredBps: 6700, exclusionReason: null });
+    const riserIdentity = await prisma.rankableEntry.findUniqueOrThrow({ where: { id: riser.id }, select: { provider: true, externalId: true } });
+    expect(riserEntry).toMatchObject({
+      evidenceRole: "FOLLOW_UP",
+      eligibility: "OBSERVATION_ONLY",
+      rosteredBps: 6700,
+      exclusionReason: null,
+      identityProviderAtFreeze: riserIdentity.provider,
+      identityExternalIdAtFreeze: riserIdentity.externalId,
+    });
     expect(await prisma.waiverSnapshotEntry.count({ where: { snapshotId: result.snapshotId, rankableEntryId: absent.id } })).toBe(0);
     const log = await prisma.manualImportLog.findFirstOrThrow({ where: { weekId: week2.weekId } });
     expect((log.metadata as Record<string, unknown>).followUpAcks).toEqual(acks);

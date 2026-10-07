@@ -32,8 +32,12 @@ const entry = (snapshotId: string, player: FixturePlayer, line: number, extra: P
     eligibility: "ELIGIBLE",
     isByeAtFreeze: false,
     hardUnavailableAtFreeze: false,
+    identityProviderAtFreeze: identities.get(player.id)!.provider,
+    identityExternalIdAtFreeze: identities.get(player.id)!.externalId,
     ...extra,
   }) satisfies Prisma.WaiverSnapshotEntryUncheckedCreateInput;
+
+const identities = new Map<string, { provider: string; externalId: string }>();
 
 const header = (week: string, version: number, extra: Partial<Prisma.WaiverSnapshotUncheckedCreateInput> = {}) =>
   ({
@@ -68,6 +72,8 @@ beforeAll(async () => {
   ({ weekId } = await f.addWeek());
   ({ weekId: otherWeekId } = await f.addWeek());
   players = await f.addPlayers("WR", 4);
+  const rows = await prisma.rankableEntry.findMany({ where: { id: { in: players.map((p) => p.id) } }, select: { id: true, provider: true, externalId: true } });
+  for (const row of rows) identities.set(row.id, { provider: row.provider, externalId: row.externalId });
   v1 = await f.freezeSnapshot({ weekId, rows: [{ player: players[0] }, { player: players[1], eligibility: "EXCLUDED" }] });
 });
 

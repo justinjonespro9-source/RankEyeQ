@@ -1397,6 +1397,9 @@ model WaiverSnapshotEntry {
   rosterStatusAtFreeze            String?
   availabilitySourceAtFreeze      String?
   hardUnavailableAtFreeze         Boolean
+  /// RankableEntry provider/externalId at freeze; both set or both NULL. NULL only on rows frozen before Stage 4B.1 (never backfilled).
+  identityProviderAtFreeze        String?
+  identityExternalIdAtFreeze      String?
 
   snapshot      WaiverSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
   rankableEntry RankableEntry  @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)

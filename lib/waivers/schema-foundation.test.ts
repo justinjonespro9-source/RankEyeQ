@@ -34,6 +34,8 @@ const PHASE2_ENUM_NAMES = ["WaiverContestStatus", "WaiverRevisionKind", "WaiverS
 const PHASE2_MIGRATION = "20261001000000_waivers_competition_foundation";
 /** Phase 3 snapshot integrity backstops are covered by snapshot/integrity-schema.test.ts. */
 const PHASE3_MIGRATION = "20261002000000_waivers_snapshot_integrity";
+/** Stage 4B.1 frozen identity is covered by snapshot/frozen-identity-schema.test.ts. */
+const STAGE4B1_MIGRATION = "20261007000000_waivers_snapshot_frozen_identity";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -96,12 +98,12 @@ describe("Waivers schema foundation (static)", () => {
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("only the Phase 1, 2 and 3 Waivers migrations mention Waiver objects", () => {
+  it("only the Phase 1, 2, 3 and Stage 4B.1 Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
       .map((d) => d.name);
-    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION]);
+    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION]);
   });
 
   it("contains only CREATE TYPE/TABLE/INDEX and ADD CONSTRAINT on Waiver objects", () => {

@@ -40,6 +40,8 @@ export async function loadWaiverCanonicalPreflightSnapshot(db: WaiverDb, snapsho
           displayNameAtFreeze: true,
           teamAtFreeze: true,
           isByeAtFreeze: true,
+          identityProviderAtFreeze: true,
+          identityExternalIdAtFreeze: true,
           rankableEntry: { select: { provider: true, externalId: true, team: true, active: true, adminNotes: true, name: true } },
         },
       },
@@ -60,6 +62,10 @@ export async function loadWaiverCanonicalPreflightSnapshot(db: WaiverDb, snapsho
       displayNameAtFreeze: entry.displayNameAtFreeze,
       teamAtFreeze: entry.teamAtFreeze,
       isByeAtFreeze: entry.isByeAtFreeze,
+      frozenIdentity:
+        entry.identityProviderAtFreeze !== null && entry.identityExternalIdAtFreeze !== null
+          ? { provider: entry.identityProviderAtFreeze, externalId: entry.identityExternalIdAtFreeze }
+          : null,
       rankable: entry.rankableEntry,
     })),
   };

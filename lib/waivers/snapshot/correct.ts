@@ -32,6 +32,7 @@ import {
 } from "@/lib/waivers/snapshot/facts";
 import {
   assertWaiverSnapshotAdmin,
+  loadWaiverFrozenIdentities,
   lockWaiverWeek,
   WAIVER_SNAPSHOT_TX_OPTIONS,
   waiverSnapshotEntryRows,
@@ -46,6 +47,7 @@ import {
   waiverEntryContext,
   type WaiverEntryContext,
   type WaiverPreviewEntry,
+  type WaiverPreviewIssue,
 } from "@/lib/waivers/snapshot/preview-model";
 
 export const WAIVER_CORRECTION_IMPORT_TYPE = "WAIVER_OWNERSHIP_CORRECTION";
@@ -212,7 +214,7 @@ export async function buildWaiverCorrectionPreview(db: WaiverDb, request: Waiver
     : new Map();
 
   const contests = await loadCorrectionContests(db, week.id, now);
-  return assembleWaiverCorrectionPreview(request, {
+  const preview = assembleWaiverCorrectionPreview(request, {
     now,
     base,
     games,
@@ -223,6 +225,36 @@ export async function buildWaiverCorrectionPreview(db: WaiverDb, request: Waiver
     addMatched,
     addFactsById,
   });
+  const drifted = await loadFrozenIdentityDrift(db, base.id, new Set(preview.entries.map((entry) => entry.rankableEntryId)));
+  if (drifted.length === 0) return preview;
+  const blocker: WaiverPreviewIssue = {
+    level: "BLOCKER",
+    code: "FROZEN_IDENTITY_CHANGED",
+    message: "The canonical identity of a carried entry changed since this version froze it; resolve the identity before correcting",
+    rankableEntryIds: drifted,
+  };
+  return { ...preview, issues: [...preview.issues, blocker], blockers: [...preview.blockers, blocker] };
+}
+
+/** Carried entries whose live RankableEntry identity no longer equals the identity frozen on the base version. */
+async function loadFrozenIdentityDrift(db: WaiverDb, snapshotId: string, carriedIds: ReadonlySet<string>): Promise<string[]> {
+  const rows = await db.waiverSnapshotEntry.findMany({
+    where: { snapshotId, identityProviderAtFreeze: { not: null } },
+    select: {
+      rankableEntryId: true,
+      identityProviderAtFreeze: true,
+      identityExternalIdAtFreeze: true,
+      rankableEntry: { select: { provider: true, externalId: true } },
+    },
+  });
+  return rows
+    .filter(
+      (row) =>
+        carriedIds.has(row.rankableEntryId) &&
+        (row.identityProviderAtFreeze !== row.rankableEntry.provider || row.identityExternalIdAtFreeze !== row.rankableEntry.externalId),
+    )
+    .map((row) => row.rankableEntryId)
+    .sort();
 }
 
 export async function previewWaiverCorrection(request: WaiverCorrectionRequest): Promise<WaiverCorrectionPreview> {
@@ -342,7 +374,8 @@ export async function applyWaiverCorrection(input: WaiverCorrectionApplyInput): 
       },
       select: { id: true, version: true },
     });
-    await tx.waiverSnapshotEntry.createMany({ data: waiverSnapshotEntryRows(next.id, preview.entries) });
+    const identities = await loadWaiverFrozenIdentities(tx, preview.entries.map((entry) => entry.rankableEntryId));
+    await tx.waiverSnapshotEntry.createMany({ data: waiverSnapshotEntryRows(next.id, preview.entries, identities) });
     await tx.waiverSnapshotCorrection.createMany({
       data: preview.changes.map((change) => ({
         fromSnapshotId: from.id,

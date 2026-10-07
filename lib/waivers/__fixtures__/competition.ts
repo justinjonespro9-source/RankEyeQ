@@ -238,6 +238,7 @@ export async function createWaiverFixture(tag: string) {
         line += 1;
         const role = row.evidenceRole ?? "CANDIDATE";
         const eligibility = role === "FOLLOW_UP" ? "OBSERVATION_ONLY" : (row.eligibility ?? "ELIGIBLE");
+        const identity = await tx.rankableEntry.findUniqueOrThrow({ where: { id: row.player.id }, select: { provider: true, externalId: true } });
         await tx.waiverSnapshotEntry.create({
           data: {
             snapshotId: snapshot.id,
@@ -258,6 +259,8 @@ export async function createWaiverFixture(tag: string) {
             exclusionReason: eligibility === "EXCLUDED" ? "AT_OR_ABOVE_THRESHOLD" : null,
             isByeAtFreeze: false,
             hardUnavailableAtFreeze: false,
+            identityProviderAtFreeze: identity.provider,
+            identityExternalIdAtFreeze: identity.externalId,
           },
         });
       }

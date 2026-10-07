@@ -22,6 +22,7 @@ function entry(id: string, position: string, externalId: string, team: string, o
     displayNameAtFreeze: `Player ${id}`,
     teamAtFreeze: team,
     isByeAtFreeze: false,
+    frozenIdentity: null,
     rankable: { provider: "nflcom-bootstrap", externalId, team, active: true, adminNotes: null, name: `Player ${id}`, ...rankable },
     ...rest,
   };
@@ -120,6 +121,54 @@ describe("evaluateWaiverCanonicalPreflight with a verified artifact", () => {
   it("blocks a season/week mismatch", () => {
     const wrongWeek = evaluateWaiverCanonicalPreflight({ snapshot: snapshot([entry("qb-a", "QB", "nfl-qb-a", "SF")], 2026, 6), verified: verified() });
     expect(wrongWeek.blockers.map((b) => b.code)).toEqual(["WEEK_MISMATCH"]);
+  });
+});
+
+describe("frozen identity (Stage 4B.1)", () => {
+  const frozen = (externalId: string, provider = "nflcom-bootstrap") => ({ frozenIdentity: { provider, externalId } });
+
+  it("matches on the frozen identity, not the live one", () => {
+    const report = evaluateWaiverCanonicalPreflight({
+      snapshot: snapshot([entry("qb-a", "QB", "nfl-qb-a", "SF", frozen("nfl-qb-a"))]),
+      verified: verified(),
+    });
+    const row = report.rows[0];
+    expect(row).toMatchObject({ identitySource: "FROZEN_AT_SNAPSHOT", rankeyeqIdentity: { externalId: "nfl-qb-a" }, matched: true, issues: [] });
+    expect(report.ready).toBe(true);
+    expect(report.advisories.map((a) => a.code)).not.toContain("IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT");
+    expect(report.counts).toMatchObject({ identityNotFrozen: 0, frozenIdentityMismatch: 0 });
+  });
+
+  it("blocks when the live externalId drifted from the frozen one and still grades against the frozen key", () => {
+    const report = evaluateWaiverCanonicalPreflight({
+      snapshot: snapshot([entry("qb-a", "QB", "nfl-qb-dnp", "SF", frozen("nfl-qb-a"))]),
+      verified: verified(),
+    });
+    const row = report.rows[0];
+    expect(row.issues.map((i) => i.code)).toEqual(["FROZEN_IDENTITY_MISMATCH"]);
+    expect(row).toMatchObject({ rankeyeqIdentity: { externalId: "nfl-qb-a" }, liveIdentity: { externalId: "nfl-qb-dnp" }, canonical: { participantId: "qb-a" } });
+    expect(report.ready).toBe(false);
+    expect(report.counts.frozenIdentityMismatch).toBe(1);
+  });
+
+  it("blocks when the live provider drifted from the frozen one", () => {
+    const report = evaluateWaiverCanonicalPreflight({
+      snapshot: snapshot([entry("qb-a", "QB", "nfl-qb-a", "SF", { ...frozen("nfl-qb-a"), rankable: { provider: "manual" } })]),
+      verified: null,
+    });
+    expect(report.rows[0].issues.map((i) => i.code)).toEqual(["FROZEN_IDENTITY_MISMATCH"]);
+  });
+
+  it("keeps the advisory and live matching for legacy rows without frozen identity", () => {
+    const report = evaluateWaiverCanonicalPreflight({
+      snapshot: snapshot([entry("qb-a", "QB", "nfl-qb-a", "SF"), entry("qb-dnp", "QB", "nfl-qb-dnp", "LAR", frozen("nfl-qb-dnp"))]),
+      verified: verified(),
+    });
+    expect(report.rows.map((row) => row.identitySource)).toEqual(["LIVE_NOT_FROZEN", "FROZEN_AT_SNAPSHOT"]);
+    expect(report.advisories.find((a) => a.code === "IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT")?.detail).toContain("1 of 2 pool rows");
+    expect(report.counts.identityNotFrozen).toBe(1);
+    expect(report.blockers).toEqual([]);
+    expect(report.ready).toBe(true);
   });
 });
 
