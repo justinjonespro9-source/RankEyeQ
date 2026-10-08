@@ -68,8 +68,14 @@ describe("Waiver competition schema (static)", () => {
   });
 
   it("stores no grading, result, or correction-treatment fields (Phase 3 decisions)", () => {
+    // Back-relations to the Stage 4B.3 grading tables are virtual (no columns on these tables).
+    const gradingBackRelation = /^\s*\w+\s+Waiver(ContestResult|ConflictResolution|BoardGrade|CallGrade|ContestResultAuthority|BoardGradeAuthority)(\[\]|\?)\s*$/;
     for (const name of MODELS) {
-      expect(block("model", name)).not.toMatch(/\b(earned|points|eyeq|grade|graded|score|result(?!FieldSize)|excluded|voided|replacement)\w*\s/i);
+      const stored = block("model", name)
+        .split("\n")
+        .filter((line) => !gradingBackRelation.test(line))
+        .join("\n");
+      expect(stored).not.toMatch(/\b(earned|points|eyeq|grade|graded|score|result(?!FieldSize)|excluded|voided|replacement)\w*\s/i);
     }
   });
 });

@@ -503,6 +503,9 @@ model User {
   waiverRevisionsAuthored       WaiverSubmissionRevision[] @relation("WaiverRevisionAuthor")
   waiverCanonicalArtifactsImported WaiverCanonicalArtifact[] @relation("WaiverCanonicalArtifactImportedBy")
   waiverCanonicalArtifactEvents    WaiverCanonicalArtifactEvent[] @relation("WaiverCanonicalArtifactEventOperator")
+  waiverConflictResolutions        WaiverConflictResolution[]     @relation("WaiverConflictResolutionResolvedBy")
+  waiverGradeRunsInitiated         WaiverGradeRun[]               @relation("WaiverGradeRunInitiatedBy")
+  waiverGradeApprovals             WaiverGradeApproval[]          @relation("WaiverGradeApprovalApprovedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -615,6 +618,11 @@ model Week {
   waiverSnapshots          WaiverSnapshot[]
   waiverContests           WaiverContest[]
   waiverCanonicalArtifacts WaiverCanonicalArtifact[]
+  waiverGradeRuns          WaiverGradeRun[]
+  waiverGradeApprovals     WaiverGradeApproval[]
+  waiverGradeAuthorityChanges WaiverGradeAuthorityChange[]
+  waiverGradeAuthority     WaiverWeekGradeAuthority?
+  waiverEmptyPositionResults WaiverEmptyPositionResult[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -785,6 +793,7 @@ model RankableEntry {
   weekAvailabilities PlayerWeekAvailability[]
   waiverSnapshotEntries     WaiverSnapshotEntry[]
   waiverSnapshotCorrections WaiverSnapshotCorrection[]
+  waiverPoolResults         WaiverPoolResult[]
 
   @@unique([provider, externalId])
   @@index([position, team])
@@ -1367,6 +1376,9 @@ model WaiverSnapshot {
   correctionsTo   WaiverSnapshotCorrection[] @relation("WaiverSnapshotCorrectionTo")
   contests        WaiverContest[]
   revisions       WaiverSubmissionRevision[]
+  conflictResolutions WaiverConflictResolution[]
+  contestResults      WaiverContestResult[]
+  emptyPositionResults WaiverEmptyPositionResult[]
 
   @@unique([weekId, version])
   @@index([seasonId, weekId])
@@ -1408,6 +1420,8 @@ model WaiverSnapshotEntry {
   rankableEntry RankableEntry  @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
   nflGame       NflGame?       @relation(fields: [nflGameId], references: [id], onDelete: Restrict)
   calls         WaiverCall[]
+  conflictResolutions WaiverConflictResolution[]
+  poolResults         WaiverPoolResult[]
 
   @@unique([snapshotId, rankableEntryId])
   @@index([rankableEntryId, snapshotId])
@@ -1490,6 +1504,10 @@ model WaiverContest {
   snapshot    WaiverSnapshot     @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
   openedBy    User               @relation("WaiverContestOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
   submissions WaiverSubmission[]
+  conflictResolutions WaiverConflictResolution[]
+  results             WaiverContestResult[]
+  boardGrades         WaiverBoardGrade[]
+  resultAuthority     WaiverContestResultAuthority?
 
   @@unique([weekId, position])
   @@index([snapshotId])
@@ -1521,6 +1539,8 @@ model WaiverSubmission {
   currentRevision  WaiverSubmissionRevision?  @relation("WaiverSubmissionCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
   lockedRevision   WaiverSubmissionRevision?  @relation("WaiverSubmissionLockedRevision", fields: [lockedRevisionId], references: [id], onDelete: Restrict)
   revisions        WaiverSubmissionRevision[] @relation("WaiverSubmissionRevisions")
+  boardGrades      WaiverBoardGrade[]
+  gradeAuthority   WaiverBoardGradeAuthority?
 
   @@unique([contestId, universalProfileId])
   @@unique([contestId, createdByUserId])
@@ -1548,6 +1568,7 @@ model WaiverSubmissionRevision {
   calls      WaiverCall[]
   currentFor WaiverSubmission? @relation("WaiverSubmissionCurrentRevision")
   lockedFor  WaiverSubmission? @relation("WaiverSubmissionLockedRevision")
+  boardGrades WaiverBoardGrade[]
 
   @@unique([submissionId, revisionNumber])
   @@index([submissionId, kind, createdAt])
@@ -1563,6 +1584,7 @@ model WaiverCall {
 
   revision      WaiverSubmissionRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   snapshotEntry WaiverSnapshotEntry      @relation(fields: [snapshotEntryId], references: [id], onDelete: Restrict)
+  callGrades    WaiverCallGrade[]
 
   @@unique([revisionId, slot])
   @@unique([revisionId, snapshotEntryId])
@@ -1643,6 +1665,10 @@ model WaiverCanonicalArtifact {
   content         WaiverCanonicalArtifactContent?
   events          WaiverCanonicalArtifactEvent[]  @relation("WaiverCanonicalArtifactEvents")
   successorEvents WaiverCanonicalArtifactEvent[]  @relation("WaiverCanonicalArtifactEventSuccessor")
+  conflictResolutions WaiverConflictResolution[]
+  contestResults      WaiverContestResult[]
+  gradeRuns           WaiverGradeRun[]
+  gradeApprovals      WaiverGradeApproval[]
 
   @@unique([seriesKey, revision])
   @@index([weekId, revision])
@@ -1684,4 +1710,572 @@ model WaiverCanonicalArtifactEvent {
 
   @@unique([artifactRowId, sequence])
   @@index([successorArtifactRowId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — immutable results and grading authority (Stage 4B.3).
+// Storage only: D3 resolutions, versioned contest/pool results, grade runs
+// with board and call grades, separate grading approvals, an append-only
+// authority log and current-authority pointers that move week-atomically.
+// No workflow writes these tables yet. Fingerprints:
+// docs/waivers-grading-fingerprints.md.
+// ---------------------------------------------------------------------------
+
+enum WaiverConflictKind {
+  BYE_VS_SCHEDULED
+  TEAM_CHANGED
+}
+
+enum WaiverConflictResolutionTreatment {
+  SCORE_AS_RANKED
+  NON_PARTICIPANT_ZERO
+  NEUTRALIZED
+}
+
+enum WaiverPoolMemberCategory {
+  /// Eligible CANDIDATE row of the contest's pinned snapshot.
+  ELIGIBLE_POOL_MEMBER
+  /// Called on a locked board but not an eligible member of the pinned snapshot (pre-lock invalidation).
+  INVALIDATED_CALLED_PLAYER
+}
+
+/// Stage 4A canonical class of a stored member (BLOCKED is never stored).
+enum WaiverCanonicalResultClass {
+  RANKED
+  NON_PARTICIPANT
+  SYSTEMIC_NEUTRALIZE
+  SNAPSHOT_CONFLICT
+}
+
+enum WaiverResultTreatment {
+  RANKED
+  NON_PARTICIPANT_ZERO
+  NEUTRALIZED
+  INVALIDATED_PRE_LOCK
+}
+
+enum WaiverNeutralizationPrecedence {
+  D2_NEUTRALIZATION_OVER_C2_INVALIDATION
+  D3_NEUTRALIZATION_OVER_C2_INVALIDATION
+}
+
+enum WaiverInvalidationBasis {
+  NOT_ELIGIBLE_IN_PINNED_SNAPSHOT
+  ABSENT_FROM_PINNED_SNAPSHOT
+}
+
+/// NA_NO_EFFECTIVE_SLOTS: scoreable calls remain but no effective available
+/// slot does (pre-lock correction); calls keep their individual outcomes.
+enum WaiverBoardResultKind {
+  SCORED
+  NA_ZERO_CALL
+  NA_ALL_NEUTRALIZED
+  NA_NO_EFFECTIVE_SLOTS
+}
+
+/// Why a board is NA_NO_EFFECTIVE_SLOTS (database-derived from its counts).
+enum WaiverUngradableReason {
+  /// The corrected eligible pool is empty (zero available slots).
+  CORRECTED_POOL_EMPTY
+  /// Neutralized calls consumed every corrected available slot.
+  NEUTRALIZATIONS_CONSUMED_SLOTS
+}
+
+/// Board-level honors. The per-call exact-slot label is EXACT, never an honor.
+enum WaiverHonor {
+  PERFECT_CALL
+  PERFECT_PODIUM
+  PERFECT_FIVE
+}
+
+enum WaiverGradeInitiator {
+  OPERATOR
+  SYSTEM
+}
+
+enum WaiverGradeApprovalPolicy {
+  /// V1: the importing admin may approve, through a separate explicit approval record.
+  SINGLE_ADMIN_EXPLICIT
+  /// The approver must differ from the artifact importer and the grade-run initiator.
+  SEPARATE_APPROVER
+}
+
+enum WaiverGradeAuthorityChangeType {
+  INITIAL_GRADE
+  REGRADE
+}
+
+/// Immutable D3 decision for one snapshot/canonical conflict, bound to one
+/// artifact revision. Never carried forward: a new revision needs a new row
+/// (which may reference the old one through reconfirmsResolutionId).
+model WaiverConflictResolution {
+  id                      String                            @id @default(cuid())
+  weekId                  String
+  contestId               String
+  position                ContestPosition
+  snapshotId              String
+  snapshotEntryId         String
+  artifactRowId           String
+  artifactRevision        Int
+  artifactContentChecksum String
+  sngParticipantId        String
+  /// Stage 4A conflict key (entry, participant, kind, artifact content checksum).
+  conflictKey             String
+  conflictKind            WaiverConflictKind
+  /// 1 for the first decision on this conflict and artifact; n replaces n-1.
+  sequence                Int
+  supersedesResolutionId  String?                           @unique
+  /// Lineage only: the decision on an earlier artifact revision this explicitly reconfirms.
+  reconfirmsResolutionId  String?
+  resolution              WaiverConflictResolutionTreatment
+  evidenceReference       String
+  reason                  String
+  inputFingerprint        String
+  resolvedByUserId        String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  resolvedAt              DateTime                          @default(now())
+
+  contest        WaiverContest              @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot       WaiverSnapshot             @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  snapshotEntry  WaiverSnapshotEntry        @relation(fields: [snapshotEntryId], references: [id], onDelete: Restrict)
+  artifact       WaiverCanonicalArtifact    @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  supersedes     WaiverConflictResolution?  @relation("WaiverConflictResolutionSupersedes", fields: [supersedesResolutionId], references: [id], onDelete: Restrict)
+  supersededBy   WaiverConflictResolution?  @relation("WaiverConflictResolutionSupersedes")
+  reconfirms     WaiverConflictResolution?  @relation("WaiverConflictResolutionReconfirms", fields: [reconfirmsResolutionId], references: [id], onDelete: Restrict)
+  reconfirmedBy  WaiverConflictResolution[] @relation("WaiverConflictResolutionReconfirms")
+  resolvedBy     User                       @relation("WaiverConflictResolutionResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: Restrict)
+  poolResults    WaiverPoolResult[]
+
+  @@unique([artifactRowId, conflictKey, sequence])
+  @@index([contestId, artifactRowId])
+  @@index([snapshotId])
+  @@index([snapshotEntryId])
+  @@index([reconfirmsResolutionId])
+  @@index([resolvedByUserId])
+}
+
+/// Immutable canonical result version for one contest: source facts and
+/// their Waivers interpretation, not anyone's grade.
+model WaiverContestResult {
+  id                       String          @id @default(cuid())
+  contestId                String
+  weekId                   String
+  position                 ContestPosition
+  /// The contest's pinned snapshot version at lock.
+  snapshotId               String
+  artifactRowId            String
+  artifactContentChecksum  String
+  /// Contiguous per contest, from 1.
+  resultVersion            Int
+  resultsPolicyVersion     String
+  sngResultSetChecksum     String
+  sourceFingerprint        String
+  snapshotFingerprint      String
+  resolutionSetFingerprint String
+  inputFingerprint         String
+  resultFingerprint        String
+  /// Target Waiver result field (3, or 5 for WR), copied from the contest.
+  resultFieldSize          Int
+  eligiblePoolSize         Int
+  /// Members holding an effective Waiver pool rank (RANKED treatment).
+  effectivePoolSize        Int
+  /// min(resultFieldSize, effectivePoolSize).
+  effectiveFieldSize       Int
+  /// min(contest maxCalls, eligiblePoolSize).
+  effectiveAvailableSlots  Int
+  invalidatedCalledCount   Int
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  createdAt                DateTime        @default(now())
+
+  contest       WaiverContest                  @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot      WaiverSnapshot                 @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  artifact      WaiverCanonicalArtifact        @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  poolResults   WaiverPoolResult[]
+  boardGrades   WaiverBoardGrade[]
+  qbGradeRuns   WaiverGradeRun[]               @relation("WaiverGradeRunQbResult")
+  rbGradeRuns   WaiverGradeRun[]               @relation("WaiverGradeRunRbResult")
+  wrGradeRuns   WaiverGradeRun[]               @relation("WaiverGradeRunWrResult")
+  teGradeRuns   WaiverGradeRun[]               @relation("WaiverGradeRunTeResult")
+  defGradeRuns  WaiverGradeRun[]               @relation("WaiverGradeRunDefResult")
+  authorities   WaiverContestResultAuthority[]
+
+  @@unique([contestId, resultVersion])
+  @@unique([contestId, inputFingerprint])
+  @@index([weekId])
+  @@index([snapshotId])
+  @@index([artifactRowId])
+}
+
+/// Immutable per-player row of a contest result: every eligible frozen pool
+/// member, plus locked called players outside the pool, kept in separate categories.
+model WaiverPoolResult {
+  id                        String                          @id @default(cuid())
+  contestResultId           String
+  category                  WaiverPoolMemberCategory
+  /// Pinned-snapshot entry; NULL only for an invalidated player absent from the pinned snapshot.
+  snapshotEntryId           String?
+  rankableEntryId           String
+  position                  ContestPosition
+  identityProvider          String
+  identityExternalId        String
+  sngParticipantId          String
+  participationState        String
+  participantDisposition    String
+  canonicalClass            WaiverCanonicalResultClass
+  canonicalPointsHundredths Int?
+  canonicalPositionRank     Int?
+  sngResultFingerprint      String?
+  treatment                 WaiverResultTreatment
+  /// Effective fantasy points in integer hundredths; NULL when neutralized.
+  fpHundredths              Int?
+  /// Effective shared Waiver pool rank over RANKED members only.
+  waiverPoolRank            Int?
+  neutralizationPrecedence  WaiverNeutralizationPrecedence?
+  conflictResolutionId      String?
+  invalidationBasis         WaiverInvalidationBasis?
+  invalidatedBySnapshotId   String?
+  rowFingerprint            String
+
+  contestResult      WaiverContestResult       @relation(fields: [contestResultId], references: [id], onDelete: Restrict)
+  snapshotEntry      WaiverSnapshotEntry?      @relation(fields: [snapshotEntryId], references: [id], onDelete: Restrict)
+  rankableEntry      RankableEntry             @relation(fields: [rankableEntryId], references: [id], onDelete: Restrict)
+  conflictResolution WaiverConflictResolution? @relation(fields: [conflictResolutionId], references: [id], onDelete: Restrict)
+  callGrades         WaiverCallGrade[]
+
+  @@unique([contestResultId, rankableEntryId])
+  @@unique([contestResultId, snapshotEntryId])
+  @@index([snapshotEntryId])
+  @@index([rankableEntryId])
+  @@index([conflictResolutionId])
+}
+
+/// Immutable record of one grading execution covering all five positions of
+/// a week. Lifecycle (proposed / current / superseded) is derived from the
+/// approval and authority tables, never stored here.
+model WaiverGradeRun {
+  id                       String               @id @default(cuid())
+  weekId                   String
+  /// Contiguous per week, from 1.
+  runNumber                Int
+  artifactRowId            String
+  artifactContentChecksum  String
+  /// Each position has exactly one of a contest result or an explicit empty-position result.
+  qbContestResultId        String?
+  rbContestResultId        String?
+  wrContestResultId        String?
+  teContestResultId        String?
+  defContestResultId       String?
+  qbEmptyPositionResultId  String?
+  rbEmptyPositionResultId  String?
+  wrEmptyPositionResultId  String?
+  teEmptyPositionResultId  String?
+  defEmptyPositionResultId String?
+  snapshotSetFingerprint   String
+  resolutionSetFingerprint String
+  gradingRulesetVersion    String
+  scoringVersion           String
+  inputFingerprint         String
+  outputFingerprint        String
+  boardGradeCount          Int
+  initiator                WaiverGradeInitiator
+  initiatedByUserId        String?
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  createdAt                DateTime             @default(now())
+
+  week              Week                           @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  artifact          WaiverCanonicalArtifact        @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  qbContestResult   WaiverContestResult?           @relation("WaiverGradeRunQbResult", fields: [qbContestResultId], references: [id], onDelete: Restrict)
+  rbContestResult   WaiverContestResult?           @relation("WaiverGradeRunRbResult", fields: [rbContestResultId], references: [id], onDelete: Restrict)
+  wrContestResult   WaiverContestResult?           @relation("WaiverGradeRunWrResult", fields: [wrContestResultId], references: [id], onDelete: Restrict)
+  teContestResult   WaiverContestResult?           @relation("WaiverGradeRunTeResult", fields: [teContestResultId], references: [id], onDelete: Restrict)
+  defContestResult  WaiverContestResult?           @relation("WaiverGradeRunDefResult", fields: [defContestResultId], references: [id], onDelete: Restrict)
+  qbEmptyPositionResult  WaiverEmptyPositionResult? @relation("WaiverGradeRunQbEmpty", fields: [qbEmptyPositionResultId], references: [id], onDelete: Restrict)
+  rbEmptyPositionResult  WaiverEmptyPositionResult? @relation("WaiverGradeRunRbEmpty", fields: [rbEmptyPositionResultId], references: [id], onDelete: Restrict)
+  wrEmptyPositionResult  WaiverEmptyPositionResult? @relation("WaiverGradeRunWrEmpty", fields: [wrEmptyPositionResultId], references: [id], onDelete: Restrict)
+  teEmptyPositionResult  WaiverEmptyPositionResult? @relation("WaiverGradeRunTeEmpty", fields: [teEmptyPositionResultId], references: [id], onDelete: Restrict)
+  defEmptyPositionResult WaiverEmptyPositionResult? @relation("WaiverGradeRunDefEmpty", fields: [defEmptyPositionResultId], references: [id], onDelete: Restrict)
+  initiatedBy       User?                          @relation("WaiverGradeRunInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: Restrict)
+  boardGrades       WaiverBoardGrade[]
+  approvals         WaiverGradeApproval[]
+  changesAsNew      WaiverGradeAuthorityChange[]   @relation("WaiverGradeAuthorityChangeNewRun")
+  changesAsPrior    WaiverGradeAuthorityChange[]   @relation("WaiverGradeAuthorityChangePriorRun")
+  weekAuthorities   WaiverWeekGradeAuthority[]
+  contestAuthorities WaiverContestResultAuthority[]
+  boardAuthorities  WaiverBoardGradeAuthority[]
+
+  @@unique([weekId, runNumber])
+  @@unique([weekId, inputFingerprint])
+  @@index([artifactRowId])
+  @@index([qbContestResultId])
+  @@index([rbContestResultId])
+  @@index([wrContestResultId])
+  @@index([teContestResultId])
+  @@index([defContestResultId])
+  @@index([qbEmptyPositionResultId])
+  @@index([rbEmptyPositionResultId])
+  @@index([wrEmptyPositionResultId])
+  @@index([teEmptyPositionResultId])
+  @@index([defEmptyPositionResultId])
+  @@index([initiatedByUserId])
+}
+
+/// Explicit, immutable record that a week has no Waiver contest at a position
+/// because the week's current frozen snapshot has no eligible candidate there
+/// (contest opening refused EMPTY_ELIGIBLE_POOL). It carries no players, pool
+/// rows or grades; a grade run cites it in place of a contest result.
+model WaiverEmptyPositionResult {
+  id                   String          @id @default(cuid())
+  weekId               String
+  position             ContestPosition
+  snapshotId           String
+  snapshotFingerprint  String
+  /// Always 0 (database-verified against the frozen snapshot).
+  eligiblePoolSize     Int
+  resultsPolicyVersion String
+  resultFingerprint    String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  createdAt            DateTime        @default(now())
+
+  week        Week           @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  snapshot    WaiverSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  qbGradeRuns  WaiverGradeRun[] @relation("WaiverGradeRunQbEmpty")
+  rbGradeRuns  WaiverGradeRun[] @relation("WaiverGradeRunRbEmpty")
+  wrGradeRuns  WaiverGradeRun[] @relation("WaiverGradeRunWrEmpty")
+  teGradeRuns  WaiverGradeRun[] @relation("WaiverGradeRunTeEmpty")
+  defGradeRuns WaiverGradeRun[] @relation("WaiverGradeRunDefEmpty")
+
+  @@unique([weekId, position, snapshotId])
+  @@index([snapshotId])
+}
+
+/// Immutable grade of one locked submitted board in one grade run. Call
+/// quality = earned/max raw points, coverage = coverage calls / effective
+/// available slots, coverage modifier = numerator/denominator (exact rationals).
+model WaiverBoardGrade {
+  id                            String                @id @default(cuid())
+  gradeRunId                    String
+  contestId                     String
+  contestResultId               String
+  position                      ContestPosition
+  submissionId                  String
+  /// The submission's locked revision (drafts are never graded).
+  revisionId                    String
+  /// The original submission's call count (never altered by a later correction).
+  submittedCallCount            Int
+  scoreableCallCount            Int
+  neutralizedCallCount          Int
+  /// Calls on players invalidated before lock (C2), whether scored as misses or neutralized by precedence.
+  invalidatedCallCount          Int
+  exactCallCount                Int
+  /// min(maxCalls, eligible pool of the contest's pinned snapshot); 0 for a zero-field contest.
+  availableSlots                Int
+  /// max(availableSlots - neutralized calls, 0).
+  effectiveAvailableSlots       Int
+  /// k in the coverage modifier: min(scoreable calls, effective available slots), so coverage never exceeds 100%.
+  coverageCallCount             Int
+  /// The original submission has more calls than the corrected pool's available slots (pre-lock snapshot correction).
+  slotOverflow                  Boolean
+  earnedRawPoints               Int
+  maxRawPoints                  Int
+  coverageModifierNumerator     Int?
+  coverageModifierDenominator   Int?
+  eyeqHundredths                Int?
+  totalFpHundredths             Int
+  fpPerCallHundredths           Int?
+  fpPerCallDenominator          Int
+  fpPerAvailableSlotHundredths  Int?
+  fpPerAvailableSlotDenominator Int
+  resultKind                    WaiverBoardResultKind
+  /// Set exactly when resultKind = NA_NO_EFFECTIVE_SLOTS.
+  ungradableReason              WaiverUngradableReason?
+  played                        Boolean
+  honorEligible                 Boolean
+  honorIneligibleReason         String?
+  awardedHonor                  WaiverHonor?
+  inputFingerprint              String
+  outputFingerprint             String
+
+  gradeRun       WaiverGradeRun             @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  contest        WaiverContest              @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  contestResult  WaiverContestResult        @relation(fields: [contestResultId], references: [id], onDelete: Restrict)
+  submission     WaiverSubmission           @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  revision       WaiverSubmissionRevision   @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  callGrades     WaiverCallGrade[]
+  authorities    WaiverBoardGradeAuthority[]
+
+  @@unique([gradeRunId, submissionId])
+  @@index([submissionId])
+  @@index([contestId])
+  @@index([contestResultId])
+  @@index([revisionId])
+}
+
+/// Immutable result of one call. `exact` is the per-call EXACT label.
+model WaiverCallGrade {
+  id                       String                          @id @default(cuid())
+  boardGradeId             String
+  callId                   String
+  slot                     Int
+  snapshotEntryId          String
+  rankableEntryId          String
+  poolResultId             String
+  treatment                WaiverResultTreatment
+  scored                   Boolean
+  waiverPoolRank           Int?
+  canonicalPositionRank    Int?
+  fpHundredths             Int?
+  inResultField            Boolean
+  exact                    Boolean
+  earnedRawPoints          Int?
+  maxRawPoints             Int?
+  honorCreditEligible      Boolean
+  invalidatedPreLock       Boolean
+  neutralizationPrecedence WaiverNeutralizationPrecedence?
+  conflictResolutionId     String?
+  inputFingerprint         String
+  outputFingerprint        String
+
+  boardGrade WaiverBoardGrade @relation(fields: [boardGradeId], references: [id], onDelete: Restrict)
+  call       WaiverCall       @relation(fields: [callId], references: [id], onDelete: Restrict)
+  poolResult WaiverPoolResult @relation(fields: [poolResultId], references: [id], onDelete: Restrict)
+
+  @@unique([boardGradeId, slot])
+  @@unique([boardGradeId, callId])
+  @@index([callId])
+  @@index([poolResultId])
+}
+
+/// Immutable, explicit approval to use one grade run competitively, bound to
+/// its exact artifact revision, snapshots, resolution set and output. Never
+/// implied by the artifact import attestation.
+model WaiverGradeApproval {
+  id                        String                    @id @default(cuid())
+  weekId                    String
+  gradeRunId                String
+  artifactRowId             String
+  artifactRevision          Int
+  artifactContentChecksum   String
+  snapshotSetFingerprint    String
+  resolutionSetFingerprint  String
+  inputFingerprint          String
+  outputFingerprint         String
+  defCrosswalkVersion       String
+  defCrosswalkAcknowledged  Boolean
+  approvalPolicy            WaiverGradeApprovalPolicy
+  approvedByUserId          String
+  /// Evidence copies (database-verified) for separation-of-duties checks.
+  artifactImportedByUserId  String
+  gradeRunInitiatedByUserId String?
+  attestationVersion        String
+  attestationText           String
+  reason                    String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  approvedAt                DateTime                  @default(now())
+
+  week       Week                        @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  gradeRun   WaiverGradeRun              @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  artifact   WaiverCanonicalArtifact     @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  approvedBy User                        @relation("WaiverGradeApprovalApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  change     WaiverGradeAuthorityChange?
+
+  @@unique([gradeRunId, approvedByUserId])
+  @@index([weekId])
+  @@index([artifactRowId])
+  @@index([approvedByUserId])
+}
+
+/// Append-only history of week grading authority decisions.
+model WaiverGradeAuthorityChange {
+  id                String                         @id @default(cuid())
+  weekId            String
+  /// Contiguous per week, from 1.
+  sequence          Int
+  changeType        WaiverGradeAuthorityChangeType
+  priorChangeId     String?                        @unique
+  priorGradeRunId   String?
+  newGradeRunId     String
+  approvalId        String                         @unique
+  /// Evidence copy of the approval's approving admin (database-verified).
+  approvedByUserId  String
+  reason            String
+  inputFingerprint  String
+  outputFingerprint String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  recordedAt        DateTime                       @default(now())
+
+  week               Week                           @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  priorChange        WaiverGradeAuthorityChange?    @relation("WaiverGradeAuthorityChangeChain", fields: [priorChangeId], references: [id], onDelete: Restrict)
+  nextChange         WaiverGradeAuthorityChange?    @relation("WaiverGradeAuthorityChangeChain")
+  priorGradeRun      WaiverGradeRun?                @relation("WaiverGradeAuthorityChangePriorRun", fields: [priorGradeRunId], references: [id], onDelete: Restrict)
+  newGradeRun        WaiverGradeRun                 @relation("WaiverGradeAuthorityChangeNewRun", fields: [newGradeRunId], references: [id], onDelete: Restrict)
+  approval           WaiverGradeApproval            @relation(fields: [approvalId], references: [id], onDelete: Restrict)
+  weekAuthority      WaiverWeekGradeAuthority?
+  contestAuthorities WaiverContestResultAuthority[]
+  boardAuthorities   WaiverBoardGradeAuthority[]
+
+  @@unique([weekId, sequence])
+  @@index([priorGradeRunId])
+  @@index([newGradeRunId])
+}
+
+/// The week-atomic authority boundary: the one grade run currently
+/// authoritative for a week. Contest and board pointers must agree with it
+/// at COMMIT.
+model WaiverWeekGradeAuthority {
+  weekId            String   @id
+  gradeRunId        String
+  changeId          String   @unique
+  outputFingerprint String
+  /// Database clock (`waiver_utc_now()`), set by the write trigger.
+  updatedAt         DateTime @default(now())
+
+  week     Week                       @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  gradeRun WaiverGradeRun             @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  change   WaiverGradeAuthorityChange @relation(fields: [changeId], references: [id], onDelete: Restrict)
+
+  @@index([gradeRunId])
+}
+
+/// Current authoritative result for one contest (moves only with the week).
+model WaiverContestResultAuthority {
+  contestId       String   @id
+  weekId          String
+  contestResultId String
+  artifactRowId   String
+  gradeRunId      String
+  changeId        String
+  /// Database clock (`waiver_utc_now()`), set by the write trigger.
+  updatedAt       DateTime @default(now())
+
+  contest       WaiverContest              @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  contestResult WaiverContestResult        @relation(fields: [contestResultId], references: [id], onDelete: Restrict)
+  gradeRun      WaiverGradeRun             @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  change        WaiverGradeAuthorityChange @relation(fields: [changeId], references: [id], onDelete: Restrict)
+
+  @@index([weekId])
+  @@index([contestResultId])
+  @@index([gradeRunId])
+  @@index([changeId])
+}
+
+/// Current authoritative grade for one submitted board (moves only with the week).
+model WaiverBoardGradeAuthority {
+  submissionId String   @id
+  weekId       String
+  contestId    String
+  boardGradeId String
+  gradeRunId   String
+  changeId     String
+  /// Database clock (`waiver_utc_now()`), set by the write trigger.
+  updatedAt    DateTime @default(now())
+
+  submission WaiverSubmission           @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  boardGrade WaiverBoardGrade           @relation(fields: [boardGradeId], references: [id], onDelete: Restrict)
+  gradeRun   WaiverGradeRun             @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  change     WaiverGradeAuthorityChange @relation(fields: [changeId], references: [id], onDelete: Restrict)
+
+  @@index([weekId])
+  @@index([boardGradeId])
+  @@index([gradeRunId])
+  @@index([changeId])
 }

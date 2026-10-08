@@ -101,9 +101,9 @@ describe("Stage 4B.2 Prisma models (static)", () => {
     }
   });
 
-  it("adds no grading, result or leaderboard model", () => {
-    for (const name of ["WaiverContestResult", "WaiverPoolResult", "WaiverBoardGrade", "WaiverCallGrade", "WaiverGradingRun"]) {
-      expect(block("model", name)).toBeNull();
+  it("the Stage 4B.2 migration adds no grading, result or leaderboard table (those arrive separately in 4B.3)", () => {
+    for (const name of ["WaiverContestResult", "WaiverPoolResult", "WaiverBoardGrade", "WaiverCallGrade", "WaiverGradeRun"]) {
+      expect(SQL).not.toContain(`"${name}"`);
     }
   });
 });

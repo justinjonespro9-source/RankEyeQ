@@ -81,6 +81,8 @@ const PURE_MODULES = [
   "artifacts/authority",
   "artifacts/import-model",
   "artifacts/upload-limits",
+  "results/fingerprints",
+  "results/model",
   "play-model",
   "consensus-model",
   "leaderboard-model",
@@ -207,6 +209,29 @@ function referencesWaivers(fromFile: string, source: string): boolean {
   );
 }
 
+/** Stage 4B.3 results and grading storage delegates (models minus the "Waiver" prefix). */
+const RESULTS_STORAGE_STEMS = [
+  "ConflictResolution",
+  "ContestResult",
+  "PoolResult",
+  "GradeRun",
+  "BoardGrade",
+  "CallGrade",
+  "GradeApproval",
+  "GradeAuthorityChange",
+  "WeekGradeAuthority",
+  "ContestResultAuthority",
+  "BoardGradeAuthority",
+];
+const WAIVER_DELEGATE_STEMS = [
+  "Snapshot(?:Entry|Correction)?",
+  "Contest",
+  "Submission(?:Revision)?",
+  "Call",
+  "CanonicalArtifact(?:Content|Event)?",
+  ...RESULTS_STORAGE_STEMS,
+].join("|");
+
 /**
  * A Waivers script is any script that imports lib/waivers or touches the
  * Waiver* Prisma delegates / tables. It must import and call the Waivers DB
@@ -219,8 +244,8 @@ function checkWaiversScriptGuard(
   const touchesWaivers =
     /waiver/i.test(path.basename(fileName)) ||
     /lib\/waivers/.test(source) ||
-    /\.waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call|CanonicalArtifact(?:Content|Event)?)\b/.test(source) ||
-    /"Waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call|CanonicalArtifact(?:Content|Event)?)"/.test(source);
+    new RegExp(`\\.waiver(?:${WAIVER_DELEGATE_STEMS})\\b`).test(source) ||
+    new RegExp(`"Waiver(?:${WAIVER_DELEGATE_STEMS})"`).test(source);
   if (!touchesWaivers) return { isWaiversScript: false, ok: true };
   const importsGuard =
     /import\s*\{[^}]*\bassertWaiversScriptDatabaseTarget\b[^}]*\}\s*from\s*["'][^"']*lib\/waivers\/script-guard["']/.test(
@@ -329,6 +354,30 @@ describe("Waivers architecture isolation", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("results and grading storage is not written by any application code yet (no grading workflow in Stage 4B.3)", () => {
+    const delegates = RESULTS_STORAGE_STEMS.map((stem) => `waiver${stem}`).join("|");
+    const write = new RegExp(`\\.\\s*(?:${delegates})\\s*\\.\\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\\s*\\(`);
+    const rawWrite = new RegExp(`(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|TRUNCATE)\\s+"Waiver(?:${RESULTS_STORAGE_STEMS.join("|")})"`, "i");
+    const offenders: string[] = [];
+    for (const root of ["app", "components", "lib", "scripts"].map((d) => path.join(ROOT, d))) {
+      for (const file of walk(root)) {
+        if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep)) continue;
+        const source = readFileSync(file, "utf8");
+        if (write.test(source) || rawWrite.test(source)) offenders.push(path.relative(ROOT, file));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("results modules stay pure: no scoring of boards, no DB, no SNG contact", () => {
+    for (const name of ["results/fingerprints", "results/model"]) {
+      const source = readFileSync(path.join(WAIVERS_DIR, `${name}.ts`), "utf8");
+      for (const banned of [/\$(?:executeRaw|queryRaw|transaction)/, /\bfetch\s*\(/, /https?:\/\//, /scoreWaiverBoard|evaluateCanonicalWaiverBoard/]) {
+        expect(source, `${name}: ${banned}`).not.toMatch(banned);
+      }
+    }
   });
 
   it("artifact text is read only by the importer and the content re-verifier, never by UI code", () => {
@@ -499,6 +548,13 @@ describe("checkWaiversScriptGuard (synthetic sources)", () => {
 
   it("flags a script that touches Phase 2 competition delegates without the guard", () => {
     for (const delegate of ["waiverContest", "waiverSubmission", "waiverSubmissionRevision", "waiverCall"]) {
+      const src = `import { prisma } from "@/lib/db";\nawait prisma.${delegate}.count();`;
+      expect(checkWaiversScriptGuard("scripts/x.ts", src)).toEqual({ isWaiversScript: true, ok: false });
+    }
+  });
+
+  it("flags a script that touches Stage 4B.3 results or grading delegates without the guard", () => {
+    for (const delegate of ["waiverContestResult", "waiverGradeRun", "waiverBoardGradeAuthority", "waiverGradeAuthorityChange"]) {
       const src = `import { prisma } from "@/lib/db";\nawait prisma.${delegate}.count();`;
       expect(checkWaiversScriptGuard("scripts/x.ts", src)).toEqual({ isWaiversScript: true, ok: false });
     }

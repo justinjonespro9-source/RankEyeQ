@@ -42,9 +42,10 @@ export function futureFirstKickoff(daysAhead = 9): Date {
   return kickoff;
 }
 
-export async function createWaiverFixture(tag: string) {
+/** `year` overrides the random far-future season (e.g. an SNG-valid season for canonical artifacts). */
+export async function createWaiverFixture(tag: string, options: { year?: number } = {}) {
   const suffix = `${tag}${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
-  const year = 3900 + Math.floor(Math.random() * 90);
+  const year = options.year ?? 3900 + Math.floor(Math.random() * 90);
   const season = await prisma.season.create({ data: { year, sport: `WAIVERS-${suffix}`, active: false } });
 
   const userIds: string[] = [];
@@ -265,7 +266,7 @@ export async function createWaiverFixture(tag: string) {
         });
       }
       return snapshot;
-    });
+    }, { timeout: 120_000 });
   }
 
   /** Direct contest row (bypasses the opening service) locking `locksInMs` from now. */
@@ -345,6 +346,7 @@ export async function createWaiverFixture(tag: string) {
 
   return {
     suffix,
+    year,
     seasonId: season.id,
     adminUserId: admin.id,
     addParticipant,

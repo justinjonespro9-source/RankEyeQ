@@ -40,6 +40,37 @@ const STAGE4B1_MIGRATION = "20261007000000_waivers_snapshot_frozen_identity";
 const STAGE4B2_MODEL_NAMES = ["WaiverCanonicalArtifact", "WaiverCanonicalArtifactContent", "WaiverCanonicalArtifactEvent"];
 const STAGE4B2_ENUM_NAMES = ["WaiverCanonicalPublicationState"];
 const STAGE4B2_MIGRATION = "20261007120000_waivers_canonical_artifact_authority";
+/** Stage 4B.3 results and grading authority storage is covered by results/results-schema.test.ts. */
+const STAGE4B3_MODEL_NAMES = [
+  "WaiverBoardGrade",
+  "WaiverBoardGradeAuthority",
+  "WaiverCallGrade",
+  "WaiverConflictResolution",
+  "WaiverContestResult",
+  "WaiverContestResultAuthority",
+  "WaiverEmptyPositionResult",
+  "WaiverGradeApproval",
+  "WaiverGradeAuthorityChange",
+  "WaiverGradeRun",
+  "WaiverPoolResult",
+  "WaiverWeekGradeAuthority",
+];
+const STAGE4B3_ENUM_NAMES = [
+  "WaiverBoardResultKind",
+  "WaiverCanonicalResultClass",
+  "WaiverConflictKind",
+  "WaiverConflictResolutionTreatment",
+  "WaiverGradeApprovalPolicy",
+  "WaiverGradeAuthorityChangeType",
+  "WaiverGradeInitiator",
+  "WaiverHonor",
+  "WaiverInvalidationBasis",
+  "WaiverNeutralizationPrecedence",
+  "WaiverPoolMemberCategory",
+  "WaiverResultTreatment",
+  "WaiverUngradableReason",
+];
+const STAGE4B3_MIGRATION = "20261008000000_waivers_grading_results_storage";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -55,10 +86,14 @@ function sqlStatements(sql: string): string[] {
 }
 
 describe("Waivers schema foundation (static)", () => {
-  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 and Stage 4B.2 add only their own)", () => {
+  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 and Stages 4B.2/4B.3 add only their own)", () => {
     expect(WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES].sort());
-    expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES, ...PHASE2_MODEL_NAMES, ...STAGE4B2_MODEL_NAMES].sort());
-    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual([...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES, ...STAGE4B2_ENUM_NAMES].sort());
+    expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual(
+      [...PHASE1_MODEL_NAMES, ...PHASE2_MODEL_NAMES, ...STAGE4B2_MODEL_NAMES, ...STAGE4B3_MODEL_NAMES].sort(),
+    );
+    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual(
+      [...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES, ...STAGE4B2_ENUM_NAMES, ...STAGE4B3_ENUM_NAMES].sort(),
+    );
   });
 
   it("every Waiver foreign key is onDelete: Restrict (frozen evidence is delete-protected)", () => {
@@ -85,13 +120,17 @@ describe("Waivers schema foundation (static)", () => {
     for (const b of WAIVER_MODELS) expect(b.body).not.toMatch(/\s(Float|Decimal)\b/);
   });
 
-  it("existing models receive Waiver back-relation list fields only", () => {
+  it("existing models receive Waiver back-relation fields only (lists, or Week's optional week-authority row)", () => {
     const touched: string[] = [];
     for (const b of ALL) {
       if (b.name.startsWith("Waiver")) continue;
       for (const line of b.body.split("\n")) {
         if (!/Waiver/.test(line)) continue;
         touched.push(b.name);
+        if (b.name === "Week" && /WaiverWeekGradeAuthority\?/.test(line)) {
+          expect(line).toMatch(/^\s*\w+\s+WaiverWeekGradeAuthority\?\s*$/);
+          continue;
+        }
         expect(line).toMatch(/^\s*\w+\s+Waiver\w+\[\](\s+@relation\("\w+"\))?\s*$/);
       }
     }
@@ -102,12 +141,12 @@ describe("Waivers schema foundation (static)", () => {
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2 Waivers migrations mention Waiver objects", () => {
+  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2/4B.3 Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
       .map((d) => d.name);
-    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION, STAGE4B2_MIGRATION]);
+    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION, STAGE4B2_MIGRATION, STAGE4B3_MIGRATION]);
   });
 
   it("contains only CREATE TYPE/TABLE/INDEX and ADD CONSTRAINT on Waiver objects", () => {
