@@ -501,6 +501,8 @@ model User {
   waiverContestsOpened          WaiverContest[]            @relation("WaiverContestOpenedBy")
   waiverSubmissionsCreated      WaiverSubmission[]         @relation("WaiverSubmissionCreatedBy")
   waiverRevisionsAuthored       WaiverSubmissionRevision[] @relation("WaiverRevisionAuthor")
+  waiverCanonicalArtifactsImported WaiverCanonicalArtifact[] @relation("WaiverCanonicalArtifactImportedBy")
+  waiverCanonicalArtifactEvents    WaiverCanonicalArtifactEvent[] @relation("WaiverCanonicalArtifactEventOperator")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -612,6 +614,7 @@ model Week {
   weeklyContent            WeeklyContent[]
   waiverSnapshots          WaiverSnapshot[]
   waiverContests           WaiverContest[]
+  waiverCanonicalArtifacts WaiverCanonicalArtifact[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -1564,4 +1567,121 @@ model WaiverCall {
   @@unique([revisionId, slot])
   @@unique([revisionId, snapshotEntryId])
   @@index([snapshotEntryId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — canonical artifact authority (Stage 4B.2).
+// Imported SNG canonical NFL weekly performance artifacts: immutable metadata,
+// the exact artifact text in a separate 1:1 table, and an append-only
+// publication event log. Importing never grades and never touches contests.
+// ---------------------------------------------------------------------------
+
+/// SNG publication state as attested by a RankEyeQ operator; the artifact bytes never carry it.
+enum WaiverCanonicalPublicationState {
+  ACCEPTED
+  SUPERSEDED
+  WITHDRAWN
+}
+
+/// Immutable metadata for one imported SNG canonical artifact revision.
+model WaiverCanonicalArtifact {
+  id                        String                          @id @default(cuid())
+  artifactId                String                          @unique
+  seriesKey                 String
+  revision                  Int
+  /// SNG artifact ID of the already-imported revision n-1 of the same series (null for revision 1).
+  supersedesArtifactId      String?                         @unique
+  contentChecksum           String                          @unique
+  schemaVersion             String
+  serializationVersion      String
+  rulesetCode               String
+  rulesetVersion            Int
+  rulesetDefinitionChecksum String
+  engineVersion             String
+  positionPolicyVersion     String
+  readinessPolicyVersion    String
+  acceptanceId              String
+  acceptedAt                DateTime
+  /// Opaque SNG account that accepted the artifact (metadata inside the bytes).
+  sngAcceptedById           String
+  generatedAt               DateTime
+  readinessEvidenceChecksum String
+  manifestChecksum          String
+  runFingerprint            String
+  inputSetChecksum          String
+  sourceRevisionFingerprint String
+  season                    Int
+  weekNumber                Int
+  weekId                    String
+  qbFieldSize               Int
+  rbFieldSize               Int
+  wrFieldSize               Int
+  teFieldSize               Int
+  defFieldSize              Int
+  participantCount          Int
+  /// UTF-8 byte length of the stored artifact text.
+  byteLength                Int
+  defCrosswalkVersion       String
+  /// Digest the operator read from the authenticated SNG download; always equals contentChecksum.
+  expectedContentChecksum   String
+  attestedPublicationState  WaiverCanonicalPublicationState
+  /// How SNG publication authority was established at import (operator attestation only).
+  authorityBasis            String
+  sourceReference           String
+  sourceObservedAt          DateTime
+  attestationVersion        String
+  attestationText           String
+  previewFingerprint        String
+  importedByUserId          String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  importedAt                DateTime                        @default(now())
+
+  week            Week                            @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  importedBy      User                            @relation("WaiverCanonicalArtifactImportedBy", fields: [importedByUserId], references: [id], onDelete: Restrict)
+  supersedes      WaiverCanonicalArtifact?        @relation("WaiverCanonicalArtifactSupersedes", fields: [supersedesArtifactId], references: [artifactId], onDelete: Restrict)
+  supersededBy    WaiverCanonicalArtifact?        @relation("WaiverCanonicalArtifactSupersedes")
+  content         WaiverCanonicalArtifactContent?
+  events          WaiverCanonicalArtifactEvent[]  @relation("WaiverCanonicalArtifactEvents")
+  successorEvents WaiverCanonicalArtifactEvent[]  @relation("WaiverCanonicalArtifactEventSuccessor")
+
+  @@unique([seriesKey, revision])
+  @@index([weekId, revision])
+}
+
+/// The exact imported artifact text (1:1). Never selected by list or leaderboard queries.
+model WaiverCanonicalArtifactContent {
+  artifactRowId String @id
+  contentText   String
+  /// sha256 of the UTF-8 text (database-checked); distinct from the SNG contentChecksum.
+  textSha256    String
+  byteLength    Int
+
+  artifact WaiverCanonicalArtifact @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+}
+
+/// Append-only publication history. `state` is the SNG publication state being
+/// attested; `basis` and `recordedAt` describe RankEyeQ's local record of it.
+model WaiverCanonicalArtifactEvent {
+  id                     String                          @id @default(cuid())
+  artifactRowId          String
+  sequence               Int
+  state                  WaiverCanonicalPublicationState
+  /// The imported successor revision (SUPERSEDED only).
+  successorArtifactRowId String?
+  /// IMPORT_ATTESTATION (ACCEPTED), SUCCESSOR_IMPORT (SUPERSEDED) or OPERATOR_WITHDRAWAL (WITHDRAWN).
+  basis                  String
+  sourceReference        String
+  sourceObservedAt       DateTime
+  attestationVersion     String
+  reason                 String?
+  operatorUserId         String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  recordedAt             DateTime                        @default(now())
+
+  artifact  WaiverCanonicalArtifact  @relation("WaiverCanonicalArtifactEvents", fields: [artifactRowId], references: [id], onDelete: Restrict)
+  successor WaiverCanonicalArtifact? @relation("WaiverCanonicalArtifactEventSuccessor", fields: [successorArtifactRowId], references: [id], onDelete: Restrict)
+  operator  User                     @relation("WaiverCanonicalArtifactEventOperator", fields: [operatorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([artifactRowId, sequence])
+  @@index([successorArtifactRowId])
 }

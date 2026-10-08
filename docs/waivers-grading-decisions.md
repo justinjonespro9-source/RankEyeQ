@@ -87,6 +87,21 @@ current-identity matching, and are not blocked solely for predating 4B.1.
 14. **Fantasy engine.** Waivers uses `SNG_NFL_HALF_PPR@1`. It is not
     reconciled with or reused from the Rankings engine.
 
+Stage 4B.2 (canonical artifact authority): V1 publication authority is
+`OPERATOR_ATTESTED`, a deliberate operator-trust model labeled "Operator
+verified — SNG publication not independently authenticated". The checksum
+proves integrity, never authorship. Imports are manual, verified by the 4A
+verifier, immutable, and never grade. Revisions import contiguously; a
+superseded artifact may later be recorded WITHDRAWN without restoring any
+other artifact.
+
+- **Grading approval (future requirement).** An imported artifact cannot
+  become authoritative for competitive grading solely through the importing
+  operator's attestation. A separate, explicit grading approval is required.
+- **DEF crosswalk acknowledgment (future requirement).** Until SNG producer
+  fixture confirmation, the grading preflight must require explicit
+  acknowledgment even for an otherwise clean DEF crosswalk.
+
 ## Timing and preflight
 
 15. **Week 5.** Not graded until artifact authority, durable results and

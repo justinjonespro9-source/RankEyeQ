@@ -36,6 +36,10 @@ const PHASE2_MIGRATION = "20261001000000_waivers_competition_foundation";
 const PHASE3_MIGRATION = "20261002000000_waivers_snapshot_integrity";
 /** Stage 4B.1 frozen identity is covered by snapshot/frozen-identity-schema.test.ts. */
 const STAGE4B1_MIGRATION = "20261007000000_waivers_snapshot_frozen_identity";
+/** Stage 4B.2 canonical artifact authority is covered by artifacts/artifact-authority-schema.test.ts. */
+const STAGE4B2_MODEL_NAMES = ["WaiverCanonicalArtifact", "WaiverCanonicalArtifactContent", "WaiverCanonicalArtifactEvent"];
+const STAGE4B2_ENUM_NAMES = ["WaiverCanonicalPublicationState"];
+const STAGE4B2_MIGRATION = "20261007120000_waivers_canonical_artifact_authority";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -51,10 +55,10 @@ function sqlStatements(sql: string): string[] {
 }
 
 describe("Waivers schema foundation (static)", () => {
-  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 adds only its own)", () => {
+  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 and Stage 4B.2 add only their own)", () => {
     expect(WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES].sort());
-    expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES, ...PHASE2_MODEL_NAMES].sort());
-    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual([...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES].sort());
+    expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES, ...PHASE2_MODEL_NAMES, ...STAGE4B2_MODEL_NAMES].sort());
+    expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual([...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES, ...STAGE4B2_ENUM_NAMES].sort());
   });
 
   it("every Waiver foreign key is onDelete: Restrict (frozen evidence is delete-protected)", () => {
@@ -98,12 +102,12 @@ describe("Waivers schema foundation (static)", () => {
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("only the Phase 1, 2, 3 and Stage 4B.1 Waivers migrations mention Waiver objects", () => {
+  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2 Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
       .map((d) => d.name);
-    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION]);
+    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION, STAGE4B2_MIGRATION]);
   });
 
   it("contains only CREATE TYPE/TABLE/INDEX and ADD CONSTRAINT on Waiver objects", () => {

@@ -77,6 +77,10 @@ const PURE_MODULES = [
   "canonical/identity",
   "canonical/policy",
   "canonical/preflight-model",
+  "artifacts/errors",
+  "artifacts/authority",
+  "artifacts/import-model",
+  "artifacts/upload-limits",
   "play-model",
   "consensus-model",
   "leaderboard-model",
@@ -96,9 +100,15 @@ const SERVICE_MODULES = [
   "snapshot/queries",
   "snapshot/actions",
   "canonical/preflight",
+  "artifacts/import",
+  "artifacts/withdraw",
+  "artifacts/queries",
+  "artifacts/actions",
+  "artifacts/upload",
   "play-queries",
   "leaderboard-queries",
 ];
+const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions"];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/fantasy/competition-rank",
@@ -127,6 +137,7 @@ const SERVICE_RUNTIME_IMPORTS = new Set([
   "lib/request-ip",
   "lib/log",
   "next/cache",
+  "node:zlib",
 ]);
 /** The admin UI allowed to import Waivers, and what it may import at runtime. */
 const WAIVERS_UI_DIRS = ["app/admin/waivers", "components/admin/waivers"];
@@ -134,8 +145,15 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/actions",
   "lib/waivers/snapshot/actions",
   "lib/waivers/snapshot/queries",
+  "lib/waivers/artifacts/actions",
+  "lib/waivers/artifacts/queries",
+  "lib/waivers/artifacts/authority",
+  "lib/waivers/artifacts/upload-limits",
   "lib/waivers/constants",
 ]);
+/** The canonical artifact upload route handlers: thin wrappers over the upload service only. */
+const ARTIFACT_UPLOAD_ROUTE_DIR = "app/api/admin/waivers/artifacts";
+const ARTIFACT_UPLOAD_ROUTE_RUNTIME_IMPORTS = new Set(["lib/waivers/artifacts/upload"]);
 /**
  * The public play surface: board actions, pure display models, and the public
  * read model (server page only). Never snapshot/admin modules or raw services.
@@ -156,7 +174,12 @@ const LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS: Readonly<Record<string, ReadonlySe
   "app/leaderboards": new Set(["lib/waivers/leaderboard-model", "lib/waivers/leaderboard-queries"]),
   "components/leaderboards": new Set(["lib/waivers/leaderboard-model"]),
 };
-const QUERY_MODULES = new Set(["lib/waivers/snapshot/queries", "lib/waivers/play-queries", "lib/waivers/leaderboard-queries"]);
+const QUERY_MODULES = new Set([
+  "lib/waivers/snapshot/queries",
+  "lib/waivers/artifacts/queries",
+  "lib/waivers/play-queries",
+  "lib/waivers/leaderboard-queries",
+]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
   "lib/submissions",
@@ -196,8 +219,8 @@ function checkWaiversScriptGuard(
   const touchesWaivers =
     /waiver/i.test(path.basename(fileName)) ||
     /lib\/waivers/.test(source) ||
-    /\.waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call)\b/.test(source) ||
-    /"Waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call)"/.test(source);
+    /\.waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call|CanonicalArtifact(?:Content|Event)?)\b/.test(source) ||
+    /"Waiver(?:Snapshot(?:Entry|Correction)?|Contest|Submission(?:Revision)?|Call|CanonicalArtifact(?:Content|Event)?)"/.test(source);
   if (!touchesWaivers) return { isWaiversScript: false, ok: true };
   const importsGuard =
     /import\s*\{[^}]*\bassertWaiversScriptDatabaseTarget\b[^}]*\}\s*from\s*["'][^"']*lib\/waivers\/script-guard["']/.test(
@@ -251,7 +274,7 @@ describe("Waivers architecture isolation", () => {
   it("only the actions modules are server-action modules, and they export only async functions", () => {
     for (const file of waiverSourceFiles()) {
       const source = readFileSync(file, "utf8");
-      const isActions = moduleName(file) === "actions" || moduleName(file) === "snapshot/actions";
+      const isActions = ACTION_MODULES.includes(moduleName(file));
       expect(/^\s*["']use server["']/.test(source), path.relative(ROOT, file)).toBe(isActions);
       if (!isActions) continue;
       const exports = [...source.matchAll(/^export\s+(?!type\b)(\w+(?:\s+\w+)?)/gm)].map((m) => m[1]);
@@ -288,6 +311,70 @@ describe("Waivers architecture isolation", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("artifact authority modules never grade, score, contact SNG, or write anything but artifact records and the audit log", () => {
+    const offenders: string[] = [];
+    const bannedTargets = /^lib\/waivers\/(?:scoring|production|ranking|contests|submissions|corrections|play-|leaderboard-|consensus-model|snapshot\/(?:freeze|correct)|canonical\/preflight)/;
+    const writable = new Set(["waiverCanonicalArtifact", "waiverCanonicalArtifactContent", "waiverCanonicalArtifactEvent", "adminAuditLog"]);
+    for (const file of waiverSourceFiles().filter((f) => moduleName(f).startsWith("artifacts/"))) {
+      const source = readFileSync(file, "utf8");
+      const rel = path.relative(ROOT, file);
+      for (const ref of readImports(source)) {
+        if (bannedTargets.test(normalizeSpecifier(file, ref.specifier))) offenders.push(`${rel} -> ${ref.specifier}`);
+      }
+      for (const match of source.matchAll(/\b\w+\s*\.\s*(\w+)\s*\.\s*(create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/g)) {
+        if (!writable.has(match[1]) || match[2] !== "create") offenders.push(`${rel}: ${match[1]}.${match[2]}`);
+      }
+      for (const banned of [/\$executeRaw/, /\bfetch\s*\(/, /https?:\/\//, /\bconsole\.\w+\s*\(/, /\bgrade[A-Z]\w*\s*\(/, /scoreWaiverBoard|computeWaiverProduction/]) {
+        if (banned.test(source)) offenders.push(`${rel}: ${banned}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("artifact text is read only by the importer and the content re-verifier, never by UI code", () => {
+    const readers: string[] = [];
+    for (const root of ["app", "components", "lib"].map((d) => path.join(ROOT, d))) {
+      for (const file of walk(root)) {
+        if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep) || file.includes(`${path.sep}generated${path.sep}`)) continue;
+        if (/waiverCanonicalArtifactContent|contentText/.test(readFileSync(file, "utf8"))) readers.push(path.relative(ROOT, file).split(path.sep).join("/"));
+      }
+    }
+    expect(readers.sort()).toEqual(["lib/waivers/artifacts/import.ts", "lib/waivers/artifacts/queries.ts"]);
+    const queries = readFileSync(path.join(WAIVERS_DIR, "artifacts/queries.ts"), "utf8");
+    const reverifier = queries.indexOf("export async function reverifyWaiverArtifactContent");
+    expect(reverifier).toBeGreaterThan(0);
+    expect(queries.slice(0, reverifier)).not.toMatch(/contentText|content:\s*\{/);
+  });
+
+  it("artifact text arrives only through the authenticated upload routes, never a Server Action", () => {
+    expect(readFileSync(path.join(WAIVERS_DIR, "artifacts/actions.ts"), "utf8")).not.toMatch(/artifactText|previewWaiverArtifactImport|applyWaiverArtifactImport/);
+    const routes = walk(path.join(ROOT, ARTIFACT_UPLOAD_ROUTE_DIR)).map((file) => path.relative(ROOT, file).split(path.sep).join("/")).sort();
+    expect(routes).toEqual([`${ARTIFACT_UPLOAD_ROUTE_DIR}/import/route.ts`, `${ARTIFACT_UPLOAD_ROUTE_DIR}/preview/route.ts`]);
+    for (const route of routes) {
+      const source = readFileSync(path.join(ROOT, route), "utf8");
+      expect([...source.matchAll(/^export\s+(?:async\s+)?(?:function|const)\s+(\w+)/gm)].map((m) => m[1])).toEqual(["POST"]);
+      expect(source).toMatch(/return handleWaiverArtifactUpload\(request, "(preview|import)"\);/);
+    }
+    const upload = readFileSync(path.join(WAIVERS_DIR, "artifacts/upload.ts"), "utf8");
+    expect(upload).toMatch(/maxOutputLength/);
+    expect(upload.indexOf("resolveAdminUserId()")).toBeLessThan(upload.indexOf("readCappedBody(request"));
+  });
+
+  it("admin artifact surfaces carry the operator-trust label and never claim the checksum authenticates SNG", () => {
+    const surfaces = [
+      "app/admin/waivers/artifacts/page.tsx",
+      "app/admin/waivers/artifacts/[artifactRowId]/page.tsx",
+      "components/admin/waivers/WaiverArtifactImportPanel.tsx",
+    ];
+    for (const rel of surfaces) expect(readFileSync(path.join(ROOT, rel), "utf8"), rel).toContain("WAIVER_ARTIFACT_AUTHORITY_LABEL");
+    const claims =
+      /cryptographic(?:ally)? (?:verified|authenticated|signed)|signed by SNG|SNG[- ]signed|checksum (?:proves|establishes|authenticates) (?:the )?(?:author|publish|publication|SNG)|verified publication/i;
+    for (const dir of WAIVERS_UI_DIRS) {
+      for (const file of walk(path.join(ROOT, dir))) expect(readFileSync(file, "utf8"), path.relative(ROOT, file)).not.toMatch(claims);
+    }
+    expect(readFileSync(path.join(WAIVERS_DIR, "artifacts/authority.ts"), "utf8")).not.toMatch(claims);
+  });
+
   it("no alphabetical tie helper, leaderboard qualification, or percentile badges in lib/waivers", () => {
     const hits: string[] = [];
     for (const file of waiverSourceFiles()) {
@@ -311,7 +398,8 @@ describe("Waivers architecture isolation", () => {
         const isAdminUi = WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
         const isPublicUi = PUBLIC_WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
         const leaderboardDir = Object.keys(LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS).find((dir) => rel.startsWith(`${dir}/`));
-        if (!isAdminUi && !isPublicUi && !leaderboardDir) {
+        const isUploadRoute = rel.startsWith(`${ARTIFACT_UPLOAD_ROUTE_DIR}/`);
+        if (!isAdminUi && !isPublicUi && !leaderboardDir && !isUploadRoute) {
           offenders.push(rel);
           continue;
         }
@@ -319,7 +407,9 @@ describe("Waivers architecture isolation", () => {
           ? WAIVERS_UI_RUNTIME_IMPORTS
           : isPublicUi
             ? PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS
-            : LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS[leaderboardDir!];
+            : isUploadRoute
+              ? ARTIFACT_UPLOAD_ROUTE_RUNTIME_IMPORTS
+              : LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS[leaderboardDir!];
         for (const ref of readImports(source)) {
           const target = normalizeSpecifier(file, ref.specifier);
           if (!target.startsWith("lib/waivers") || ref.typeOnly) continue;
@@ -365,11 +455,13 @@ describe("Waivers architecture isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("Waivers routes exist only under /admin plus the single public /waivers page; admin links stay admin-only", () => {
+  it("Waivers routes exist only under /admin, the admin artifact upload API, and the single public /waivers page; admin links stay admin-only", () => {
     const routeDirs = walk(path.join(ROOT, "app"))
       .map((file) => path.relative(ROOT, path.dirname(file)).split(path.sep).join("/"))
       .filter((dir) => /(^|\/)waivers(\/|$)/i.test(dir));
-    expect(routeDirs.filter((dir) => !dir.startsWith("app/admin/waivers") && dir !== "app/waivers")).toEqual([]);
+    expect(
+      routeDirs.filter((dir) => !dir.startsWith("app/admin/waivers") && !dir.startsWith(`${ARTIFACT_UPLOAD_ROUTE_DIR}/`) && dir !== "app/waivers"),
+    ).toEqual([]);
     expect(routeDirs).toContain("app/waivers");
     const linkers: string[] = [];
     for (const root of ["app", "components", "lib"].map((d) => path.join(ROOT, d))) {
@@ -378,7 +470,7 @@ describe("Waivers architecture isolation", () => {
         if (/["'`]\/admin\/waivers/.test(readFileSync(file, "utf8"))) linkers.push(path.relative(ROOT, file).split(path.sep).join("/"));
       }
     }
-    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", ...WAIVERS_UI_DIRS];
+    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", ...WAIVERS_UI_DIRS];
     expect(linkers.filter((file) => !allowed.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)))).toEqual([]);
   });
 

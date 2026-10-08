@@ -48,6 +48,11 @@ export default async function AdminWaiversPage({ searchParams }: { searchParams:
         description="Freeze the week's Official Waiver ownership snapshot, correct it as a new version, and open Waiver contests as a separate step. Nothing here grades, scrapes or changes Rankings."
       />
 
+      <p className="mb-4 text-sm">
+        <Link href={`/admin/waivers/artifacts${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
+          Canonical artifacts (SNG) →
+        </Link>
+      </p>
       <div className="mb-6 flex flex-wrap gap-2">
         {weeks.map((week) => (
           <Link
