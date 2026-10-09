@@ -80,6 +80,26 @@ export const WAIVER_AI_PROMPT_EQUIVALENCE_LABELS: Readonly<Record<string, string
   DIFFERENT: "Different — the original prompt is not the canonical prompt",
 };
 
+// ---------------------------------------------------------------------------
+// Admin competitive override (Stage 4B.3C).
+// ---------------------------------------------------------------------------
+
+/** Designation of an AI board entered by admin competitive override, wherever it is shown. */
+export const WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL = "ADMIN COMPETITIVE OVERRIDE";
+/** Database-checked bound for the required override reason. */
+export const WAIVER_AI_OVERRIDE_REASON_MAX = 2000;
+
+/** How a competitive AI board entered the contest (derived from its authorization records). */
+export const WAIVER_BOARD_ENTRY_BASES = ["ON_TIME", "VERIFIED_LATE_ENTRY", "ADMIN_COMPETITIVE_OVERRIDE"] as const;
+
+export type WaiverBoardEntryBasis = (typeof WAIVER_BOARD_ENTRY_BASES)[number];
+
+export const WAIVER_BOARD_ENTRY_BASIS_LABELS: Readonly<Record<WaiverBoardEntryBasis, string>> = {
+  ON_TIME: "Submitted before the lock",
+  VERIFIED_LATE_ENTRY: WAIVER_AI_LATE_ENTRY_LABEL,
+  ADMIN_COMPETITIVE_OVERRIDE: WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL,
+};
+
 /** Database-derived reasons a verification is not eligible (see the 4B.3B migration). */
 export const WAIVER_AI_LATE_ENTRY_INELIGIBLE_LABELS: Readonly<Record<string, string>> = {
   OPERATOR_ATTESTED_ONLY: "Administrator statement only — not independently verifiable",

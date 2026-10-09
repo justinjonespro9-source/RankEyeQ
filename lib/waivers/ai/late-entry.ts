@@ -76,7 +76,7 @@ async function loadEvidence(db: WaiverDb, evidenceId: string) {
   return evidence;
 }
 
-type StrictBoard = {
+export type StrictBoard = {
   pickIds: string[];
   calls: Array<{ slot: number; snapshotEntryId: string; rankableEntryId: string }>;
   noCalls: boolean;
@@ -85,7 +85,7 @@ type StrictBoard = {
 };
 
 /** Strict parse + validation of the exact evidence text against the pinned pool. Refuses the whole response if invalid. */
-async function strictBoard(db: WaiverDb, context: WaiverAiContestContext, responseText: string): Promise<StrictBoard> {
+export async function strictBoard(db: WaiverDb, context: WaiverAiContestContext, responseText: string): Promise<StrictBoard> {
   const parse = parseAgainstContext(context, responseText);
   if (!parse.ok) throw new WaiverAiError("INVALID_RESPONSE", "The original response is invalid against the frozen pool; nothing was saved", parse.issues);
   const pickIds = parse.picks.map((pick) => pick.rankableEntryId);

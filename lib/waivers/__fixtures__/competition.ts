@@ -346,6 +346,7 @@ export async function createWaiverFixture(tag: string, options: { years?: { min:
         data: { currentRevisionId: null, lockedRevisionId: null },
       });
       await tx.waiverAiLateEntryApproval.deleteMany({ where: { contestId: { in: contestIds } } });
+      await tx.waiverAiCompetitiveOverride.deleteMany({ where: { contestId: { in: contestIds } } });
       await tx.waiverAiLateEntryVerification.deleteMany({ where: { contestId: { in: contestIds } } });
       await tx.waiverAiResponse.deleteMany({ where: { contestId: { in: contestIds } } });
       await tx.waiverAiHistoricalEvidenceReview.deleteMany({ where: { evidence: { contestId: { in: contestIds } } } });

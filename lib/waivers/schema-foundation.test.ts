@@ -78,6 +78,9 @@ const STAGE4B3A_MIGRATION = "20261009000000_waivers_ai_participation";
 const STAGE4B3B_MODEL_NAMES = ["WaiverAiLateEntryApproval", "WaiverAiLateEntryVerification"];
 const STAGE4B3B_ENUM_NAMES = ["WaiverAiLateEntryBasis", "WaiverAiLateEntryTimestampMethod", "WaiverAiPromptEquivalence"];
 const STAGE4B3B_MIGRATION = "20261010000000_waivers_ai_late_entry";
+/** Stage 4B.3C admin competitive override is covered by ai/competitive-override-schema.test.ts. */
+const STAGE4B3C_MODEL_NAMES = ["WaiverAiCompetitiveOverride"];
+const STAGE4B3C_MIGRATION = "20261011000000_waivers_ai_competitive_override";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -93,7 +96,7 @@ function sqlStatements(sql: string): string[] {
 }
 
 describe("Waivers schema foundation (static)", () => {
-  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 and Stages 4B.2/4B.3/4B.3A/4B.3B add only their own)", () => {
+  it("Phase 1 adds exactly three Waiver models and seven Waiver enums (Phase 2 and Stages 4B.2/4B.3/4B.3A/4B.3B/4B.3C add only their own)", () => {
     expect(WAIVER_MODELS.map((b) => b.name).sort()).toEqual([...PHASE1_MODEL_NAMES].sort());
     expect(ALL_WAIVER_MODELS.map((b) => b.name).sort()).toEqual(
       [
@@ -103,6 +106,7 @@ describe("Waivers schema foundation (static)", () => {
         ...STAGE4B3_MODEL_NAMES,
         ...STAGE4B3A_MODEL_NAMES,
         ...STAGE4B3B_MODEL_NAMES,
+        ...STAGE4B3C_MODEL_NAMES,
       ].sort(),
     );
     expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual(
@@ -155,12 +159,22 @@ describe("Waivers schema foundation (static)", () => {
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2/4B.3/4B.3A/4B.3B Waivers migrations mention Waiver objects", () => {
+  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2/4B.3/4B.3A/4B.3B/4B.3C Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
       .map((d) => d.name);
-    expect(mentioning).toEqual([WAIVERS_MIGRATION, PHASE2_MIGRATION, PHASE3_MIGRATION, STAGE4B1_MIGRATION, STAGE4B2_MIGRATION, STAGE4B3_MIGRATION, STAGE4B3A_MIGRATION, STAGE4B3B_MIGRATION]);
+    expect(mentioning).toEqual([
+      WAIVERS_MIGRATION,
+      PHASE2_MIGRATION,
+      PHASE3_MIGRATION,
+      STAGE4B1_MIGRATION,
+      STAGE4B2_MIGRATION,
+      STAGE4B3_MIGRATION,
+      STAGE4B3A_MIGRATION,
+      STAGE4B3B_MIGRATION,
+      STAGE4B3C_MIGRATION,
+    ]);
   });
 
   it("contains only CREATE TYPE/TABLE/INDEX and ADD CONSTRAINT on Waiver objects", () => {

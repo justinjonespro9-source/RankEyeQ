@@ -269,6 +269,7 @@ model UniversalProfile {
   waiverAiHistoricalEvidence WaiverAiHistoricalEvidence[]
   waiverAiLateEntryVerifications WaiverAiLateEntryVerification[]
   waiverAiLateEntryApprovals     WaiverAiLateEntryApproval[]
+  waiverAiCompetitiveOverrides   WaiverAiCompetitiveOverride[]
 
   @@index([publicFromWeekId])
 }
@@ -516,6 +517,7 @@ model User {
   waiverAiEvidenceReviews          WaiverAiHistoricalEvidenceReview[] @relation("WaiverAiHistoricalEvidenceReviewer")
   waiverAiLateEntryVerifications   WaiverAiLateEntryVerification[] @relation("WaiverAiLateEntryVerifiedBy")
   waiverAiLateEntryApprovals       WaiverAiLateEntryApproval[]     @relation("WaiverAiLateEntryApprovedBy")
+  waiverAiCompetitiveOverrides     WaiverAiCompetitiveOverride[]   @relation("WaiverAiCompetitiveOverrideAuthorizedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -1393,6 +1395,7 @@ model WaiverSnapshot {
   aiHistoricalEvidence WaiverAiHistoricalEvidence[]
   aiLateEntryVerifications WaiverAiLateEntryVerification[]
   aiLateEntryApprovals     WaiverAiLateEntryApproval[]
+  aiCompetitiveOverrides   WaiverAiCompetitiveOverride[]
 
   @@unique([weekId, version])
   @@index([seasonId, weekId])
@@ -1526,6 +1529,7 @@ model WaiverContest {
   aiHistoricalEvidence WaiverAiHistoricalEvidence[]
   aiLateEntryVerifications WaiverAiLateEntryVerification[]
   aiLateEntryApprovals     WaiverAiLateEntryApproval[]
+  aiCompetitiveOverrides   WaiverAiCompetitiveOverride[]
 
   @@unique([weekId, position])
   @@index([snapshotId])
@@ -1544,12 +1548,13 @@ model WaiverSubmission {
   status             WaiverSubmissionStatus @default(DRAFT)
   currentRevisionId  String?                @unique
   /// Final SUBMISSION revision created before locksAt (set by the lock stamp), or
-  /// the single revision of an approved AI late entry (WaiverAiLateEntryApproval).
+  /// the single revision of an approved AI late entry (WaiverAiLateEntryApproval)
+  /// or AI admin competitive override (WaiverAiCompetitiveOverride).
   lockedRevisionId   String?                @unique
   /// Instant of the latest SUBMISSION revision.
   submittedAt        DateTime?
-  /// Equals the contest's locksAt once stamped; for an approved AI late entry,
-  /// the database time of the late-entry import (never backdated).
+  /// Equals the contest's locksAt once stamped; for an approved AI late entry or
+  /// admin competitive override, the database time of the import (never backdated).
   lockedAt           DateTime?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
@@ -1563,6 +1568,7 @@ model WaiverSubmission {
   boardGrades      WaiverBoardGrade[]
   gradeAuthority   WaiverBoardGradeAuthority?
   lateEntry        WaiverAiLateEntryApproval?
+  competitiveOverride WaiverAiCompetitiveOverride?
 
   @@unique([contestId, universalProfileId])
   /// One owner-authored board per login per contest. SYSTEM_OPERATED (AI) boards are
@@ -1595,6 +1601,7 @@ model WaiverSubmissionRevision {
   boardGrades WaiverBoardGrade[]
   aiResponse  WaiverAiResponse?
   lateEntry   WaiverAiLateEntryApproval?
+  competitiveOverride WaiverAiCompetitiveOverride?
 
   @@unique([submissionId, revisionNumber])
   @@index([submissionId, kind, createdAt])
@@ -2326,7 +2333,8 @@ model WaiverAiResponse {
   /// Admin-entered model label (e.g. the model version the response came from).
   modelLabel         String
   /// The prompt this response answered. Null only on an approved late entry
-  /// whose original prompt is not verified to be the canonical prompt.
+  /// whose original prompt is not verified to be the canonical prompt, or on
+  /// an admin competitive override (no prompt claim).
   promptVersion      String?
   /// sha256 of the exact prompt text (deterministic for the pinned snapshot and position).
   promptSha256       String?
@@ -2392,6 +2400,7 @@ model WaiverAiHistoricalEvidence {
   reviews          WaiverAiHistoricalEvidenceReview[]
   lateEntryVerifications WaiverAiLateEntryVerification[]
   lateEntryApprovals     WaiverAiLateEntryApproval[]
+  competitiveOverrides   WaiverAiCompetitiveOverride[]
 
   @@unique([contestId, universalProfileId, responseSha256])
   @@index([universalProfileId])
@@ -2571,4 +2580,51 @@ model WaiverAiLateEntryApproval {
   @@index([snapshotId])
   @@index([universalProfileId])
   @@index([approvedByUserId])
+}
+
+/// Stage 4B.3C: an administrator's immutable, single-use authorization to
+/// enter one AI response as a competitive board after the lock, without
+/// pre-lock evidence ("ADMIN COMPETITIVE OVERRIDE", never "verified pre-lock").
+/// Inserted in the same transaction as the board it names; checked at COMMIT.
+model WaiverAiCompetitiveOverride {
+  id                 String          @id @default(cuid())
+  contestId          String
+  position           ContestPosition
+  /// The contest's pinned frozen snapshot the response was parsed against.
+  snapshotId         String
+  universalProfileId String
+  /// Optional original evidence for the same contest, AI, snapshot and response.
+  evidenceId         String?
+  responseSha256     String
+  boardFingerprint   String
+  callCount          Int
+  parserVersion      String
+  modelLabel         String
+  /// Why this board is competitive without pre-lock evidence (required).
+  reason             String
+  /// Optional pointer to where the original response is kept.
+  sourceReference    String?
+  /// Ids of the board and revision this override creates (checked at COMMIT).
+  submissionId       String          @unique
+  revisionId         String          @unique
+  /// The first 12 hex digits of responseSha256, typed by the authorizing admin.
+  confirmation       String
+  authorizedByUserId String
+  /// Database clock (`waiver_utc_now()`): the board's actual import time.
+  authorizedAt       DateTime        @default(now())
+
+  contest          WaiverContest               @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot         WaiverSnapshot              @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile            @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  evidence         WaiverAiHistoricalEvidence? @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  submission       WaiverSubmission            @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  revision         WaiverSubmissionRevision    @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  authorizedBy     User                        @relation("WaiverAiCompetitiveOverrideAuthorizedBy", fields: [authorizedByUserId], references: [id], onDelete: Restrict)
+
+  /// One competitive override per AI profile per contest; never reusable.
+  @@unique([contestId, universalProfileId])
+  @@index([evidenceId])
+  @@index([snapshotId])
+  @@index([universalProfileId])
+  @@index([authorizedByUserId])
 }

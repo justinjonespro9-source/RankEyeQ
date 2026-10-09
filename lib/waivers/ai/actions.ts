@@ -10,11 +10,13 @@ import {
   WAIVER_AI_ARTIFACT_NAME_MAX,
   WAIVER_AI_MODEL_LABEL_MAX,
   WAIVER_AI_NOTE_MAX,
+  WAIVER_AI_OVERRIDE_REASON_MAX,
   WAIVER_AI_PROMPT_TEXT_MAX_BYTES,
   WAIVER_AI_PROMPT_VERSION_MAX,
   WAIVER_AI_RESPONSE_MAX_BYTES,
   WAIVER_AI_SOURCE_REFERENCE_MAX,
 } from "@/lib/waivers/ai/constants";
+import { overrideWaiverAiBoard } from "@/lib/waivers/ai/competitive-override";
 import { previewWaiverAiEvidence, recordWaiverAiEvidence, reviewWaiverAiEvidence } from "@/lib/waivers/ai/evidence";
 import { approveWaiverAiLateEntry, verifyWaiverAiLateEntry } from "@/lib/waivers/ai/late-entry";
 import { importAiWaiverBoard, previewWaiverAiResponse, WaiverAiError } from "@/lib/waivers/ai/submissions";
@@ -249,6 +251,46 @@ export async function verifyWaiverAiLateEntryAction(input: unknown) {
     };
   } catch (error) {
     return failure(error, "waivers.ai_late_entry_verify_failed");
+  }
+}
+
+/**
+ * Admin competitive override: after the lock, enters one AI response as a
+ * competitive board without pre-lock evidence, atomically with its immutable
+ * authorization. The server re-parses the exact text; client ids are only compared.
+ */
+export async function overrideWaiverAiBoardAction(input: unknown) {
+  const userId = await adminUserId();
+  if (!userId) return { ok: false as const, error: "Admin access required", code: "FORBIDDEN" };
+  if (!isObject(input) || !isId(input.contestId) || !isId(input.profileId) || !isText(input.responseText, MAX_TEXT)) return invalid();
+  const { expectedResponseSha256, confirmedRankableEntryIds, modelLabel, reason, sourceReference, evidenceId, confirmation, includeInCompetition } = input;
+  if (!isSha(expectedResponseSha256) || !isPickIds(confirmedRankableEntryIds)) return invalid();
+  if (!isText(modelLabel, WAIVER_AI_MODEL_LABEL_MAX) || !modelLabel.trim()) return invalid("A model label is required");
+  if (!isText(reason, WAIVER_AI_OVERRIDE_REASON_MAX) || !reason.trim()) return invalid("An override reason is required");
+  if (!isText(sourceReference, WAIVER_AI_SOURCE_REFERENCE_MAX) || !isText(confirmation, 64)) return invalid();
+  if (evidenceId !== null && evidenceId !== "" && !isId(evidenceId)) return invalid();
+  if (includeInCompetition !== true) return invalid("Confirm competitive inclusion");
+  const rate = await limited(userId);
+  if (rate) return rate;
+  try {
+    const result = await overrideWaiverAiBoard({
+      adminUserId: userId,
+      contestId: input.contestId,
+      universalProfileId: input.profileId,
+      responseText: input.responseText,
+      expectedResponseSha256,
+      confirmedRankableEntryIds,
+      modelLabel,
+      reason,
+      sourceReference: sourceReference || null,
+      evidenceId: evidenceId || null,
+      confirmation,
+      includeInCompetition: true,
+    });
+    revalidateBoard(input.profileId, input.contestId);
+    return { ok: true as const, callCount: result.callCount, noCalls: result.noCalls, importedAt: result.importedAt.toISOString() };
+  } catch (error) {
+    return failure(error, "waivers.ai_competitive_override_failed");
   }
 }
 

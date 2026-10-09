@@ -4,7 +4,9 @@ import {
   filterWaiverBoardsByCategory,
   parseWaiverCompetitorCategory,
   waiverBoardCategory,
+  waiverBoardEntryBasis,
 } from "@/lib/waivers/competitor-category";
+import { WAIVER_BOARD_ENTRY_BASIS_LABELS } from "@/lib/waivers/ai/constants";
 
 const human = { id: "h", profileType: "HUMAN", authority: "OWNER_AUTHORED" };
 const creator = { id: "c", profileType: "CREATOR", authority: "OWNER_AUTHORED" };
@@ -30,6 +32,15 @@ describe("Waiver competitor categories", () => {
     expect(filterWaiverBoardsByCategory(boards, "AI").map((b) => b.id)).toEqual(["a"]);
     expect(filterWaiverBoardsByCategory(boards, "ALL").map((b) => b.id)).toEqual(["h", "a", "c"]);
     expect(boardInWaiverCategory(ai, "HUMANS")).toBe(false);
+  });
+
+  it("derives how a board entered: an override is never shown as a verified late entry or as on time", () => {
+    expect(waiverBoardEntryBasis({ lateEntry: null, competitiveOverride: null })).toBe("ON_TIME");
+    expect(waiverBoardEntryBasis({ lateEntry: {}, competitiveOverride: null })).toBe("VERIFIED_LATE_ENTRY");
+    expect(waiverBoardEntryBasis({ lateEntry: null, competitiveOverride: {} })).toBe("ADMIN_COMPETITIVE_OVERRIDE");
+    expect(waiverBoardEntryBasis({ lateEntry: {}, competitiveOverride: {} })).toBe("ADMIN_COMPETITIVE_OVERRIDE");
+    expect(WAIVER_BOARD_ENTRY_BASIS_LABELS.ADMIN_COMPETITIVE_OVERRIDE).toBe("ADMIN COMPETITIVE OVERRIDE");
+    expect(WAIVER_BOARD_ENTRY_BASIS_LABELS.ADMIN_COMPETITIVE_OVERRIDE).not.toMatch(/verified|pre-lock/i);
   });
 
   it("parses the category with HUMANS as the default", () => {

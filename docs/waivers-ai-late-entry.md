@@ -222,3 +222,114 @@ bytes:
 - The verification upload uses a Server Action (1 MB body limit): a provider
   file near the 512 KiB cap together with a very large original prompt text may
   exceed it and be refused without saving.
+
+# Admin competitive override (Stage 4B.3C)
+
+A separate, explicitly labelled exception: an administrator may enter one AI
+response as a competitive board after the lock **without** pre-lock evidence.
+It never replaces the verified late entry above, which is unchanged.
+
+## Three ways an AI board enters a contest
+
+| Entry basis | When | Evidence | Designation |
+| ----------- | ---- | -------- | ----------- |
+| `ON_TIME` | Before the lock (ordinary AI import) | — | none |
+| `VERIFIED_LATE_ENTRY` | After the lock | Independently verifiable pre-lock evidence, verification, separate approval | `LATE-ENTERED — VERIFIED PRE-LOCK` |
+| `ADMIN_COMPETITIVE_OVERRIDE` | After the lock | None required (optional evidence may be attached) | `ADMIN COMPETITIVE OVERRIDE` |
+
+The basis is derived, never stored on the board: a `WaiverAiCompetitiveOverride`
+row → override; a `WaiverAiLateEntryApproval` row → verified late entry;
+otherwise on time (`waiverBoardEntryBasis` in `lib/waivers/competitor-category.ts`).
+Only AI boards can carry either record (database-enforced).
+
+## Workflow (`/admin/waivers/ai/[profileId]/[contestId]` → C · Admin competitive override)
+
+1. Paste the AI's original response (stored byte-exact; sha256 shown).
+2. Parse and Preview: the strict parser and frozen-pool validation run against
+   the contest's pinned snapshot. Unknown, ambiguous, duplicate,
+   wrong-position or ineligible players and too many calls refuse the whole
+   response; `NO CALLS` is valid.
+3. Enter the model label (required), the override reason (required), an
+   optional source reference, and optionally attach a historical-evidence
+   record holding the same response (it must be for the same contest, AI and
+   snapshot, and not rejected; attaching it does not make the board verified).
+4. Type the first 12 characters of the response sha256 and confirm competitive
+   inclusion.
+5. Submit (`overrideWaiverAiBoardAction`, admin-only). One transaction inserts
+   the override authorization first, then the LOCKED board, its single
+   SUBMISSION revision, its calls, the verbatim response and an
+   `waivers.ai_competitive_override` audit entry.
+
+The board history shows the designation, the actual import time (database
+clock), the authorizing administrator, the reason and the response hash. The
+response records no prompt claim (`promptVersion`/`promptSha256` NULL) and no
+stated generation time; the original prediction time is shown as not
+established.
+
+## Database safeguards
+
+- **Authorization record.** `WaiverAiCompetitiveOverride` is immutable (UPDATE,
+  DELETE and TRUNCATE refused; fixture maintenance may delete in tests). It binds
+  the contest, position, pinned snapshot, AI profile, response sha256, parse
+  fingerprint, call count, parser version, model label, reason, the new board and
+  revision ids, the typed confirmation (`left(sha, 12)`), the administrator and
+  the database time.
+- **Insert guard.** ADMIN only (`waiver_require_admin`); serialized with grading
+  by the week advisory lock; only at or after `locksAt`; only on the contest's
+  pinned snapshot and position; only for an active AI competitor (never HUMAN or
+  CREATOR); refused when the AI already has a board or an approved late entry
+  for the contest, once the week has any grade run, or when the named ids
+  already exist. Unique indexes allow one override per (contest, AI), per board
+  and per revision.
+- **Lock guards unchanged.** The submission, revision, call, AI response and
+  prompt guards are not re-declared. Their only post-lock branch already asks
+  `waiver_ai_late_entry_in_transaction(submissionId)` for an authorization
+  inserted by the current transaction; that helper now also returns a
+  same-transaction override (projected onto the approval row shape). A committed
+  override authorizes nothing, so it cannot be replayed or reused, and it never
+  admits a board for a different AI, contest or revision.
+- **Checked at COMMIT** (deferred constraint trigger): the board is LOCKED,
+  SYSTEM_OPERATED, created by the authorizing admin, with the named revision as
+  its only, current and locked revision; `submittedAt = lockedAt = createdAt =`
+  the override time; the recomputed call fingerprint equals the authorized
+  parse; the response has the authorized sha256, model label and parser, no
+  prompt and no stated time, imported by the same admin; and no late-entry
+  approval names the board or (contest, AI). Any mismatch or missing row rolls
+  back the whole transaction, including the authorization.
+- No GRANT/REVOKE, session flag, setting or trigger toggle; ordinary post-lock
+  writes (human, creator and AI) are refused exactly as before.
+
+## Grading and leaderboards
+
+- Grading reads each board's locked revision regardless of entry basis, so the
+  next grade run grades an override board exactly like any other AI board. No
+  grading code changed; Stage 4B.4 is not started.
+- Human-only consensus and HUMANS standings never include AI boards, so they are
+  unaffected by overrides.
+- `loadRevealableWaiverBoards` returns `entryBasis` and `competitiveOverride`
+  (import time) for every board.
+
+### Future leaderboard filtering (design; not implemented)
+
+- **Humans** (default): `filterWaiverBoardsByCategory(..., "HUMANS")` — owner-
+  authored HUMAN/CREATOR boards, all `ON_TIME`. No designations needed.
+- **AI**: AI boards of every entry basis. Each row shows its designation when
+  not `ON_TIME`: `LATE-ENTERED — VERIFIED PRE-LOCK` or
+  `ADMIN COMPETITIVE OVERRIDE`, with the import time.
+- **All Participants**: HUMANS ∪ AI, ranked together, with the same AI
+  designations so an overridden entry is always identifiable.
+- Weekly and season aggregates should carry a per-competitor count of
+  overridden boards so a season total that includes overrides is visibly marked.
+  Whether an override may be excluded by a viewer toggle is a product decision
+  for the leaderboard stage.
+
+## Known limits
+
+- The override rests on the administrator's judgment and stated reason; nothing
+  establishes when the AI produced the response. This is the intended
+  trade-off; the designation is shown wherever the board is shown.
+- A single administrator authorizes an override (no two-person rule). The
+  reason, identity, time and response are recorded immutably and audited.
+- If several candidate responses exist for one AI and contest, the administrator
+  chooses which to enter; the database does not apply the late-entry ambiguity
+  rule to overrides.

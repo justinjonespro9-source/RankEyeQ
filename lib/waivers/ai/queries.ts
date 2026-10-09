@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
 import { parseWaiverAiResponse, type WaiverAiParseResult } from "@/lib/waivers/ai/response-parser";
+import type { WaiverBoardEntryBasis } from "@/lib/waivers/ai/constants";
 import { readWaiverClock } from "@/lib/waivers/clock";
+import { waiverBoardEntryBasis } from "@/lib/waivers/competitor-category";
 import { WAIVER_POSITIONS, waiverSlotLabel, type WaiverPosition, type WaiverSlotLabel } from "@/lib/waivers/constants";
 import { waiverPhaseAt, type WaiverPhase } from "@/lib/waivers/lock-time";
 
@@ -50,6 +52,8 @@ export type WaiverAiCoverageCell = {
   evidenceCount: number;
   /** An approved administrative late entry (WAIVER_AI_LATE_ENTRY_LABEL). */
   lateEntered: boolean;
+  /** An admin competitive override (WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL). */
+  overridden: boolean;
 };
 
 export type WaiverAiWeekView = {
@@ -111,6 +115,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
         currentRevision: { select: { revisionNumber: true, callCount: true } },
         universalProfile: { select: { id: true, username: true, displayName: true } },
         lateEntry: { select: { id: true } },
+        competitiveOverride: { select: { id: true } },
       },
     }),
     prisma.waiverAiHistoricalEvidence.groupBy({
@@ -157,6 +162,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
         callCount: board?.currentRevision?.callCount ?? null,
         evidenceCount,
         lateEntered: Boolean(board?.lateEntry),
+        overridden: Boolean(board?.competitiveOverride),
       };
       if (!competitor.active) continue;
       totals.expected += 1;
@@ -200,7 +206,7 @@ export type WaiverAiRevisionView = {
   calls: Array<{ slot: number; label: WaiverSlotLabel; displayName: string; team: string | null }>;
   response: null | {
     modelLabel: string;
-    /** Null only on an approved late entry whose original prompt is not verified canonical. */
+    /** Null only on an approved late entry whose original prompt is not verified canonical, or an admin competitive override. */
     promptVersion: string | null;
     promptSha256: string | null;
     parserVersion: string;
@@ -282,6 +288,18 @@ export type WaiverAiLateEntryBoardView = {
   note: string | null;
 };
 
+/** An admin competitive override: no pre-lock evidence; actual import time and administrator. */
+export type WaiverAiCompetitiveOverrideBoardView = {
+  overrideId: string;
+  importedAt: Date;
+  authorizedByLabel: string;
+  reason: string;
+  modelLabel: string;
+  sourceReference: string | null;
+  evidenceId: string | null;
+  responseSha256: string;
+};
+
 export type WaiverAiBoardView = {
   now: Date;
   phase: WaiverPhase;
@@ -298,11 +316,15 @@ export type WaiverAiBoardView = {
     submittedAt: Date | null;
     lockedRevisionNumber: number | null;
     revisions: WaiverAiRevisionView[];
+    entryBasis: WaiverBoardEntryBasis;
     lateEntry: WaiverAiLateEntryBoardView | null;
+    competitiveOverride: WaiverAiCompetitiveOverrideBoardView | null;
   };
   evidence: WaiverAiEvidenceView[];
   /** Late Entry Override availability: open when there are no blockers. */
   lateEntry: { blockers: string[] };
+  /** Admin competitive override availability: open when there are no blockers. */
+  competitiveOverride: { blockers: string[] };
 };
 
 const LATE_ENTRY_PROMPT_SELECT = {
@@ -400,6 +422,18 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
             },
           },
         },
+        competitiveOverride: {
+          select: {
+            id: true,
+            authorizedAt: true,
+            reason: true,
+            modelLabel: true,
+            sourceReference: true,
+            evidenceId: true,
+            responseSha256: true,
+            authorizedBy: { select: { name: true, email: true } },
+          },
+        },
         revisions: {
           orderBy: { revisionNumber: "desc" },
           select: {
@@ -463,7 +497,13 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
   if (submission) blockers.push("This AI already has a board for this contest; a late entry never replaces or changes a board.");
   if (gradeRuns > 0) blockers.push("This week has a grade run; late entry is closed.");
   if (profile.status !== "ACTIVE" || !profile.competitorActive) blockers.push("This AI profile is not an active competitor.");
+  const overrideBlockers: string[] = [];
+  if (phase === "OPEN") overrideBlockers.push("The contest is still open — submit through the AI response import above.");
+  if (submission) overrideBlockers.push("This AI already has a board for this contest; an override never replaces or changes a board.");
+  if (gradeRuns > 0) overrideBlockers.push("This week has a grade run; admin competitive override is closed.");
+  if (profile.status !== "ACTIVE" || !profile.competitorActive) overrideBlockers.push("This AI profile is not an active competitor.");
   const late = submission?.lateEntry ?? null;
+  const override = submission?.competitiveOverride ?? null;
 
   const lockedNumber = submission?.lockedRevision?.revisionNumber ?? null;
   const competitiveNumber =
@@ -528,6 +568,19 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
             })),
             response: revision.aiResponse,
           })),
+          entryBasis: waiverBoardEntryBasis({ lateEntry: late, competitiveOverride: override }),
+          competitiveOverride: override
+            ? {
+                overrideId: override.id,
+                importedAt: override.authorizedAt,
+                authorizedByLabel: userLabel(override.authorizedBy),
+                reason: override.reason,
+                modelLabel: override.modelLabel,
+                sourceReference: override.sourceReference,
+                evidenceId: override.evidenceId,
+                responseSha256: override.responseSha256,
+              }
+            : null,
           lateEntry:
             late && late.verification.originalPredictionAt
               ? {
@@ -548,6 +601,7 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
         }
       : null,
     lateEntry: { blockers },
+    competitiveOverride: { blockers: overrideBlockers },
     evidence: evidence.map((row) => ({
       id: row.id,
       modelLabel: row.modelLabel,

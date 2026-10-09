@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
+import type { WaiverBoardEntryBasis } from "@/lib/waivers/ai/constants";
 import { readWaiverClock } from "@/lib/waivers/clock";
+import { waiverBoardEntryBasis } from "@/lib/waivers/competitor-category";
 import { ensureWaiverContestLocked } from "@/lib/waivers/contests";
 import { isWaiverRevealAllowed } from "@/lib/waivers/lock-time";
 
@@ -23,6 +25,10 @@ export type RevealableWaiverBoard = {
   calls: Array<{ slot: number; rankableEntryId: string }>;
   /** Approved administrative late entry (AI only): must be shown with WAIVER_AI_LATE_ENTRY_LABEL. */
   lateEntry: null | { originalPredictionAt: Date; importedAt: Date };
+  /** Admin competitive override (AI only): must be shown with WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL. */
+  competitiveOverride: null | { importedAt: Date };
+  /** ON_TIME for every HUMANS board; AI and ALL views label the others (competitor-category.ts). */
+  entryBasis: WaiverBoardEntryBasis;
 };
 
 /**
@@ -49,6 +55,7 @@ export async function loadRevealableWaiverBoards(
       authority: true,
       universalProfile: { select: { profileType: true } },
       lateEntry: { select: { approvedAt: true, verification: { select: { originalPredictionAt: true } } } },
+      competitiveOverride: { select: { authorizedAt: true } },
       lockedRevision: {
         select: {
           id: true,
@@ -78,6 +85,8 @@ export async function loadRevealableWaiverBoards(
           lateEntry: submission.lateEntry?.verification.originalPredictionAt
             ? { originalPredictionAt: submission.lateEntry.verification.originalPredictionAt, importedAt: submission.lateEntry.approvedAt }
             : null,
+          competitiveOverride: submission.competitiveOverride ? { importedAt: submission.competitiveOverride.authorizedAt } : null,
+          entryBasis: waiverBoardEntryBasis(submission),
         },
       ];
     }),

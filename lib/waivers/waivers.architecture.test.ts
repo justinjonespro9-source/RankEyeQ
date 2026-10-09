@@ -119,6 +119,7 @@ const SERVICE_MODULES = [
   "ai/submissions",
   "ai/evidence",
   "ai/late-entry",
+  "ai/competitive-override",
   "ai/provider-file",
   "ai/queries",
   "ai/actions",

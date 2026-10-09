@@ -65,14 +65,14 @@ describe("historical evidence isolation (static)", () => {
   const SCHEMA = readFileSync(path.join(ROOT, "prisma/schema.prisma"), "utf8");
   const model = (name: string) => SCHEMA.match(new RegExp(`^model ${name} \\{[\\s\\S]*?^\\}`, "m"))?.[0] ?? "";
 
-  it("evidence has no relation to submissions, revisions, calls or responses; only a late-entry approval links them", () => {
+  it("evidence has no relation to submissions, revisions, calls or responses; only a late-entry approval or an admin override links them", () => {
     for (const name of ["WaiverAiHistoricalEvidence", "WaiverAiHistoricalEvidenceReview", "WaiverAiLateEntryVerification"]) {
       expect(model(name), name).not.toMatch(/\bWaiverSubmission\b|\bWaiverSubmissionRevision\b|\bWaiverCall\b|\bWaiverAiResponse\b/);
     }
     const referencing = [...SCHEMA.matchAll(/^model (\w+) \{[\s\S]*?^\}/gm)]
       .filter((match) => /\sWaiverAiHistoricalEvidence\??\s+@relation\(fields:/.test(match[0]))
       .map((match) => match[1]);
-    expect(referencing.sort()).toEqual(["WaiverAiHistoricalEvidenceReview", "WaiverAiLateEntryApproval", "WaiverAiLateEntryVerification"]);
+    expect(referencing.sort()).toEqual(["WaiverAiCompetitiveOverride", "WaiverAiHistoricalEvidenceReview", "WaiverAiLateEntryApproval", "WaiverAiLateEntryVerification"]);
   });
 
   it("only the AI evidence, late-entry and admin query modules read or write evidence", () => {

@@ -5,6 +5,7 @@ import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { WaiverAiEvidencePanel } from "@/components/admin/waivers/ai/WaiverAiEvidencePanel";
+import { WaiverAiCompetitiveOverrideForm } from "@/components/admin/waivers/ai/WaiverAiCompetitiveOverrideForm";
 import { WaiverAiEvidenceReviewForm } from "@/components/admin/waivers/ai/WaiverAiEvidenceReviewForm";
 import { WaiverAiLateEntryForm } from "@/components/admin/waivers/ai/WaiverAiLateEntryForm";
 import { WaiverAiParsePreview } from "@/components/admin/waivers/ai/WaiverAiParsePreview";
@@ -15,6 +16,7 @@ import { SectionHeading } from "@/components/ui/SectionHeading";
 import { privatePageMetadata } from "@/lib/seo";
 import { formatInChicago } from "@/lib/timing/chicago";
 import {
+  WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL,
   WAIVER_AI_EVIDENCE_LABEL,
   WAIVER_AI_EVIDENCE_SOURCE_LABELS,
   WAIVER_AI_LATE_ENTRY_BASIS_LABELS,
@@ -24,10 +26,16 @@ import {
   WAIVER_AI_LATE_EVIDENCE_LABEL,
   WAIVER_AI_PROMPT_EQUIVALENCE_LABELS,
   WAIVER_AI_STATED_TIME_NOTE,
+  WAIVER_BOARD_ENTRY_BASIS_LABELS,
   type WaiverAiEvidenceSource,
   type WaiverAiLateEntryBasis,
 } from "@/lib/waivers/ai/constants";
-import { loadWaiverAiBoardView, type WaiverAiLateEntryBoardView, type WaiverAiLateEntryPromptView } from "@/lib/waivers/ai/queries";
+import {
+  loadWaiverAiBoardView,
+  type WaiverAiCompetitiveOverrideBoardView,
+  type WaiverAiLateEntryBoardView,
+  type WaiverAiLateEntryPromptView,
+} from "@/lib/waivers/ai/queries";
 
 export const metadata: Metadata = privatePageMetadata("AI Waiver board · Admin", "Submit and audit a system-operated AI WaiverEyeQ board.");
 
@@ -82,6 +90,26 @@ function LateEntryDesignation({ late }: { late: WaiverAiLateEntryBoardView }) {
   );
 }
 
+function OverrideDesignation({ override }: { override: WaiverAiCompetitiveOverrideBoardView }) {
+  return (
+    <div className="rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-sm">
+      <p className="font-semibold text-danger">{WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL}</p>
+      <p className="mt-1 text-muted">Entered after the lock by an administrator, without pre-lock evidence. Not a verified pre-lock submission.</p>
+      <dl className="mt-1 grid gap-1 sm:grid-cols-2">
+        <Field label="Imported (database time)" value={`${when(override.importedAt)} by ${override.authorizedByLabel}`} />
+        <Field label="Original prediction time" value="Not established" />
+        <Field label="Model label" value={override.modelLabel} />
+        <Field label="Source reference" value={override.sourceReference} />
+        <Field label="Attached evidence" value={override.evidenceId ? `Historical evidence ${override.evidenceId}` : "None"} mono={Boolean(override.evidenceId)} />
+        <Field label="Response sha256" value={override.responseSha256} mono />
+        <div className="sm:col-span-2">
+          <Field label="Override reason" value={override.reason} />
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 const REVIEW_LABELS: Record<string, string> = {
   TEXT_CONFIRMED: "Text confirmed",
   NEEDS_FOLLOW_UP: "Needs follow-up",
@@ -119,6 +147,27 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
 
       <div className="space-y-8">
         <section className="rounded-lg border border-border bg-surface-elevated p-5">
+          <h2 className="text-lg font-semibold text-ink">Ways to enter this board</h2>
+          <ol className="mt-2 space-y-1 text-sm">
+            <li>
+              <span className="font-medium text-ink">A · On-time submission</span> — before the lock, through the AI response import.{" "}
+              <span className="text-muted">{open ? "Available." : "Closed (locked)."}</span>
+            </li>
+            <li>
+              <span className="font-medium text-ink">B · Verified pre-lock late entry</span> — after the lock, only with independently verifiable pre-lock
+              evidence; shown as “{WAIVER_AI_LATE_ENTRY_LABEL}”.{" "}
+              <span className="text-muted">{view.lateEntry.blockers.length === 0 ? "Available with eligible evidence." : "Not available."}</span>
+            </li>
+            <li>
+              <span className="font-medium text-ink">C · Admin competitive override</span> — after the lock, an administrator&apos;s explicit, reasoned
+              authorization without pre-lock evidence; shown as “{WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL}”.{" "}
+              <span className="text-muted">{view.competitiveOverride.blockers.length === 0 ? "Available." : "Not available."}</span>
+            </li>
+          </ol>
+          <p className="mt-2 text-xs text-muted">Each AI has at most one board per contest. No workflow replaces, edits or withdraws an existing board.</p>
+        </section>
+
+        <section className="rounded-lg border border-border bg-surface-elevated p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-ink">1. Frozen-pool prompt</h2>
             {view.prompt.text ? <CopyButton text={view.prompt.text} label="Copy Prompt" /> : null}
@@ -139,11 +188,11 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
         </section>
 
         <section className="rounded-lg border border-border bg-surface-elevated p-5">
-          <h2 className="text-lg font-semibold text-ink">AI response</h2>
+          <h2 className="text-lg font-semibold text-ink">A · On-time submission</h2>
           {!open ? (
             <p className="mt-2 text-sm text-muted">
-              Locked: no AI submission is possible after the Waiver lock. A prediction made earlier can be preserved as historical evidence
-              below; it becomes competitive only through the Late Entry Override with verified pre-lock evidence and a separate approval.
+              Locked: no ordinary AI submission is possible after the Waiver lock. A prediction made earlier can be preserved as historical evidence
+              below; it becomes competitive only through the verified pre-lock late entry (B) or an admin competitive override (C).
             </p>
           ) : !view.profile.canSubmit ? (
             <p className="mt-2 text-sm text-muted">This AI profile is not an active competitor; it cannot submit boards.</p>
@@ -161,8 +210,9 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
           ) : (
             <div className="mt-3 space-y-4">
               {view.board.lateEntry ? <LateEntryDesignation late={view.board.lateEntry} /> : null}
+              {view.board.competitiveOverride ? <OverrideDesignation override={view.board.competitiveOverride} /> : null}
               <p className="text-sm text-muted">
-                Status {view.board.status} · last submitted {when(view.board.submittedAt)}
+                Entry: {WAIVER_BOARD_ENTRY_BASIS_LABELS[view.board.entryBasis]} · Status {view.board.status} · last submitted {when(view.board.submittedAt)}
                 {view.board.lockedRevisionNumber !== null ? ` · competitive revision r${view.board.lockedRevisionNumber}` : ""}
               </p>
               {view.board.revisions.map((revision) => (
@@ -201,7 +251,9 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
                           value={
                             revision.response.promptVersion && revision.response.promptSha256
                               ? `${revision.response.promptVersion} · ${revision.response.promptSha256}`
-                              : "Original prompt not verified as the canonical prompt — see the late-entry verification"
+                              : view.board?.competitiveOverride
+                                ? "Not recorded — admin competitive override (no prompt claim)"
+                                : "Original prompt not verified as the canonical prompt — see the late-entry verification"
                           }
                           mono
                         />
@@ -286,7 +338,7 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
         </section>
 
         <section className="rounded-lg border border-border bg-surface-elevated p-5">
-          <h2 className="text-lg font-semibold text-ink">Late Entry Override</h2>
+          <h2 className="text-lg font-semibold text-ink">B · Verified pre-lock late entry (Late Entry Override)</h2>
           <p className="mt-1 text-sm text-muted">
             For delayed administrative recording only — never for creating or changing a prediction after the lock. A historical-evidence record
             becomes competitive only with independently verifiable pre-lock evidence (a database record made before the lock, or the original
@@ -404,6 +456,44 @@ export default async function AdminWaiverAiBoardPage({ params }: { params: Promi
               })}
             </div>
           )}
+        </section>
+
+        <section className="rounded-lg border border-danger/30 bg-surface-elevated p-5">
+          <h2 className="text-lg font-semibold text-ink">C · Admin competitive override</h2>
+          <p className="mt-1 text-sm text-muted">
+            An administrator&apos;s explicit exception: enters this AI&apos;s original response as a competitive board after the lock when pre-lock
+            evidence is unavailable. The board is labelled “{WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL}”, never verified pre-lock; it records the actual
+            database time, your identity and your reason, and no prompt claim. The exact response is parsed against the pinned frozen pool and refused
+            whole if invalid. It is graded like any other AI board, counts in AI and All Participants standings, and never enters human-only
+            consensus or standings. Refused once the week has a grade run, and never replaces an existing board.
+          </p>
+          {view.competitiveOverride.blockers.length > 0 ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-warning">
+              {view.competitiveOverride.blockers.map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          ) : null}
+          {view.board?.competitiveOverride ? (
+            <div className="mt-3">
+              <OverrideDesignation override={view.board.competitiveOverride} />
+            </div>
+          ) : null}
+          {view.competitiveOverride.blockers.length === 0 ? (
+            <div className="mt-4">
+              <WaiverAiCompetitiveOverrideForm
+                contestId={view.contest.id}
+                profileId={view.profile.id}
+                aiDisplayName={view.profile.displayName}
+                evidence={view.evidence.map((row) => ({
+                  id: row.id,
+                  responseSha256: row.responseSha256,
+                  label: `${row.modelLabel} · recorded ${when(row.recordedAt)} · ${row.responseSha256.slice(0, 12)}`,
+                  rejected: row.reviews.at(-1)?.status === "REJECTED",
+                }))}
+              />
+            </div>
+          ) : null}
         </section>
       </div>
     </Container>
