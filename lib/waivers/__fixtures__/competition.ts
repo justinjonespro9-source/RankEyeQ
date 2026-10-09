@@ -69,6 +69,28 @@ export async function createWaiverFixture(tag: string, options: { year?: number 
     return { userId: user.id, profileId: profile.id };
   }
 
+  /** AI competitor profile with no login (as in production). */
+  async function addAiCompetitor(label: string, options: { status?: "ACTIVE" | "SUSPENDED"; competitorActive?: boolean } = {}) {
+    const profile = await prisma.universalProfile.create({
+      data: {
+        username: `w_ai_${label}_${suffix}`.slice(0, 60),
+        displayName: `AI ${label}`,
+        profileType: "AI",
+        status: options.status ?? "ACTIVE",
+        competitorActive: options.competitorActive ?? true,
+      },
+    });
+    profileIds.push(profile.id);
+    return { profileId: profile.id };
+  }
+
+  /** Extra ADMIN login (removed by cleanup). */
+  async function addAdmin(label: string) {
+    const user = await prisma.user.create({ data: { email: `waivers-admin-${label}-${suffix}@example.test`, role: "ADMIN" } });
+    userIds.push(user.id);
+    return { userId: user.id };
+  }
+
   async function addPlayers(position: ContestPosition, count: number): Promise<FixturePlayer[]> {
     const players: FixturePlayer[] = [];
     for (let i = 0; i < count; i += 1) {
@@ -319,6 +341,9 @@ export async function createWaiverFixture(tag: string, options: { year?: number 
         where: { id: { in: submissionIds } },
         data: { currentRevisionId: null, lockedRevisionId: null },
       });
+      await tx.waiverAiResponse.deleteMany({ where: { contestId: { in: contestIds } } });
+      await tx.waiverAiHistoricalEvidenceReview.deleteMany({ where: { evidence: { contestId: { in: contestIds } } } });
+      await tx.waiverAiHistoricalEvidence.deleteMany({ where: { contestId: { in: contestIds } } });
       await tx.waiverCall.deleteMany({ where: { revision: { submissionId: { in: submissionIds } } } });
       await tx.waiverSubmissionRevision.deleteMany({ where: { submissionId: { in: submissionIds } } });
       await tx.waiverSubmission.deleteMany({ where: { id: { in: submissionIds } } });
@@ -350,6 +375,8 @@ export async function createWaiverFixture(tag: string, options: { year?: number 
     seasonId: season.id,
     adminUserId: admin.id,
     addParticipant,
+    addAiCompetitor,
+    addAdmin,
     addPlayers,
     addRosterPlayer,
     addWeek,

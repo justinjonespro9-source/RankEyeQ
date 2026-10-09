@@ -52,7 +52,11 @@ describe("Waiver competition schema (static)", () => {
     expect(block("model", "WaiverContest")).toMatch(/@@unique\(\[weekId, position\]\)/);
     const submission = block("model", "WaiverSubmission");
     expect(submission).toMatch(/@@unique\(\[contestId, universalProfileId\]\)/);
-    expect(submission).toMatch(/@@unique\(\[contestId, createdByUserId\]\)/);
+    // One owner-authored board per login; admins may operate many AI boards per contest.
+    expect(submission).toMatch(
+      /@@unique\(\[contestId, createdByUserId\], map: "WaiverSubmission_contestId_createdByUserId_owner_key", where: raw\("authority = 'OWNER_AUTHORED'::\\"SubmissionAuthority\\""\)\)/,
+    );
+    expect(submission).not.toMatch(/@@unique\(\[contestId, createdByUserId\]\)/);
     expect(submission).toMatch(/currentRevisionId\s+String\?\s+@unique/);
     expect(submission).toMatch(/lockedRevisionId\s+String\?\s+@unique/);
     expect(block("model", "WaiverSubmissionRevision")).toMatch(/@@unique\(\[submissionId, revisionNumber\]\)/);

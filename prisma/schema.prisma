@@ -2,8 +2,9 @@
 // Identity is universal-profile-ready; RankIQ contests reference UniversalProfile.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -264,6 +265,8 @@ model UniversalProfile {
   officialBoardVersions     OfficialBoardVersion[]
   weeklyContent             WeeklyContent[]
   waiverSubmissions         WaiverSubmission[]
+  waiverAiResponses         WaiverAiResponse[]
+  waiverAiHistoricalEvidence WaiverAiHistoricalEvidence[]
 
   @@index([publicFromWeekId])
 }
@@ -506,6 +509,9 @@ model User {
   waiverConflictResolutions        WaiverConflictResolution[]     @relation("WaiverConflictResolutionResolvedBy")
   waiverGradeRunsInitiated         WaiverGradeRun[]               @relation("WaiverGradeRunInitiatedBy")
   waiverGradeApprovals             WaiverGradeApproval[]          @relation("WaiverGradeApprovalApprovedBy")
+  waiverAiResponsesImported        WaiverAiResponse[]             @relation("WaiverAiResponseImportedBy")
+  waiverAiEvidenceRecorded         WaiverAiHistoricalEvidence[]   @relation("WaiverAiHistoricalEvidenceRecordedBy")
+  waiverAiEvidenceReviews          WaiverAiHistoricalEvidenceReview[] @relation("WaiverAiHistoricalEvidenceReviewer")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -1379,6 +1385,8 @@ model WaiverSnapshot {
   conflictResolutions WaiverConflictResolution[]
   contestResults      WaiverContestResult[]
   emptyPositionResults WaiverEmptyPositionResult[]
+  aiResponses          WaiverAiResponse[]
+  aiHistoricalEvidence WaiverAiHistoricalEvidence[]
 
   @@unique([weekId, version])
   @@index([seasonId, weekId])
@@ -1508,6 +1516,8 @@ model WaiverContest {
   results             WaiverContestResult[]
   boardGrades         WaiverBoardGrade[]
   resultAuthority     WaiverContestResultAuthority?
+  aiResponses         WaiverAiResponse[]
+  aiHistoricalEvidence WaiverAiHistoricalEvidence[]
 
   @@unique([weekId, position])
   @@index([snapshotId])
@@ -1519,7 +1529,8 @@ model WaiverSubmission {
   id                 String                 @id @default(cuid())
   contestId          String
   universalProfileId String
-  /// Login that created the board; one board per login per contest.
+  /// Login that created the board: the owner (OWNER_AUTHORED, one board per login per
+  /// contest) or the importing admin (SYSTEM_OPERATED AI boards).
   createdByUserId    String
   authority          SubmissionAuthority
   status             WaiverSubmissionStatus @default(DRAFT)
@@ -1543,7 +1554,9 @@ model WaiverSubmission {
   gradeAuthority   WaiverBoardGradeAuthority?
 
   @@unique([contestId, universalProfileId])
-  @@unique([contestId, createdByUserId])
+  /// One owner-authored board per login per contest. SYSTEM_OPERATED (AI) boards are
+  /// created by admins, so one admin login may operate several AI boards in a contest.
+  @@unique([contestId, createdByUserId], map: "WaiverSubmission_contestId_createdByUserId_owner_key", where: raw("authority = 'OWNER_AUTHORED'::\"SubmissionAuthority\""))
   @@index([contestId, status])
 }
 
@@ -1569,6 +1582,7 @@ model WaiverSubmissionRevision {
   currentFor WaiverSubmission? @relation("WaiverSubmissionCurrentRevision")
   lockedFor  WaiverSubmission? @relation("WaiverSubmissionLockedRevision")
   boardGrades WaiverBoardGrade[]
+  aiResponse  WaiverAiResponse?
 
   @@unique([submissionId, revisionNumber])
   @@index([submissionId, kind, createdAt])
@@ -2278,4 +2292,119 @@ model WaiverBoardGradeAuthority {
   @@index([boardGradeId])
   @@index([gradeRunId])
   @@index([changeId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — AI participation (Stage 4B.3A).
+// SYSTEM_OPERATED AI boards keep the verbatim AI response behind every
+// revision (WaiverAiResponse). Historical AI predictions recorded outside the
+// competitive window are record-only evidence: never a board, call, grade,
+// consensus or leaderboard input. Docs: docs/waivers-ai-participation.md.
+// ---------------------------------------------------------------------------
+
+/// Immutable verbatim AI response behind one SYSTEM_OPERATED SUBMISSION revision.
+model WaiverAiResponse {
+  id                 String          @id @default(cuid())
+  revisionId         String          @unique
+  contestId          String
+  position           ContestPosition
+  /// The contest's pinned frozen snapshot the prompt was built from and the response parsed against.
+  snapshotId         String
+  universalProfileId String
+  /// Admin-entered model label (e.g. the model version the response came from).
+  modelLabel         String
+  promptVersion      String
+  /// sha256 of the exact prompt text (deterministic for the pinned snapshot and position).
+  promptSha256       String
+  parserVersion      String
+  /// Exact response text as received by the server; never trimmed or normalized.
+  responseText       String
+  /// sha256 of the UTF-8 response text (database-checked).
+  responseSha256     String
+  responseByteLength Int
+  /// Explicit NO CALLS response (zero-call board).
+  noCalls            Boolean
+  /// Generation time as stated by the importing admin. Unverified; never proof of timing.
+  statedGeneratedAt  DateTime?
+  sourceReference    String?
+  sourceNote         String?
+  importedByUserId   String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  importedAt         DateTime        @default(now())
+
+  revision         WaiverSubmissionRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  contest          WaiverContest            @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot         WaiverSnapshot           @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile         @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  importedBy       User                     @relation("WaiverAiResponseImportedBy", fields: [importedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([contestId, universalProfileId])
+  @@index([snapshotId])
+  @@index([universalProfileId])
+  @@index([importedByUserId])
+}
+
+/// Append-only record of a historical AI prediction. Record-only: never creates or
+/// affects a Waiver board, revision, call, grade, approval, consensus or leaderboard.
+model WaiverAiHistoricalEvidence {
+  id                 String          @id @default(cuid())
+  contestId          String
+  position           ContestPosition
+  /// The contest's pinned frozen snapshot when recorded.
+  snapshotId         String
+  universalProfileId String
+  modelLabel         String
+  /// Exact original response text as received by the server.
+  responseText       String
+  /// sha256 of the UTF-8 response text (database-checked).
+  responseSha256     String
+  responseByteLength Int
+  /// Original source time as stated by the recording admin. Unverified; never proof.
+  statedSourceAt     DateTime?
+  /// Kind of preserved evidence (e.g. CHAT_EXPORT, SCREENSHOT_TRANSCRIPTION).
+  evidenceSource     String
+  evidenceReference  String
+  note               String?
+  /// Database-derived: recordedAt is at or after the contest's lock.
+  recordedAfterLock  Boolean
+  recordedByUserId   String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  recordedAt         DateTime        @default(now())
+
+  contest          WaiverContest                      @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot         WaiverSnapshot                     @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile                   @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  recordedBy       User                               @relation("WaiverAiHistoricalEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  reviews          WaiverAiHistoricalEvidenceReview[]
+
+  @@unique([contestId, universalProfileId, responseSha256])
+  @@index([universalProfileId])
+  @@index([snapshotId])
+  @@index([recordedByUserId])
+}
+
+/// Review outcome of historical evidence. None implies competitive eligibility.
+enum WaiverAiEvidenceReviewStatus {
+  /// The stored text was checked against the preserved original.
+  TEXT_CONFIRMED
+  NEEDS_FOLLOW_UP
+  REJECTED
+}
+
+/// Append-only review history; the latest sequence is the current review status.
+model WaiverAiHistoricalEvidenceReview {
+  id             String                       @id @default(cuid())
+  evidenceId     String
+  sequence       Int
+  status         WaiverAiEvidenceReviewStatus
+  note           String
+  reviewerUserId String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  reviewedAt     DateTime                     @default(now())
+
+  evidence WaiverAiHistoricalEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  reviewer User                       @relation("WaiverAiHistoricalEvidenceReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@unique([evidenceId, sequence])
+  @@index([reviewerUserId])
 }

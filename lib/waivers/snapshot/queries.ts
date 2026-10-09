@@ -60,8 +60,9 @@ export async function loadWaiverWeekOps(weekId: string) {
   });
   const contests = [];
   for (const contest of contestRows) {
-    const byStatus = await prisma.waiverSubmission.groupBy({ by: ["status"], where: { contestId: contest.id }, _count: { _all: true } });
-    const count = (status: string) => byStatus.find((row) => row.status === status)?._count._all ?? 0;
+    const byStatus = await prisma.waiverSubmission.groupBy({ by: ["status", "authority"], where: { contestId: contest.id }, _count: { _all: true } });
+    const count = (status: string, authority?: string) =>
+      byStatus.filter((row) => row.status === status && (!authority || row.authority === authority)).reduce((sum, row) => sum + row._count._all, 0);
     contests.push({
       id: contest.id,
       position: contest.position,
@@ -71,6 +72,8 @@ export async function loadWaiverWeekOps(weekId: string) {
       snapshotId: contest.snapshot.id,
       snapshotVersion: contest.snapshot.version,
       submitted: count("SUBMITTED") + count("LOCKED"),
+      /** System-operated AI boards included in `submitted`. */
+      aiSubmitted: count("SUBMITTED", "SYSTEM_OPERATED") + count("LOCKED", "SYSTEM_OPERATED"),
       drafts: count("DRAFT"),
     });
   }

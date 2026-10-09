@@ -165,7 +165,10 @@ export default async function AdminWaiversPage({ searchParams }: { searchParams:
                       </td>
                       <td className="py-1">v{contest.snapshotVersion}</td>
                       <td className="py-1">{when(contest.locksAt)}</td>
-                      <td className="py-1">{contest.submitted}</td>
+                      <td className="py-1">
+                        {contest.submitted}
+                        {contest.aiSubmitted > 0 ? <span className="text-muted"> (incl. {contest.aiSubmitted} AI)</span> : null}
+                      </td>
                       <td className="py-1">{contest.drafts}</td>
                     </tr>
                   ))}

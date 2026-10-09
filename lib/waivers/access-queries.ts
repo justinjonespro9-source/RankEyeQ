@@ -15,6 +15,9 @@ export async function getWaiverContestSubmissionCounts(contestId: string) {
 export type RevealableWaiverBoard = {
   submissionId: string;
   universalProfileId: string;
+  /** For competitor-category filtering (competitor-category.ts). */
+  profileType: string;
+  authority: string;
   lockedRevisionId: string;
   abstention: boolean;
   calls: Array<{ slot: number; rankableEntryId: string }>;
@@ -23,7 +26,8 @@ export type RevealableWaiverBoard = {
 /**
  * Competitive boards as locked, for future authorized reveal surfaces. Before
  * locksAt returns nothing for anyone. Uses each board's locked revision;
- * drafts are never returned.
+ * drafts are never returned. Returns every competitor category (human and
+ * AI); callers filter with competitor-category.ts.
  */
 export async function loadRevealableWaiverBoards(
   contestId: string,
@@ -40,6 +44,8 @@ export async function loadRevealableWaiverBoards(
     select: {
       id: true,
       universalProfileId: true,
+      authority: true,
+      universalProfile: { select: { profileType: true } },
       lockedRevision: {
         select: {
           id: true,
@@ -61,6 +67,8 @@ export async function loadRevealableWaiverBoards(
         {
           submissionId: submission.id,
           universalProfileId: submission.universalProfileId,
+          profileType: submission.universalProfile.profileType,
+          authority: submission.authority,
           lockedRevisionId: revision.id,
           abstention: revision.callCount === 0,
           calls: revision.calls.map((call) => ({ slot: call.slot, rankableEntryId: call.snapshotEntry.rankableEntryId })),

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AdminBanner } from "@/components/admin/AdminBanner";
+import { AiDisciplineTabs } from "@/components/admin/AiDisciplineTabs";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { CopyButton } from "@/components/admin/CopyButton";
 import { StatusPill } from "@/components/admin/StatusPill";
@@ -19,6 +20,7 @@ import { listAiCompetitorIdentities } from "@/lib/ai-identity";
 import { prisma } from "@/lib/db";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+import { WaiversAiWorkflow } from "./_waivers/WaiversAiWorkflow";
 
 export const metadata: Metadata = {
   title: "AI rankings · Admin",
@@ -30,6 +32,7 @@ export default async function AdminAiPage({
   searchParams,
 }: {
   searchParams: Promise<{
+    discipline?: string;
     weekId?: string;
     profileId?: string;
     position?: string;
@@ -40,6 +43,16 @@ export default async function AdminAiPage({
   }>;
 }) {
   const params = await searchParams;
+  if (params.discipline === "waivers") {
+    return (
+      <Container className="py-12 sm:py-16">
+        <AdminBanner />
+        <AdminNav current="/admin/ai" />
+        <AiDisciplineTabs current="waivers" />
+        <WaiversAiWorkflow weekId={params.weekId ?? null} />
+      </Container>
+    );
+  }
   const weeks = await prisma.week.findMany({
     where: { season: { active: true } },
     orderBy: { weekNumber: "asc" },
@@ -78,6 +91,7 @@ export default async function AdminAiPage({
     <Container className="py-12 sm:py-16">
       <AdminBanner />
       <AdminNav current="/admin/ai" />
+      <AiDisciplineTabs current="rankings" />
       <SectionHeading
         eyebrow="Bots"
         title="AI ranking workflow"

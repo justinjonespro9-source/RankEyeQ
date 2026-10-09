@@ -149,10 +149,12 @@ async function writeWaiverBoardInTransaction(
     where: { contestId_universalProfileId: { contestId: contest.id, universalProfileId: input.universalProfileId } },
     select: { id: true },
   });
+  // One owner-authored board per login; AI boards an admin imported do not count.
   const otherBoardByLogin = await tx.waiverSubmission.findFirst({
     where: {
       contestId: contest.id,
       createdByUserId: input.userId,
+      authority: "OWNER_AUTHORED",
       ...(submission ? { id: { not: submission.id } } : {}),
     },
     select: { id: true },

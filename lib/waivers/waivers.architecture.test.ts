@@ -86,6 +86,11 @@ const PURE_MODULES = [
   "play-model",
   "consensus-model",
   "leaderboard-model",
+  "competitor-category",
+  "ai/constants",
+  "ai/text",
+  "ai/prompt",
+  "ai/response-parser",
 ];
 /** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
 const SERVICE_MODULES = [
@@ -109,8 +114,13 @@ const SERVICE_MODULES = [
   "artifacts/upload",
   "play-queries",
   "leaderboard-queries",
+  "ai/context",
+  "ai/submissions",
+  "ai/evidence",
+  "ai/queries",
+  "ai/actions",
 ];
-const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions"];
+const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions", "ai/actions"];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/fantasy/competition-rank",
@@ -122,6 +132,10 @@ const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/nfl/player-aliases",
   "lib/nfl/manual/parse-common",
   "lib/providers/nfl/eligibility",
+  /** Generic ordered-list line extraction shared with the Rankings AI parser (no matching or skipping policy). */
+  "lib/text/ranked-list-lines",
+  /** Static NFL team names (DEF name matching in the AI response parser). */
+  "lib/nfl-schedule",
 ]);
 /**
  * The pure weekly-availability resolver (exact module only). Its DB store and
@@ -142,7 +156,7 @@ const SERVICE_RUNTIME_IMPORTS = new Set([
   "node:zlib",
 ]);
 /** The admin UI allowed to import Waivers, and what it may import at runtime. */
-const WAIVERS_UI_DIRS = ["app/admin/waivers", "components/admin/waivers"];
+const WAIVERS_UI_DIRS = ["app/admin/waivers", "components/admin/waivers", "app/admin/ai/_waivers"];
 const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/actions",
   "lib/waivers/snapshot/actions",
@@ -152,6 +166,9 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/artifacts/authority",
   "lib/waivers/artifacts/upload-limits",
   "lib/waivers/constants",
+  "lib/waivers/ai/actions",
+  "lib/waivers/ai/queries",
+  "lib/waivers/ai/constants",
 ]);
 /** The canonical artifact upload route handlers: thin wrappers over the upload service only. */
 const ARTIFACT_UPLOAD_ROUTE_DIR = "app/api/admin/waivers/artifacts";
@@ -181,6 +198,7 @@ const QUERY_MODULES = new Set([
   "lib/waivers/artifacts/queries",
   "lib/waivers/play-queries",
   "lib/waivers/leaderboard-queries",
+  "lib/waivers/ai/queries",
 ]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
@@ -519,7 +537,7 @@ describe("Waivers architecture isolation", () => {
         if (/["'`]\/admin\/waivers/.test(readFileSync(file, "utf8"))) linkers.push(path.relative(ROOT, file).split(path.sep).join("/"));
       }
     }
-    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", ...WAIVERS_UI_DIRS];
+    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", "lib/waivers/ai/actions.ts", ...WAIVERS_UI_DIRS];
     expect(linkers.filter((file) => !allowed.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)))).toEqual([]);
   });
 

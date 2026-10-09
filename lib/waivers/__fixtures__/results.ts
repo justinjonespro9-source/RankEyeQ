@@ -22,6 +22,9 @@ import {
 } from "@/lib/waivers/results/model";
 import { maxRawPointsForSlot, waiverEyeqHundredths } from "@/lib/waivers/scoring";
 import { saveWaiverDraft, submitWaiverBoard } from "@/lib/waivers/submissions";
+import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
+import { importAiWaiverBoard } from "@/lib/waivers/ai/submissions";
+import { sha256Utf8 } from "@/lib/waivers/ai/text";
 import { buildSyntheticCanonicalArtifact, hex } from "@/lib/waivers/__fixtures__/canonical-artifact";
 import { createWaiverFixture, MAINTENANCE_SQL, type FixturePlayer } from "@/lib/waivers/__fixtures__/competition";
 
@@ -59,6 +62,8 @@ export type ResultsScenario = {
   emptyPosition?: WaiverPosition;
   emptiedTeContest?: boolean;
   scale?: { wrPoolSize: number; wrBoards: number };
+  /** Adds a SYSTEM_OPERATED AI board at DEF (imported through the shipped AI service). */
+  aiBoard?: boolean;
 };
 
 const TX = { maxWait: 10_000, timeout: 600_000 } as const;
@@ -187,6 +192,24 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
   await submit(alpha, "WR", ["wr1", "wr2", "wr3", "wr4", "wr5"]);
   if (!scenario.emptiedTeContest) await submit(alpha, "TE", ["te1"]);
   await submit(alpha, "DEF", ["def1", "def2"]);
+  const ai = scenario.aiBoard ? await base.addAiCompetitor("grader") : null;
+  if (ai && contests.DEF) {
+    const responseText = `1. ${players.def3.name}\n2. ${players.def1.name}\n`;
+    const context = await loadWaiverAiContestContext(prisma, contests.DEF);
+    await importAiWaiverBoard({
+      adminUserId: base.adminUserId,
+      contestId: contests.DEF,
+      universalProfileId: ai.profileId,
+      responseText,
+      expectedResponseSha256: sha256Utf8(responseText),
+      expectedPromptSha256: context!.prompt.sha256,
+      confirmedRankableEntryIds: [players.def3.id, players.def1.id],
+      modelLabel: "Fixture model",
+      statedGeneratedAt: null,
+      sourceReference: null,
+      sourceNote: null,
+    });
+  }
   if (scenario.scale) {
     const callable = playerKeys.WR.filter((k) => k !== "wr6");
     for (let b = 0; b < scenario.scale.wrBoards; b += 1) {
@@ -947,6 +970,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
     alpha,
     bravo,
     charlie,
+    ai,
     contestPositions,
     adminUserId: base.adminUserId,
     secondAdminUserId: secondAdmin.id,

@@ -3,6 +3,7 @@ import { loadRevealableWaiverBoards } from "@/lib/waivers/access-queries";
 import { effectiveMaxCalls } from "@/lib/waivers/board-shape";
 import { readWaiverClock } from "@/lib/waivers/clock";
 import { normalizeTeamAbbr } from "@/lib/nfl/manual/parse-common";
+import { filterWaiverBoardsByCategory } from "@/lib/waivers/competitor-category";
 import { buildWaiverConsensus, publishWaiverConsensus } from "@/lib/waivers/consensus-model";
 import { WAIVER_MAX_CALLS, WAIVER_POSITIONS, type WaiverPosition, type WaiverSlotLabel } from "@/lib/waivers/constants";
 import { waiverPhaseAt } from "@/lib/waivers/lock-time";
@@ -170,9 +171,10 @@ async function loadPlayPool(snapshotId: string, position: WaiverPosition): Promi
 async function loadPlayConsensus(contestId: string, pool: WaiverPlayPoolEntry[]): Promise<WaiverPlayConsensus | null> {
   const revealed = await loadRevealableWaiverBoards(contestId);
   if (!revealed.revealed) return null;
+  // The public consensus is human-only: AI boards never enter it.
   const consensus = publishWaiverConsensus(
     buildWaiverConsensus({
-      boards: revealed.boards,
+      boards: filterWaiverBoardsByCategory(revealed.boards, "HUMANS"),
       poolOrder: pool.map((entry) => entry.rankableEntryId),
     }),
   );

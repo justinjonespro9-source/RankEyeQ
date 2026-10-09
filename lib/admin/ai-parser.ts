@@ -57,39 +57,30 @@ export type ParsedPickPreview = {
 import {
   normalizePlayerName,
 } from "@/lib/nfl/player-identity";
+import {
+  cleanRankedListName,
+  isRankedListHeaderRow,
+  matchNumberedRankedLine,
+  pickRankedListColumns,
+} from "@/lib/text/ranked-list-lines";
 
 export { normalizePlayerName } from "@/lib/nfl/player-identity";
 
-function cleanParsedName(value: string) {
-  return value
-    .replace(/^[-*+]\s+/, "")
-    .replace(/\*\*(.+)\*\*/, "$1")
-    .replace(/__(.+)__/, "$1")
-    .replace(/\s+\(.*\)$/, "")
-    .trim();
-}
+const cleanParsedName = cleanRankedListName;
 
 export function parseNumberedRankingLines(text: string): ParsedRankLine[] {
   const lines: ParsedRankLine[] = [];
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const match = line.match(
-      /^(?:#{1,6}\s*)?(?:\d+)\s*(?:[\.\)\:\-\]]\s+|\s+)(.+)$/,
-    );
-    if (!match) continue;
-    const rankMatch = line.match(/(\d+)/);
-    if (!rankMatch) continue;
-    const rank = Number(rankMatch[1]);
-    if (!Number.isInteger(rank) || rank < 1) continue;
-    const rawName = cleanParsedName(match[1]);
+    const numbered = matchNumberedRankedLine(line);
+    if (!numbered) continue;
+    const rawName = cleanParsedName(numbered.rawName);
     if (!rawName) continue;
-    lines.push({ rank, rawName });
+    lines.push({ rank: numbered.rank, rawName });
   }
   return lines;
 }
-
-const HEADER_TOKENS = new Set(["rank", "player", "name", "pos", "position", "team"]);
 
 export function parseTabDelimitedRankingLines(text: string): ParsedRankLine[] {
   const lines: ParsedRankLine[] = [];
@@ -100,21 +91,10 @@ export function parseTabDelimitedRankingLines(text: string): ParsedRankLine[] {
       .map((col) => col.trim())
       .filter(Boolean);
     if (cols.length < 2) continue;
-    const headerish = cols.every((col) => HEADER_TOKENS.has(col.toLowerCase()));
-    if (headerish) continue;
+    if (isRankedListHeaderRow(cols)) continue;
 
-    const rankCol = cols.findIndex((col) => /^\d+$/.test(col));
-    if (rankCol < 0) continue;
-    const rank = Number(cols[rankCol]);
-    if (!Number.isInteger(rank) || rank < 1) continue;
-
-    const nameCol = cols.find((col, index) => {
-      if (index === rankCol) return false;
-      if (/^\d+$/.test(col)) return false;
-      if (HEADER_TOKENS.has(col.toLowerCase())) return false;
-      if (col.length < 2) return false;
-      return /[a-zA-Z]/.test(col);
-    });
+    const { rank, rawName: nameCol } = pickRankedListColumns(cols);
+    if (rank === null || !Number.isInteger(rank) || rank < 1) continue;
     if (!nameCol) continue;
     const rawName = cleanParsedName(nameCol);
     if (!rawName) continue;
@@ -130,21 +110,10 @@ export function parseCommaCsvRankingLines(text: string): ParsedRankLine[] {
     if (!line || !line.includes(",")) continue;
     const cols = line.split(",").map((col) => col.trim().replace(/^"|"$/g, ""));
     if (cols.length < 2) continue;
-    const headerish = cols.every((col) => HEADER_TOKENS.has(col.toLowerCase()));
-    if (headerish) continue;
+    if (isRankedListHeaderRow(cols)) continue;
 
-    const rankCol = cols.findIndex((col) => /^\d+$/.test(col));
-    if (rankCol < 0) continue;
-    const rank = Number(cols[rankCol]);
-    if (!Number.isInteger(rank) || rank < 1) continue;
-
-    const nameCol = cols.find((col, index) => {
-      if (index === rankCol) return false;
-      if (/^\d+$/.test(col)) return false;
-      if (HEADER_TOKENS.has(col.toLowerCase())) return false;
-      if (col.length < 2) return false;
-      return /[a-zA-Z]/.test(col);
-    });
+    const { rank, rawName: nameCol } = pickRankedListColumns(cols);
+    if (rank === null || !Number.isInteger(rank) || rank < 1) continue;
     if (!nameCol) continue;
     const rawName = cleanParsedName(nameCol);
     if (!rawName) continue;
