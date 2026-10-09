@@ -48,6 +48,8 @@ export type WaiverAiCoverageCell = {
   revisionNumber: number | null;
   callCount: number | null;
   evidenceCount: number;
+  /** An approved administrative late entry (WAIVER_AI_LATE_ENTRY_LABEL). */
+  lateEntered: boolean;
 };
 
 export type WaiverAiWeekView = {
@@ -108,6 +110,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
         status: true,
         currentRevision: { select: { revisionNumber: true, callCount: true } },
         universalProfile: { select: { id: true, username: true, displayName: true } },
+        lateEntry: { select: { id: true } },
       },
     }),
     prisma.waiverAiHistoricalEvidence.groupBy({
@@ -153,6 +156,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
         revisionNumber: board?.currentRevision?.revisionNumber ?? null,
         callCount: board?.currentRevision?.callCount ?? null,
         evidenceCount,
+        lateEntered: Boolean(board?.lateEntry),
       };
       if (!competitor.active) continue;
       totals.expected += 1;
@@ -196,8 +200,9 @@ export type WaiverAiRevisionView = {
   calls: Array<{ slot: number; label: WaiverSlotLabel; displayName: string; team: string | null }>;
   response: null | {
     modelLabel: string;
-    promptVersion: string;
-    promptSha256: string;
+    /** Null only on an approved late entry whose original prompt is not verified canonical. */
+    promptVersion: string | null;
+    promptSha256: string | null;
     parserVersion: string;
     responseText: string;
     responseSha256: string;
@@ -226,6 +231,55 @@ export type WaiverAiEvidenceView = {
   reviews: Array<{ sequence: number; status: string; note: string; reviewerLabel: string; reviewedAt: Date }>;
   /** Strict parse against the contest's pinned frozen snapshot (display only). */
   parse: WaiverAiParseResult;
+  /** Append-only late-entry verifications of this record, oldest first. */
+  verifications: WaiverAiLateEntryVerificationView[];
+};
+
+export type WaiverAiLateEntryVerificationView = {
+  id: string;
+  sequence: number;
+  basis: string;
+  timestampMethod: string;
+  originalPredictionAt: Date | null;
+  sourceReference: string;
+  /** downloadPath: admin-only, read-only route returning the exact stored bytes. */
+  artifact: null | { name: string; sha256: string; byteLength: number; containsResponse: boolean; downloadPath: string };
+  prompt: WaiverAiLateEntryPromptView;
+  callCount: number;
+  boardFingerprint: string;
+  attestation: string;
+  eligible: boolean;
+  ineligibleReason: string | null;
+  verifiedAt: Date;
+  verifiedByLabel: string;
+  approved: boolean;
+};
+
+/** The prompt the AI actually answered, as recorded, kept apart from the canonical prompt used for validation. */
+export type WaiverAiLateEntryPromptView = {
+  originalVersion: string | null;
+  originalReference: string | null;
+  originalText: string | null;
+  originalSha256: string | null;
+  canonicalVersion: string;
+  canonicalSha256: string;
+  equivalence: string;
+};
+
+/** An approved late-entered board: original prediction time and actual import time. */
+export type WaiverAiLateEntryBoardView = {
+  approvalId: string;
+  originalPredictionAt: Date;
+  importedAt: Date;
+  approvedByLabel: string;
+  basis: string;
+  timestampMethod: string;
+  prompt: WaiverAiLateEntryPromptView;
+  sourceReference: string;
+  evidenceId: string;
+  verificationSequence: number;
+  responseSha256: string;
+  note: string | null;
 };
 
 export type WaiverAiBoardView = {
@@ -244,9 +298,69 @@ export type WaiverAiBoardView = {
     submittedAt: Date | null;
     lockedRevisionNumber: number | null;
     revisions: WaiverAiRevisionView[];
+    lateEntry: WaiverAiLateEntryBoardView | null;
   };
   evidence: WaiverAiEvidenceView[];
+  /** Late Entry Override availability: open when there are no blockers. */
+  lateEntry: { blockers: string[] };
 };
+
+const LATE_ENTRY_PROMPT_SELECT = {
+  originalPromptVersion: true,
+  originalPromptReference: true,
+  originalPromptText: true,
+  originalPromptSha256: true,
+  canonicalPromptVersion: true,
+  canonicalPromptSha256: true,
+  promptEquivalence: true,
+} as const;
+
+function promptView(v: {
+  originalPromptVersion: string | null;
+  originalPromptReference: string | null;
+  originalPromptText: string | null;
+  originalPromptSha256: string | null;
+  canonicalPromptVersion: string;
+  canonicalPromptSha256: string;
+  promptEquivalence: string;
+}): WaiverAiLateEntryPromptView {
+  return {
+    originalVersion: v.originalPromptVersion,
+    originalReference: v.originalPromptReference,
+    originalText: v.originalPromptText,
+    originalSha256: v.originalPromptSha256,
+    canonicalVersion: v.canonicalPromptVersion,
+    canonicalSha256: v.canonicalPromptSha256,
+    equivalence: v.promptEquivalence,
+  };
+}
+
+/** Admin-only provider-file download (see app/api/admin/waivers/ai/late-entry/[verificationId]/provider-file). */
+export function waiverAiProviderFilePath(verificationId: string, evidenceId: string): string {
+  return `/api/admin/waivers/ai/late-entry/${encodeURIComponent(verificationId)}/provider-file?evidenceId=${encodeURIComponent(evidenceId)}`;
+}
+
+const LATE_ENTRY_VERIFICATION_SELECT = {
+  id: true,
+  sequence: true,
+  basis: true,
+  timestampMethod: true,
+  originalPredictionAt: true,
+  sourceReference: true,
+  sourceArtifactName: true,
+  sourceArtifactSha256: true,
+  sourceArtifactByteLength: true,
+  artifactContainsResponse: true,
+  ...LATE_ENTRY_PROMPT_SELECT,
+  callCount: true,
+  boardFingerprint: true,
+  attestation: true,
+  eligible: true,
+  ineligibleReason: true,
+  verifiedAt: true,
+  verifiedBy: { select: { name: true, email: true } },
+  approval: { select: { id: true } },
+} as const;
 
 function userLabel(user: { name: string | null; email: string | null }): string {
   return user.name ?? user.email ?? "admin";
@@ -264,7 +378,7 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
   const now = await readWaiverClock();
   const phase = waiverPhaseAt(context.contest.locksAt, now);
 
-  const [submission, evidence] = await Promise.all([
+  const [submission, evidence, gradeRuns] = await Promise.all([
     prisma.waiverSubmission.findUnique({
       where: { contestId_universalProfileId: { contestId, universalProfileId: profileId } },
       select: {
@@ -273,6 +387,19 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
         status: true,
         submittedAt: true,
         lockedRevision: { select: { revisionNumber: true } },
+        lateEntry: {
+          select: {
+            id: true,
+            approvedAt: true,
+            note: true,
+            evidenceId: true,
+            responseSha256: true,
+            approvedBy: { select: { name: true, email: true } },
+            verification: {
+              select: { sequence: true, basis: true, timestampMethod: true, originalPredictionAt: true, sourceReference: true, ...LATE_ENTRY_PROMPT_SELECT },
+            },
+          },
+        },
         revisions: {
           orderBy: { revisionNumber: "desc" },
           select: {
@@ -325,9 +452,18 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
           orderBy: { sequence: "asc" },
           select: { sequence: true, status: true, note: true, reviewedAt: true, reviewer: { select: { name: true, email: true } } },
         },
+        lateEntryVerifications: { orderBy: { sequence: "asc" }, select: LATE_ENTRY_VERIFICATION_SELECT },
       },
     }),
+    prisma.waiverGradeRun.count({ where: { weekId: context.contest.weekId } }),
   ]);
+
+  const blockers: string[] = [];
+  if (phase === "OPEN") blockers.push("The contest is still open — submit through the AI response import above.");
+  if (submission) blockers.push("This AI already has a board for this contest; a late entry never replaces or changes a board.");
+  if (gradeRuns > 0) blockers.push("This week has a grade run; late entry is closed.");
+  if (profile.status !== "ACTIVE" || !profile.competitorActive) blockers.push("This AI profile is not an active competitor.");
+  const late = submission?.lateEntry ?? null;
 
   const lockedNumber = submission?.lockedRevision?.revisionNumber ?? null;
   const competitiveNumber =
@@ -392,8 +528,26 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
             })),
             response: revision.aiResponse,
           })),
+          lateEntry:
+            late && late.verification.originalPredictionAt
+              ? {
+                  approvalId: late.id,
+                  originalPredictionAt: late.verification.originalPredictionAt,
+                  importedAt: late.approvedAt,
+                  approvedByLabel: userLabel(late.approvedBy),
+                  basis: late.verification.basis,
+                  timestampMethod: late.verification.timestampMethod,
+                  prompt: promptView(late.verification),
+                  sourceReference: late.verification.sourceReference,
+                  evidenceId: late.evidenceId,
+                  verificationSequence: late.verification.sequence,
+                  responseSha256: late.responseSha256,
+                  note: late.note,
+                }
+              : null,
         }
       : null,
+    lateEntry: { blockers },
     evidence: evidence.map((row) => ({
       id: row.id,
       modelLabel: row.modelLabel,
@@ -420,6 +574,33 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
         maxCalls: context.contest.maxCalls,
         rows: context.rows,
       }),
+      verifications: row.lateEntryVerifications.map((v) => ({
+        id: v.id,
+        sequence: v.sequence,
+        basis: v.basis,
+        timestampMethod: v.timestampMethod,
+        originalPredictionAt: v.originalPredictionAt,
+        sourceReference: v.sourceReference,
+        artifact:
+          v.sourceArtifactName && v.sourceArtifactSha256 && v.sourceArtifactByteLength !== null
+            ? {
+                name: v.sourceArtifactName,
+                sha256: v.sourceArtifactSha256,
+                byteLength: v.sourceArtifactByteLength,
+                containsResponse: v.artifactContainsResponse === true,
+                downloadPath: waiverAiProviderFilePath(v.id, row.id),
+              }
+            : null,
+        prompt: promptView(v),
+        callCount: v.callCount,
+        boardFingerprint: v.boardFingerprint,
+        attestation: v.attestation,
+        eligible: v.eligible,
+        ineligibleReason: v.ineligibleReason,
+        verifiedAt: v.verifiedAt,
+        verifiedByLabel: userLabel(v.verifiedBy),
+        approved: v.approval !== null,
+      })),
     })),
   };
 }

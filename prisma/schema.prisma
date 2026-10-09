@@ -267,6 +267,8 @@ model UniversalProfile {
   waiverSubmissions         WaiverSubmission[]
   waiverAiResponses         WaiverAiResponse[]
   waiverAiHistoricalEvidence WaiverAiHistoricalEvidence[]
+  waiverAiLateEntryVerifications WaiverAiLateEntryVerification[]
+  waiverAiLateEntryApprovals     WaiverAiLateEntryApproval[]
 
   @@index([publicFromWeekId])
 }
@@ -512,6 +514,8 @@ model User {
   waiverAiResponsesImported        WaiverAiResponse[]             @relation("WaiverAiResponseImportedBy")
   waiverAiEvidenceRecorded         WaiverAiHistoricalEvidence[]   @relation("WaiverAiHistoricalEvidenceRecordedBy")
   waiverAiEvidenceReviews          WaiverAiHistoricalEvidenceReview[] @relation("WaiverAiHistoricalEvidenceReviewer")
+  waiverAiLateEntryVerifications   WaiverAiLateEntryVerification[] @relation("WaiverAiLateEntryVerifiedBy")
+  waiverAiLateEntryApprovals       WaiverAiLateEntryApproval[]     @relation("WaiverAiLateEntryApprovedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -1387,6 +1391,8 @@ model WaiverSnapshot {
   emptyPositionResults WaiverEmptyPositionResult[]
   aiResponses          WaiverAiResponse[]
   aiHistoricalEvidence WaiverAiHistoricalEvidence[]
+  aiLateEntryVerifications WaiverAiLateEntryVerification[]
+  aiLateEntryApprovals     WaiverAiLateEntryApproval[]
 
   @@unique([weekId, version])
   @@index([seasonId, weekId])
@@ -1518,6 +1524,8 @@ model WaiverContest {
   resultAuthority     WaiverContestResultAuthority?
   aiResponses         WaiverAiResponse[]
   aiHistoricalEvidence WaiverAiHistoricalEvidence[]
+  aiLateEntryVerifications WaiverAiLateEntryVerification[]
+  aiLateEntryApprovals     WaiverAiLateEntryApproval[]
 
   @@unique([weekId, position])
   @@index([snapshotId])
@@ -1535,11 +1543,13 @@ model WaiverSubmission {
   authority          SubmissionAuthority
   status             WaiverSubmissionStatus @default(DRAFT)
   currentRevisionId  String?                @unique
-  /// Final SUBMISSION revision created before locksAt (set by the lock stamp).
+  /// Final SUBMISSION revision created before locksAt (set by the lock stamp), or
+  /// the single revision of an approved AI late entry (WaiverAiLateEntryApproval).
   lockedRevisionId   String?                @unique
   /// Instant of the latest SUBMISSION revision.
   submittedAt        DateTime?
-  /// Equals the contest's locksAt once stamped.
+  /// Equals the contest's locksAt once stamped; for an approved AI late entry,
+  /// the database time of the late-entry import (never backdated).
   lockedAt           DateTime?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
@@ -1552,6 +1562,7 @@ model WaiverSubmission {
   revisions        WaiverSubmissionRevision[] @relation("WaiverSubmissionRevisions")
   boardGrades      WaiverBoardGrade[]
   gradeAuthority   WaiverBoardGradeAuthority?
+  lateEntry        WaiverAiLateEntryApproval?
 
   @@unique([contestId, universalProfileId])
   /// One owner-authored board per login per contest. SYSTEM_OPERATED (AI) boards are
@@ -1583,6 +1594,7 @@ model WaiverSubmissionRevision {
   lockedFor  WaiverSubmission? @relation("WaiverSubmissionLockedRevision")
   boardGrades WaiverBoardGrade[]
   aiResponse  WaiverAiResponse?
+  lateEntry   WaiverAiLateEntryApproval?
 
   @@unique([submissionId, revisionNumber])
   @@index([submissionId, kind, createdAt])
@@ -2313,9 +2325,11 @@ model WaiverAiResponse {
   universalProfileId String
   /// Admin-entered model label (e.g. the model version the response came from).
   modelLabel         String
-  promptVersion      String
+  /// The prompt this response answered. Null only on an approved late entry
+  /// whose original prompt is not verified to be the canonical prompt.
+  promptVersion      String?
   /// sha256 of the exact prompt text (deterministic for the pinned snapshot and position).
-  promptSha256       String
+  promptSha256       String?
   parserVersion      String
   /// Exact response text as received by the server; never trimmed or normalized.
   responseText       String
@@ -2376,6 +2390,8 @@ model WaiverAiHistoricalEvidence {
   universalProfile UniversalProfile                   @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
   recordedBy       User                               @relation("WaiverAiHistoricalEvidenceRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   reviews          WaiverAiHistoricalEvidenceReview[]
+  lateEntryVerifications WaiverAiLateEntryVerification[]
+  lateEntryApprovals     WaiverAiLateEntryApproval[]
 
   @@unique([contestId, universalProfileId, responseSha256])
   @@index([universalProfileId])
@@ -2407,4 +2423,152 @@ model WaiverAiHistoricalEvidenceReview {
 
   @@unique([evidenceId, sequence])
   @@index([reviewerUserId])
+}
+
+// ---------------------------------------------------------------------------
+// RankEyeQ Waivers — controlled administrative late entry (Stage 4B.3B).
+// An admin may enter an AI prediction after the lock only when its pre-lock
+// existence is evidenced: a verification (append-only, eligibility derived by
+// the database) and then, in a later transaction, an approval that creates
+// the board in the same transaction. Lock times, revision timestamps and
+// existing rows are never changed. Docs: docs/waivers-ai-late-entry.md.
+// ---------------------------------------------------------------------------
+
+/// How a late entry's original pre-lock existence is evidenced.
+enum WaiverAiLateEntryBasis {
+  /// The evidence row itself was recorded by the database before the lock.
+  DATABASE_RECORDED_PRE_LOCK
+  /// Preserved original provider record (file bytes) holding the exact response.
+  PROVIDER_ARTIFACT
+  /// Administrator statement only. Never competitive.
+  OPERATOR_ATTESTED
+}
+
+/// Where a late entry's original prediction time comes from (database-derived).
+enum WaiverAiLateEntryTimestampMethod {
+  /// The database clock when the evidence was recorded.
+  DATABASE_CLOCK
+  /// The provider's own timestamp on the assistant message holding the exact
+  /// response, found in the stored file by the database.
+  PROVIDER_MESSAGE
+  /// Entered by an admin from the provider file; not on the provider message. Never competitive.
+  ADMIN_READ_FROM_ARTIFACT
+  /// Stated by the admin without a preserved source. Never competitive.
+  ADMIN_STATED
+}
+
+/// Whether the prompt an external prediction actually answered is the
+/// canonical Waivers prompt (database-derived).
+enum WaiverAiPromptEquivalence {
+  /// The preserved original prompt text is byte-identical to the canonical prompt.
+  VERIFIED
+  /// The original prompt is not preserved, so equivalence cannot be established.
+  UNKNOWN
+  /// The original prompt differs (preserved text differs, or a different prompt is stated).
+  DIFFERENT
+}
+
+/// Append-only evidence review of one historical-evidence record for late
+/// entry. `eligible` is derived by the database; ineligible verifications can
+/// never be approved.
+model WaiverAiLateEntryVerification {
+  id                       String                   @id @default(cuid())
+  evidenceId               String
+  /// Per evidence record, contiguous from 1.
+  sequence                 Int
+  contestId                String
+  position                 ContestPosition
+  snapshotId               String
+  universalProfileId       String
+  responseSha256           String
+  basis                    WaiverAiLateEntryBasis
+  /// Database-derived.
+  timestampMethod          WaiverAiLateEntryTimestampMethod
+  /// Original prediction time. Database-set for DATABASE_CLOCK and PROVIDER_MESSAGE.
+  originalPredictionAt     DateTime?
+  sourceReference          String
+  /// Original provider file bytes, preserved exactly (database-checked sha256 and size).
+  sourceArtifact           Bytes?
+  sourceArtifactName       String?
+  sourceArtifactSha256     String?
+  sourceArtifactByteLength Int?
+  /// Database-derived: the stored file contains the exact response text.
+  artifactContainsResponse Boolean?
+  /// The prompt the AI actually answered, as known: stated version/label.
+  originalPromptVersion    String?
+  /// Where the original prompt is preserved (export, link, archive).
+  originalPromptReference  String?
+  /// Exact original prompt text, when preserved.
+  originalPromptText       String?
+  /// Database-computed sha256 of originalPromptText.
+  originalPromptSha256     String?
+  /// Database-derived from the original prompt against the canonical prompt.
+  promptEquivalence        WaiverAiPromptEquivalence
+  /// The canonical Waivers prompt of the pinned snapshot the response was validated against.
+  canonicalPromptVersion   String
+  canonicalPromptSha256    String
+  parserVersion            String
+  callCount                Int
+  /// Fingerprint of the strict frozen-pool parse (fingerprint.ts).
+  boardFingerprint         String
+  attestation              String
+  /// Database-derived.
+  eligible                 Boolean
+  ineligibleReason         String?
+  verifiedByUserId         String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  verifiedAt               DateTime                 @default(now())
+
+  evidence         WaiverAiHistoricalEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  contest          WaiverContest              @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot         WaiverSnapshot             @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile           @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  verifiedBy       User                       @relation("WaiverAiLateEntryVerifiedBy", fields: [verifiedByUserId], references: [id], onDelete: Restrict)
+  approval         WaiverAiLateEntryApproval?
+
+  @@unique([evidenceId, sequence])
+  @@index([contestId, universalProfileId])
+  @@index([snapshotId])
+  @@index([universalProfileId])
+  @@index([verifiedByUserId])
+}
+
+/// Immutable approval of one eligible verification. Inserted first in the
+/// transaction that creates the late board; the lock guards admit exactly the
+/// board, revision, calls and AI response it names, in that transaction only.
+model WaiverAiLateEntryApproval {
+  id                 String   @id @default(cuid())
+  verificationId     String   @unique
+  evidenceId         String
+  contestId          String
+  universalProfileId String
+  snapshotId         String
+  responseSha256     String
+  boardFingerprint   String
+  callCount          Int
+  /// Ids of the board and revision this approval creates (checked at COMMIT).
+  submissionId       String   @unique
+  revisionId         String   @unique
+  /// The first 12 hex digits of responseSha256, typed by the approving admin.
+  confirmation       String
+  note               String?
+  approvedByUserId   String
+  /// Database clock (`waiver_utc_now()`): the late board's import time.
+  approvedAt         DateTime @default(now())
+
+  verification     WaiverAiLateEntryVerification @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  evidence         WaiverAiHistoricalEvidence    @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+  contest          WaiverContest                 @relation(fields: [contestId], references: [id], onDelete: Restrict)
+  snapshot         WaiverSnapshot                @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  universalProfile UniversalProfile              @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  submission       WaiverSubmission              @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  revision         WaiverSubmissionRevision      @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  approvedBy       User                          @relation("WaiverAiLateEntryApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+
+  /// One competitive late entry per AI profile per contest; never re-approvable.
+  @@unique([contestId, universalProfileId])
+  @@index([evidenceId])
+  @@index([snapshotId])
+  @@index([universalProfileId])
+  @@index([approvedByUserId])
 }

@@ -6,10 +6,14 @@ import {
   type SyntheticParticipantSpec,
 } from "@/lib/waivers/__fixtures__/canonical-artifact";
 import { MAINTENANCE_SQL } from "@/lib/waivers/__fixtures__/competition";
+import { createFixtureSeason } from "@/lib/waivers/__fixtures__/seasons";
+
+/** SNG-valid future seasons for artifact fixtures; allocated collision-free per fixture. */
+const ARTIFACT_FIXTURE_SEASON_YEARS = { min: 2030, max: 2099 } as const;
 
 /**
  * Local-DB fixtures for canonical artifact authority tests: a namespaced
- * season (random SNG-valid year) with weeks 5 and 6, an admin and a non-admin
+ * season (allocated SNG-valid year) with weeks 5 and 6, an admin and a non-admin
  * user, and synthetic contract artifacts. `cleanup()` removes everything with
  * the fixture-maintenance switch.
  */
@@ -27,8 +31,8 @@ export type ArtifactSpec = {
 
 export async function createArtifactFixture(tag: string) {
   const suffix = `${tag}${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
-  const year = 2030 + Math.floor(Math.random() * 70);
-  const season = await prisma.season.create({ data: { year, sport: `WAIVERS-ART-${suffix}`, active: false } });
+  const season = await createFixtureSeason(ARTIFACT_FIXTURE_SEASON_YEARS, `WAIVERS-ART-${suffix}`);
+  const year = season.year;
   const admin = await prisma.user.create({ data: { email: `art-admin-${suffix}@example.test`, role: "ADMIN" } });
   const member = await prisma.user.create({ data: { email: `art-user-${suffix}@example.test` } });
   const weeks = new Map<number, string>();

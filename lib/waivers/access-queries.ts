@@ -21,6 +21,8 @@ export type RevealableWaiverBoard = {
   lockedRevisionId: string;
   abstention: boolean;
   calls: Array<{ slot: number; rankableEntryId: string }>;
+  /** Approved administrative late entry (AI only): must be shown with WAIVER_AI_LATE_ENTRY_LABEL. */
+  lateEntry: null | { originalPredictionAt: Date; importedAt: Date };
 };
 
 /**
@@ -46,6 +48,7 @@ export async function loadRevealableWaiverBoards(
       universalProfileId: true,
       authority: true,
       universalProfile: { select: { profileType: true } },
+      lateEntry: { select: { approvedAt: true, verification: { select: { originalPredictionAt: true } } } },
       lockedRevision: {
         select: {
           id: true,
@@ -72,6 +75,9 @@ export async function loadRevealableWaiverBoards(
           lockedRevisionId: revision.id,
           abstention: revision.callCount === 0,
           calls: revision.calls.map((call) => ({ slot: call.slot, rankableEntryId: call.snapshotEntry.rankableEntryId })),
+          lateEntry: submission.lateEntry?.verification.originalPredictionAt
+            ? { originalPredictionAt: submission.lateEntry.verification.originalPredictionAt, importedAt: submission.lateEntry.approvedAt }
+            : null,
         },
       ];
     }),

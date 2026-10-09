@@ -23,6 +23,8 @@ import {
 import { maxRawPointsForSlot, waiverEyeqHundredths } from "@/lib/waivers/scoring";
 import { saveWaiverDraft, submitWaiverBoard } from "@/lib/waivers/submissions";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
+import { recordWaiverAiEvidence, reviewWaiverAiEvidence } from "@/lib/waivers/ai/evidence";
+import { approveWaiverAiLateEntry, verifyWaiverAiLateEntry } from "@/lib/waivers/ai/late-entry";
 import { importAiWaiverBoard } from "@/lib/waivers/ai/submissions";
 import { sha256Utf8 } from "@/lib/waivers/ai/text";
 import { buildSyntheticCanonicalArtifact, hex } from "@/lib/waivers/__fixtures__/canonical-artifact";
@@ -64,11 +66,15 @@ export type ResultsScenario = {
   scale?: { wrPoolSize: number; wrBoards: number };
   /** Adds a SYSTEM_OPERATED AI board at DEF (imported through the shipped AI service). */
   aiBoard?: boolean;
+  /** Adds a second AI's DEF board as an approved administrative late entry (pre-lock evidence, post-lock import). */
+  lateAiBoard?: boolean;
 };
 
 const TX = { maxWait: 10_000, timeout: 600_000 } as const;
 
 const MINUTE = 60_000;
+/** SNG-valid past seasons for results fixtures; allocated collision-free per fixture. */
+const RESULTS_FIXTURE_SEASON_YEARS = { min: 2001, max: 2024 } as const;
 type Cls = "RANKED" | "NON_PARTICIPANT" | "SYSTEMIC_NEUTRALIZE" | "SNAPSHOT_CONFLICT";
 export type PoolFact = { cls: Cls; points?: number; state?: string; disposition?: string };
 
@@ -129,8 +135,8 @@ type BoardWrite = { board: Omit<Prisma.WaiverBoardGradeUncheckedCreateInput, "id
 export type BuiltGradeRun = { run: Omit<Prisma.WaiverGradeRunUncheckedCreateInput, "id" | "createdAt">; boards: BoardWrite[] };
 
 export async function createResultsFixture(tag: string, scenario: ResultsScenario = {}) {
-  const year = 2001 + Math.floor(Math.random() * 24);
-  const base = await createWaiverFixture(tag, { year });
+  const base = await createWaiverFixture(tag, { years: RESULTS_FIXTURE_SEASON_YEARS });
+  const year = base.year;
   const alpha = await base.addParticipant("alpha");
   const bravo = await base.addParticipant("bravo");
   const charlie = scenario.overflowBoard || scenario.emptiedTeContest ? await base.addParticipant("charlie") : null;
@@ -219,9 +225,53 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
     }
   }
 
-  const lockAt = new Date();
+  const lateAi = scenario.lateAiBoard ? await base.addAiCompetitor("lategrader") : null;
+  const lateText = `1. ${players.def2.name}\n2. ${players.def3.name}\n`;
+  const lateEvidence =
+    lateAi && contests.DEF
+      ? await recordWaiverAiEvidence({
+          adminUserId: base.adminUserId,
+          contestId: contests.DEF,
+          universalProfileId: lateAi.profileId,
+          responseText: lateText,
+          expectedResponseSha256: sha256Utf8(lateText),
+          modelLabel: "Fixture late model",
+          statedSourceAt: null,
+          evidenceSource: "CHAT_EXPORT",
+          evidenceReference: "fixture-export.json",
+          note: null,
+        })
+      : null;
+
+  const lockAt = new Date(Math.max(Date.now(), lateEvidence ? lateEvidence.recordedAt.getTime() + 1 : 0));
   for (const position of contestPositions) await base.passLock(contests[position], lockAt);
   for (const position of contestPositions) await ensureWaiverContestLocked(contests[position]);
+
+  if (lateEvidence) {
+    const context = await loadWaiverAiContestContext(prisma, contests.DEF);
+    const pickIds = [players.def2.id, players.def3.id];
+    await reviewWaiverAiEvidence({ adminUserId: base.adminUserId, evidenceId: lateEvidence.evidenceId, expectedSequence: 0, status: "TEXT_CONFIRMED", note: "matches export" });
+    const verified = await verifyWaiverAiLateEntry({
+      adminUserId: base.adminUserId,
+      evidenceId: lateEvidence.evidenceId,
+      expectedSequence: 0,
+      basis: "DATABASE_RECORDED_PRE_LOCK",
+      originalPredictionAt: null,
+      sourceReference: "fixture-export.json",
+      artifact: null,
+      expectedPromptSha256: context!.prompt.sha256,
+      originalPrompt: { version: null, reference: null, text: null },
+      confirmedRankableEntryIds: pickIds,
+      attestation: "fixture late entry",
+    });
+    await approveWaiverAiLateEntry({
+      adminUserId: base.adminUserId,
+      verificationId: verified.verificationId,
+      confirmation: lateEvidence.responseSha256.slice(0, 12),
+      confirmedRankableEntryIds: pickIds,
+      note: null,
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Synthetic canonical artifacts (imported through the shipped service)
@@ -971,6 +1021,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
     bravo,
     charlie,
     ai,
+    lateAi,
     contestPositions,
     adminUserId: base.adminUserId,
     secondAdminUserId: secondAdmin.id,

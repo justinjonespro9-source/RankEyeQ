@@ -3,7 +3,7 @@ import { CopyButton } from "@/components/admin/CopyButton";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
 import { formatInChicago } from "@/lib/timing/chicago";
-import { WAIVEREYEQ_AI_PROMPT_VERSION } from "@/lib/waivers/ai/constants";
+import { WAIVEREYEQ_AI_PROMPT_VERSION, WAIVER_AI_LATE_ENTRY_LABEL } from "@/lib/waivers/ai/constants";
 import { loadWaiverAiAdminWeeks, loadWaiverAiWeekView, type WaiverAiBoardStatus } from "@/lib/waivers/ai/queries";
 
 function when(value: Date): string {
@@ -93,6 +93,11 @@ export async function WaiversAiWorkflow({ weekId }: { weekId: string | null }) {
                               {cell ? (
                                 <Link href={`/admin/waivers/ai/${competitor.id}/${contest.contestId}`} className="inline-flex flex-col gap-0.5">
                                   <Badge tone={STATUS_TONE[cell.status]}>{STATUS_LABEL[cell.status]}</Badge>
+                                  {cell.lateEntered ? (
+                                    <Badge tone="warning" title={WAIVER_AI_LATE_ENTRY_LABEL}>
+                                      Late-entered
+                                    </Badge>
+                                  ) : null}
                                   <span className="text-xs text-muted">
                                     {cell.revisionNumber !== null ? `r${cell.revisionNumber} · ${cell.callCount} pick${cell.callCount === 1 ? "" : "s"}` : ""}
                                     {cell.evidenceCount > 0 ? `${cell.revisionNumber !== null ? " · " : ""}${cell.evidenceCount} evidence` : ""}

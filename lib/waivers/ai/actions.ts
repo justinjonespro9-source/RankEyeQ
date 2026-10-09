@@ -5,8 +5,18 @@ import { assertAdmin } from "@/lib/auth/session";
 import { logServerEvent } from "@/lib/log";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
-import { WAIVER_AI_MODEL_LABEL_MAX, WAIVER_AI_NOTE_MAX, WAIVER_AI_RESPONSE_MAX_BYTES, WAIVER_AI_SOURCE_REFERENCE_MAX } from "@/lib/waivers/ai/constants";
+import {
+  WAIVER_AI_ARTIFACT_BASE64_MAX,
+  WAIVER_AI_ARTIFACT_NAME_MAX,
+  WAIVER_AI_MODEL_LABEL_MAX,
+  WAIVER_AI_NOTE_MAX,
+  WAIVER_AI_PROMPT_TEXT_MAX_BYTES,
+  WAIVER_AI_PROMPT_VERSION_MAX,
+  WAIVER_AI_RESPONSE_MAX_BYTES,
+  WAIVER_AI_SOURCE_REFERENCE_MAX,
+} from "@/lib/waivers/ai/constants";
 import { previewWaiverAiEvidence, recordWaiverAiEvidence, reviewWaiverAiEvidence } from "@/lib/waivers/ai/evidence";
+import { approveWaiverAiLateEntry, verifyWaiverAiLateEntry } from "@/lib/waivers/ai/late-entry";
 import { importAiWaiverBoard, previewWaiverAiResponse, WaiverAiError } from "@/lib/waivers/ai/submissions";
 import { SHA256_HEX } from "@/lib/waivers/ai/text";
 import { parseWaiverObservedAt } from "@/lib/waivers/snapshot/input";
@@ -184,5 +194,84 @@ export async function reviewWaiverAiEvidenceAction(input: unknown) {
     return { ok: true as const, sequence: result.sequence, reviewedAt: result.reviewedAt.toISOString() };
   } catch (error) {
     return failure(error, "waivers.ai_evidence_review_failed");
+  }
+}
+
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+const isPickIds = (value: unknown): value is string[] => Array.isArray(value) && value.length <= MAX_PICKS && value.every(isId);
+
+/** Late Entry Override step 1: records an append-only verification. Never creates a board. */
+export async function verifyWaiverAiLateEntryAction(input: unknown) {
+  const userId = await adminUserId();
+  if (!userId) return { ok: false as const, error: "Admin access required", code: "FORBIDDEN" };
+  if (!isObject(input) || !isId(input.evidenceId) || !isId(input.profileId) || !isId(input.contestId)) return invalid();
+  const { expectedSequence, basis, sourceReference, attestation, expectedPromptSha256, confirmedRankableEntryIds, artifact } = input;
+  if (typeof expectedSequence !== "number" || !Number.isInteger(expectedSequence) || expectedSequence < 0) return invalid();
+  if (!isText(basis, 64) || !isText(sourceReference, WAIVER_AI_SOURCE_REFERENCE_MAX) || !isText(attestation, WAIVER_AI_NOTE_MAX)) return invalid();
+  if (!isSha(expectedPromptSha256) || !isPickIds(confirmedRankableEntryIds)) return invalid();
+  let file: { name: string; bytes: Uint8Array; expectedSha256: string } | null = null;
+  if (artifact !== null && artifact !== undefined) {
+    if (!isObject(artifact) || !isText(artifact.name, WAIVER_AI_ARTIFACT_NAME_MAX) || !isSha(artifact.sha256)) return invalid();
+    if (!isText(artifact.base64, WAIVER_AI_ARTIFACT_BASE64_MAX) || !BASE64.test(artifact.base64)) return invalid("The provider file is too large or malformed");
+    file = { name: artifact.name, bytes: new Uint8Array(Buffer.from(artifact.base64, "base64")), expectedSha256: artifact.sha256 };
+  }
+  const original = statedTime(input.originalPredictionAt);
+  if (!original.ok) return invalid("Original time must be Chicago local (YYYY-MM-DDTHH:MM) or ISO with a zone");
+  const { originalPrompt } = input;
+  if (!isObject(originalPrompt)) return invalid();
+  if (!isText(originalPrompt.version, WAIVER_AI_PROMPT_VERSION_MAX) || !isText(originalPrompt.reference, WAIVER_AI_SOURCE_REFERENCE_MAX)) return invalid();
+  if (!isText(originalPrompt.text, WAIVER_AI_PROMPT_TEXT_MAX_BYTES)) return invalid("The original prompt text is too long");
+  const rate = await limited(userId);
+  if (rate) return rate;
+  try {
+    const result = await verifyWaiverAiLateEntry({
+      adminUserId: userId,
+      evidenceId: input.evidenceId,
+      expectedSequence,
+      basis,
+      originalPredictionAt: original.at,
+      sourceReference,
+      artifact: file,
+      expectedPromptSha256,
+      originalPrompt: { version: originalPrompt.version || null, reference: originalPrompt.reference || null, text: originalPrompt.text || null },
+      confirmedRankableEntryIds,
+      attestation,
+    });
+    revalidateBoard(input.profileId, input.contestId);
+    return {
+      ok: true as const,
+      sequence: result.sequence,
+      eligible: result.eligible,
+      ineligibleReason: result.ineligibleReason,
+      originalPredictionAt: result.originalPredictionAt?.toISOString() ?? null,
+      timestampMethod: result.timestampMethod,
+      promptEquivalence: result.promptEquivalence,
+    };
+  } catch (error) {
+    return failure(error, "waivers.ai_late_entry_verify_failed");
+  }
+}
+
+/** Late Entry Override step 2: approves an eligible verification and creates the late-entered board atomically. */
+export async function approveWaiverAiLateEntryAction(input: unknown) {
+  const userId = await adminUserId();
+  if (!userId) return { ok: false as const, error: "Admin access required", code: "FORBIDDEN" };
+  if (!isObject(input) || !isId(input.verificationId) || !isId(input.profileId) || !isId(input.contestId)) return invalid();
+  const { confirmation, confirmedRankableEntryIds, note } = input;
+  if (!isText(confirmation, 64) || !isPickIds(confirmedRankableEntryIds) || !isText(note, WAIVER_AI_NOTE_MAX)) return invalid();
+  const rate = await limited(userId);
+  if (rate) return rate;
+  try {
+    const result = await approveWaiverAiLateEntry({
+      adminUserId: userId,
+      verificationId: input.verificationId,
+      confirmation,
+      confirmedRankableEntryIds,
+      note: note || null,
+    });
+    revalidateBoard(input.profileId, input.contestId);
+    return { ok: true as const, callCount: result.callCount, noCalls: result.noCalls, importedAt: result.approvedAt.toISOString() };
+  } catch (error) {
+    return failure(error, "waivers.ai_late_entry_approve_failed");
   }
 }

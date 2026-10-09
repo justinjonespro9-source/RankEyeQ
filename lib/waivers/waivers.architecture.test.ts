@@ -91,6 +91,7 @@ const PURE_MODULES = [
   "ai/text",
   "ai/prompt",
   "ai/response-parser",
+  "ai/provider-artifact",
 ];
 /** Competition and snapshot services, admin queries and server actions (DB + auth allowed). */
 const SERVICE_MODULES = [
@@ -117,6 +118,8 @@ const SERVICE_MODULES = [
   "ai/context",
   "ai/submissions",
   "ai/evidence",
+  "ai/late-entry",
+  "ai/provider-file",
   "ai/queries",
   "ai/actions",
 ];
@@ -169,10 +172,15 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/ai/actions",
   "lib/waivers/ai/queries",
   "lib/waivers/ai/constants",
+  "lib/waivers/ai/provider-artifact",
 ]);
 /** The canonical artifact upload route handlers: thin wrappers over the upload service only. */
 const ARTIFACT_UPLOAD_ROUTE_DIR = "app/api/admin/waivers/artifacts";
 const ARTIFACT_UPLOAD_ROUTE_RUNTIME_IMPORTS = new Set(["lib/waivers/artifacts/upload"]);
+/** The AI late-entry provider-file download: one admin-only GET over the read-only download service. */
+const AI_PROVIDER_FILE_ROUTE_DIR = "app/api/admin/waivers/ai/late-entry";
+const AI_PROVIDER_FILE_ROUTE = `${AI_PROVIDER_FILE_ROUTE_DIR}/[verificationId]/provider-file/route.ts`;
+const AI_PROVIDER_FILE_ROUTE_RUNTIME_IMPORTS = new Set(["lib/waivers/ai/provider-file"]);
 /**
  * The public play surface: board actions, pure display models, and the public
  * read model (server page only). Never snapshot/admin modules or raw services.
@@ -466,7 +474,8 @@ describe("Waivers architecture isolation", () => {
         const isPublicUi = PUBLIC_WAIVERS_UI_DIRS.some((dir) => rel.startsWith(`${dir}/`));
         const leaderboardDir = Object.keys(LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS).find((dir) => rel.startsWith(`${dir}/`));
         const isUploadRoute = rel.startsWith(`${ARTIFACT_UPLOAD_ROUTE_DIR}/`);
-        if (!isAdminUi && !isPublicUi && !leaderboardDir && !isUploadRoute) {
+        const isProviderFileRoute = rel === AI_PROVIDER_FILE_ROUTE;
+        if (!isAdminUi && !isPublicUi && !leaderboardDir && !isUploadRoute && !isProviderFileRoute) {
           offenders.push(rel);
           continue;
         }
@@ -476,7 +485,9 @@ describe("Waivers architecture isolation", () => {
             ? PUBLIC_WAIVERS_UI_RUNTIME_IMPORTS
             : isUploadRoute
               ? ARTIFACT_UPLOAD_ROUTE_RUNTIME_IMPORTS
-              : LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS[leaderboardDir!];
+              : isProviderFileRoute
+                ? AI_PROVIDER_FILE_ROUTE_RUNTIME_IMPORTS
+                : LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS[leaderboardDir!];
         for (const ref of readImports(source)) {
           const target = normalizeSpecifier(file, ref.specifier);
           if (!target.startsWith("lib/waivers") || ref.typeOnly) continue;
@@ -522,12 +533,31 @@ describe("Waivers architecture isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("Waivers routes exist only under /admin, the admin artifact upload API, and the single public /waivers page; admin links stay admin-only", () => {
+  it("the AI provider-file download is a single admin-checked, read-only GET", () => {
+    const routes = walk(path.join(ROOT, AI_PROVIDER_FILE_ROUTE_DIR)).map((file) => path.relative(ROOT, file).split(path.sep).join("/"));
+    expect(routes).toEqual([AI_PROVIDER_FILE_ROUTE]);
+    const source = readFileSync(path.join(ROOT, AI_PROVIDER_FILE_ROUTE), "utf8");
+    expect([...source.matchAll(/^export\s+(?:async\s+)?(?:function|const)\s+(\w+)/gm)].map((m) => m[1])).toEqual(["GET"]);
+    expect(source).toMatch(/return handleWaiverAiProviderFileDownload\(request, verificationId\);/);
+    const service = readFileSync(path.join(WAIVERS_DIR, "ai/provider-file.ts"), "utf8");
+    expect(service.indexOf("resolveAdminUserId()")).toBeLessThan(service.indexOf("prisma.waiverAiLateEntryVerification"));
+    expect(service).toMatch(/assertWaiverAiAdmin\(prisma, adminUserId\)/);
+    expect(service).not.toMatch(/\bprisma\s*\.\s*\w+\s*\.\s*(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(|\$(?:executeRaw|transaction)/);
+    expect([...service.matchAll(/\bprisma\s*\.\s*(\w+)\s*\.\s*(\w+)\s*\(/g)].map((m) => `${m[1]}.${m[2]}`)).toEqual(["waiverAiLateEntryVerification.findUnique"]);
+  });
+
+  it("Waivers routes exist only under /admin, the admin artifact and AI provider-file APIs, and the single public /waivers page; admin links stay admin-only", () => {
     const routeDirs = walk(path.join(ROOT, "app"))
       .map((file) => path.relative(ROOT, path.dirname(file)).split(path.sep).join("/"))
       .filter((dir) => /(^|\/)waivers(\/|$)/i.test(dir));
     expect(
-      routeDirs.filter((dir) => !dir.startsWith("app/admin/waivers") && !dir.startsWith(`${ARTIFACT_UPLOAD_ROUTE_DIR}/`) && dir !== "app/waivers"),
+      routeDirs.filter(
+        (dir) =>
+          !dir.startsWith("app/admin/waivers") &&
+          !dir.startsWith(`${ARTIFACT_UPLOAD_ROUTE_DIR}/`) &&
+          `${dir}/route.ts` !== AI_PROVIDER_FILE_ROUTE &&
+          dir !== "app/waivers",
+      ),
     ).toEqual([]);
     expect(routeDirs).toContain("app/waivers");
     const linkers: string[] = [];

@@ -65,22 +65,24 @@ describe("historical evidence isolation (static)", () => {
   const SCHEMA = readFileSync(path.join(ROOT, "prisma/schema.prisma"), "utf8");
   const model = (name: string) => SCHEMA.match(new RegExp(`^model ${name} \\{[\\s\\S]*?^\\}`, "m"))?.[0] ?? "";
 
-  it("evidence has no relation to submissions, revisions, calls or responses", () => {
-    for (const name of ["WaiverAiHistoricalEvidence", "WaiverAiHistoricalEvidenceReview"]) {
+  it("evidence has no relation to submissions, revisions, calls or responses; only a late-entry approval links them", () => {
+    for (const name of ["WaiverAiHistoricalEvidence", "WaiverAiHistoricalEvidenceReview", "WaiverAiLateEntryVerification"]) {
       expect(model(name), name).not.toMatch(/\bWaiverSubmission\b|\bWaiverSubmissionRevision\b|\bWaiverCall\b|\bWaiverAiResponse\b/);
     }
     const referencing = [...SCHEMA.matchAll(/^model (\w+) \{[\s\S]*?^\}/gm)]
       .filter((match) => /\sWaiverAiHistoricalEvidence\??\s+@relation\(fields:/.test(match[0]))
       .map((match) => match[1]);
-    expect(referencing).toEqual(["WaiverAiHistoricalEvidenceReview"]);
+    expect(referencing.sort()).toEqual(["WaiverAiHistoricalEvidenceReview", "WaiverAiLateEntryApproval", "WaiverAiLateEntryVerification"]);
   });
 
-  it("only the AI evidence and admin query modules read or write evidence", () => {
+  it("only the AI evidence, late-entry and admin query modules read or write evidence", () => {
     const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "app", "lib", "components"], { cwd: ROOT, encoding: "utf8" })
       .split("\n")
       .filter((file) => /\.(ts|tsx)$/.test(file) && !file.startsWith("lib/generated/") && !/\.test\.tsx?$/.test(file) && !file.includes("__fixtures__"));
     const touching = files.filter((file) => /waiverAiHistoricalEvidence/.test(readFileSync(path.join(ROOT, file), "utf8")));
-    expect(touching.sort()).toEqual(["lib/waivers/ai/evidence.ts", "lib/waivers/ai/queries.ts"]);
+    expect(touching.sort()).toEqual(["lib/waivers/ai/evidence.ts", "lib/waivers/ai/late-entry.ts", "lib/waivers/ai/queries.ts"]);
+    const lateEntrySource = readFileSync(path.join(ROOT, "lib/waivers/ai/late-entry.ts"), "utf8");
+    expect(lateEntrySource).not.toMatch(/\.waiverAiHistoricalEvidence(Review)?\.(create|update|upsert|delete)/);
     const evidenceSource = readFileSync(path.join(ROOT, "lib/waivers/ai/evidence.ts"), "utf8");
     expect(evidenceSource).not.toMatch(/\.(waiverSubmission|waiverSubmissionRevision|waiverCall|waiverAiResponse|waiverContest|waiverSnapshot\w*)\.(create|update|upsert|delete)/);
   });

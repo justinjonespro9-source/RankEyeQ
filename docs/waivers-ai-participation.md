@@ -32,6 +32,10 @@ allowed; return only the list. It names the snapshot version and fingerprint
 and contains no timestamps, so the same snapshot always yields the same text and
 sha256. A board records the prompt sha256 it answered; a submit is refused
 (`PROMPT_CHANGED`) if the contest was re-pinned after the prompt was copied.
+The only exception is an approved late entry whose original prompt is not
+verified to be this prompt: its response stores no prompt, and the original
+prompt provenance is kept on the late-entry verification (see
+[waivers-ai-late-entry.md](waivers-ai-late-entry.md)).
 
 ## Strict parser — `WAIVEREYEQ_AI_PARSER_V1`
 
@@ -80,8 +84,9 @@ NUL or lone surrogates is refused rather than altered.
   the database clock; reviews are strictly sequential. TRUNCATE is refused on
   all three tables. Only fixture maintenance may delete (tests).
 
-The existing Waivers lock triggers are not modified: no board, revision or call
-can be inserted at or after `locksAt`, for any authority.
+No board, revision or call can be inserted at or after `locksAt`, for any
+authority, except through the Stage 4B.3B approved late-entry path (see
+[`waivers-ai-late-entry.md`](./waivers-ai-late-entry.md)).
 
 ## Index replacement
 
@@ -119,33 +124,12 @@ category and default to HUMANS. Admin operational counts include AI boards.
 
 ## Historical evidence (e.g. Week 5)
 
-Record-only: it never creates a submission, revision, call, grade, approval,
-consensus or leaderboard entry and has no path to become one. Records made at
-or after the contest lock are labelled **RECORDED AFTER LOCK — NOT
-COMPETITIVE**. Stage 4B.3A builds the storage and preview only; the eight Week 5
-responses are not imported and no Week 5 prediction is regenerated.
+Record-only: on its own it never creates a submission, revision, call, grade,
+approval, consensus or leaderboard entry. Records made at or after the contest
+lock are labelled **RECORDED AFTER LOCK — NOT COMPETITIVE**. Stage 4B.3A builds
+the storage and preview only; the eight Week 5 responses are not imported and no
+Week 5 prediction is regenerated.
 
-## Proposed future workflow: controlled late entry (not implemented)
-
-There is no competitive post-lock override. If the product owner wants one,
-this is the proposed shape, to be approved as its own stage:
-
-1. **Evidence first.** The original AI output is recorded as historical
-   evidence (byte-exact original file, evidence reference) before anything else.
-2. **Verifiable pre-lock provenance.** Admin-stated times are never sufficient.
-   Acceptable proof is independently verifiable and earlier than `locksAt` — for
-   example a provider-side conversation timestamp that a second admin can open,
-   or a pre-lock hash commitment of the exact text recorded somewhere RankEyeQ
-   does not control. Screenshot transcriptions do not qualify.
-3. **Separate review and approval.** A second admin (not the importer) reviews
-   the evidence against the original; approval is a separate, immutable record
-   with its own attestation text, like Waivers grade approvals.
-4. **Explicit competitive-eligibility decision.** A distinct, immutable
-   decision record (eligible / not eligible, reason, decider), never implied by
-   import or review.
-5. **No rewriting history.** An eligible late entry would be a new, clearly
-   marked board type whose revision time is the real import time; it never
-   backdates `createdAt`, never edits existing submissions, revisions or calls,
-   and never weakens the lock triggers. Consensus, grading and leaderboards
-   would include it only through an explicit, versioned rule — never silently —
-   and an already-applied grade run would require a new run and approval.
+The only path from evidence to a board is the Stage 4B.3B controlled late entry
+(an eligible verification plus a separate, immutable approval); see
+[`waivers-ai-late-entry.md`](./waivers-ai-late-entry.md).
