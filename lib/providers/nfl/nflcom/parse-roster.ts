@@ -27,8 +27,14 @@ export function mapSourcePositionToFantasy(
   return null;
 }
 
-function decodeHtmlText(value: string) {
+export function decodeHtmlText(value: string) {
   return value
+    .replace(/&#(?:x([0-9a-f]+)|(\d+));/gi, (_match, hex: string | undefined, decimal: string | undefined) => {
+      const codePoint = Number.parseInt(hex ?? decimal ?? "", hex ? 16 : 10);
+      return Number.isSafeInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : _match;
+    })
     .replace(/&#x27;/g, "'")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
