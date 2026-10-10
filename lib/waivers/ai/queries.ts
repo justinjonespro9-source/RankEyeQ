@@ -70,12 +70,14 @@ export type WaiverAiWeekView = {
     availableSlots: number;
     promptVersion: string;
     promptSha256: string;
-    /** Copyable only while the contest is open. */
+    /** Copyable here only while the contest is open; the admin board page always shows it. */
     promptText: string | null;
   }>;
   competitors: Array<{ id: string; username: string; displayName: string; active: boolean }>;
   cells: Record<string, Partial<Record<WaiverPosition, WaiverAiCoverageCell>>>;
   totals: { expected: number; submitted: number; locked: number; evidenceOnly: number; missing: number };
+  /** The week has a grade run, which closes late AI submissions. */
+  gradingStarted: boolean;
 };
 
 export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeekView | null> {
@@ -101,7 +103,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
     if (context) contexts.push(context);
   }
 
-  const [active, boards, evidence] = await Promise.all([
+  const [active, boards, evidence, gradeRuns] = await Promise.all([
     prisma.universalProfile.findMany({
       where: { profileType: "AI", status: "ACTIVE", competitorActive: true },
       orderBy: [{ displayName: "asc" }, { id: "asc" }],
@@ -124,6 +126,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
       where: { contestId: { in: contestIds } },
       _count: { _all: true },
     }),
+    prisma.waiverGradeRun.count({ where: { weekId: week.id } }),
   ]);
 
   const competitors = new Map(active.map((profile) => [profile.id, { ...profile, active: true }]));
@@ -195,6 +198,7 @@ export async function loadWaiverAiWeekView(weekId: string): Promise<WaiverAiWeek
     competitors: [...competitors.values()].sort((a, b) => Number(b.active) - Number(a.active)),
     cells,
     totals,
+    gradingStarted: gradeRuns > 0,
   };
 }
 

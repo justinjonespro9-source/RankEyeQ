@@ -61,8 +61,22 @@ export async function WaiversAiWorkflow({ weekId }: { weekId: string | null }) {
             <h2 className="text-lg font-semibold text-ink">AI coverage · {view.week.label}</h2>
             <p className="mt-1 text-sm text-muted">
               {view.totals.submitted} submitted · {view.totals.locked} locked · {view.totals.evidenceOnly} evidence only ·{" "}
-              {view.totals.missing} missing of {view.totals.expected} active AI boards. Evidence-only records are never boards.
+              {view.totals.missing} missing of {view.totals.expected} active AI boards. Evidence-only records are never boards. Inactive AIs
+              are listed only when they have records for this week and are not counted.
             </p>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted">
+              <li>Normal AI submissions close when each contest locks.</li>
+              <li>
+                After the lock, an admin can still enter a missing AI board from its board page by checking “Allow late AI submission”.
+              </li>
+              <li>A late submission never replaces a board the AI already has.</li>
+              <li>
+                Late submissions close once grading begins for the week.
+                {view.gradingStarted ? <span className="font-medium text-ink"> Grading has begun for this week, so they are closed.</span> : null}
+              </li>
+              <li>Late submissions are marked “Admin override” here and in the board history.</li>
+              <li>Each AI board page keeps the frozen prompt available to admins, including after the lock.</li>
+            </ul>
             {view.competitors.length === 0 ? (
               <p className="mt-3 text-sm text-muted">No active AI competitors.</p>
             ) : (
@@ -84,7 +98,7 @@ export async function WaiversAiWorkflow({ weekId }: { weekId: string | null }) {
                         <td className="py-2 pr-3">
                           <span className="font-medium text-ink">{competitor.displayName}</span>{" "}
                           <span className="text-xs text-muted">@{competitor.username}</span>
-                          {!competitor.active ? <span className="ml-2 text-xs text-muted">(inactive)</span> : null}
+                          {!competitor.active ? <span className="ml-2 text-xs text-muted">(inactive · not counted)</span> : null}
                         </td>
                         {view.contests.map((contest) => {
                           const cell = view.cells[competitor.id]?.[contest.position];
@@ -125,8 +139,8 @@ export async function WaiversAiWorkflow({ weekId }: { weekId: string | null }) {
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-ink">Frozen-pool prompts</h2>
             <p className="text-sm text-muted">
-              One prompt per position, identical for every AI. The sha256 covers the exact prompt text; boards record the prompt hash they answered.
-              Prompts are copyable only while the contest is open.
+              One prompt per position, identical for every AI, built from the contest&apos;s frozen player pool. The sha256 identifies the exact prompt
+              text. Copy prompts here while a contest is open; after the lock, open any AI&apos;s board page to view or copy its prompt.
             </p>
             {view.contests.map((contest) => (
               <article key={contest.contestId} className="rounded-lg border border-border bg-surface-elevated p-5">
@@ -159,7 +173,11 @@ export async function WaiversAiWorkflow({ weekId }: { weekId: string | null }) {
                     <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface p-3 font-mono text-xs">{contest.promptText}</pre>
                   </details>
                 ) : (
-                  <p className="mt-3 text-xs text-muted">Locked: no new AI boards can be submitted. Historical evidence can still be recorded (record only).</p>
+                  <p className="mt-3 text-xs text-muted">
+                    {view.gradingStarted
+                      ? "Locked and grading has begun: AI submissions are closed. The prompt stays available on each AI board page."
+                      : "Locked: normal AI submissions are closed. Open an AI's board page to view this prompt or make a late AI submission."}
+                  </p>
                 )}
               </article>
             ))}

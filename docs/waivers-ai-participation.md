@@ -48,7 +48,21 @@ a **mismatch** warning (with the recorded and rebuilt hashes) when any differs �
 for example after a prompt-builder change — and an **unrecorded** notice when
 no AI response recorded a prompt, in which case byte-identity with the prompt
 shown before the lock is not independently established. The week coverage page
-(`/admin/ai`) still offers prompts only while a contest is open.
+(`/admin/ai`) offers prompts only while a contest is open and points to the
+board pages after the lock.
+
+## AI roster and coverage
+
+Week coverage counts only active AI profiles (`status ACTIVE`,
+`competitorActive`). Deactivating an AI in the Admin → AI competitor directory
+(`setAiDirectoryActive`, audited as `ai.deactivated`) removes it from coverage
+and refuses new boards, on time or late, for it; the profile and its history
+are kept. An inactive AI that already has a board or evidence in a week is
+still listed, marked inactive and not counted, and its board pages stay
+readable. The coverage page states the submission rules: normal AI submissions
+close at the lock; an admin may still enter a missing AI board with "Allow late
+AI submission" until the week has a grade run; a late submission never replaces
+a board and is marked "Admin override" in coverage and board history.
 
 ## Strict parser — `WAIVEREYEQ_AI_PARSER_V1`
 
