@@ -2600,14 +2600,14 @@ model WaiverAiCompetitiveOverride {
   callCount          Int
   parserVersion      String
   modelLabel         String
-  /// Why this board is competitive without pre-lock evidence (required).
+  /// Why this board is competitive without pre-lock evidence (required; fixed text for late AI submissions since Stage 4B.3D).
   reason             String
   /// Optional pointer to where the original response is kept.
   sourceReference    String?
   /// Ids of the board and revision this override creates (checked at COMMIT).
   submissionId       String          @unique
   revisionId         String          @unique
-  /// The first 12 hex digits of responseSha256, typed by the authorizing admin.
+  /// The first 12 hex digits of responseSha256 (derived by the server from the computed hash since Stage 4B.3D).
   confirmation       String
   authorizedByUserId String
   /// Database clock (`waiver_utc_now()`): the board's actual import time.

@@ -196,7 +196,8 @@ beforeAll(async () => {
   await record("dbWr", wrContest, ai.dbWr, `1. ${wr[2].name}\n`);
   await record("rollback", rbContest, ai.rollback, `1. ${rb[3].name}\n2. ${rb[2].name}\n`);
 
-  lockAt = new Date();
+  // Strictly after the pre-lock evidence: timestamps are millisecond-precision.
+  lockAt = new Date(Date.now() + 5);
   await f.passLock(rbContest, lockAt);
   await f.passLock(wrContest, lockAt);
   await ensureWaiverContestLocked(rbContest);

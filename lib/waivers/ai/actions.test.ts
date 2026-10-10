@@ -38,11 +38,11 @@ vi.mock("@/lib/waivers/ai/competitive-override", () => ({
 }));
 
 import {
-  overrideWaiverAiBoardAction,
   previewWaiverAiEvidenceAction,
   previewWaiverAiResponseAction,
   recordWaiverAiEvidenceAction,
   reviewWaiverAiEvidenceAction,
+  submitLateWaiverAiBoardAction,
   submitWaiverAiBoardAction,
 } from "@/lib/waivers/ai/actions";
 import { WaiverAiError } from "@/lib/waivers/ai/submissions";
@@ -70,18 +70,15 @@ const submitInput = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const overrideInput = (overrides: Record<string, unknown> = {}) => ({
+const lateInput = (overrides: Record<string, unknown> = {}) => ({
   contestId: "c1",
   profileId: "ai1",
   responseText: "1. Player",
   expectedResponseSha256: SHA,
   confirmedRankableEntryIds: ["re1"],
-  modelLabel: "Model",
-  reason: "Export lost",
+  modelLabel: "",
   sourceReference: "",
-  evidenceId: null,
-  confirmation: SHA.slice(0, 12),
-  includeInCompetition: true,
+  allowLateSubmission: true,
   ...overrides,
 });
 
@@ -100,7 +97,7 @@ describe("AI Waiver admin actions", () => {
       previewWaiverAiEvidenceAction({ contestId: "c1", responseText: "x" }),
       recordWaiverAiEvidenceAction({}),
       reviewWaiverAiEvidenceAction({}),
-      overrideWaiverAiBoardAction(overrideInput()),
+      submitLateWaiverAiBoardAction(lateInput()),
     ]);
     for (const result of results) expect(result).toMatchObject({ ok: false, code: "FORBIDDEN" });
     for (const mock of [importAiWaiverBoard, previewWaiverAiResponse, previewWaiverAiEvidence, recordWaiverAiEvidence, reviewWaiverAiEvidence, overrideWaiverAiBoard]) {
@@ -163,33 +160,40 @@ describe("AI Waiver admin actions", () => {
     expect(recordWaiverAiEvidence).toHaveBeenCalledWith(expect.objectContaining({ adminUserId: adminId, statedSourceAt: null, note: null }));
   });
 
-  it("admin competitive override: session admin only, explicit inclusion and a reason required, revalidates both pages", async () => {
+  it("late AI submission: requires the checked box, needs no typed hash or reason, and revalidates both pages", async () => {
     signIn();
     for (const bad of [
-      overrideInput({ includeInCompetition: false }),
-      overrideInput({ includeInCompetition: "true" }),
-      overrideInput({ reason: "  " }),
-      overrideInput({ reason: "x".repeat(2001) }),
-      overrideInput({ modelLabel: "" }),
-      overrideInput({ expectedResponseSha256: "nope" }),
-      overrideInput({ confirmedRankableEntryIds: ["1", "2", "3", "4", "5", "6"] }),
-      overrideInput({ evidenceId: 42 }),
-      overrideInput({ profileId: "" }),
+      lateInput({ allowLateSubmission: false }),
+      lateInput({ allowLateSubmission: "true" }),
+      lateInput({ allowLateSubmission: undefined }),
+      lateInput({ modelLabel: "x".repeat(121) }),
+      lateInput({ expectedResponseSha256: "nope" }),
+      lateInput({ confirmedRankableEntryIds: ["1", "2", "3", "4", "5", "6"] }),
+      lateInput({ profileId: "" }),
     ]) {
-      expect(await overrideWaiverAiBoardAction(bad)).toMatchObject({ ok: false, code: "INVALID_INPUT" });
+      expect(await submitLateWaiverAiBoardAction(bad)).toMatchObject({ ok: false, code: "INVALID_INPUT" });
     }
     expect(overrideWaiverAiBoard).not.toHaveBeenCalled();
 
     const adminId = signIn();
     overrideWaiverAiBoard.mockResolvedValue({ overrideId: "o1", submissionId: "s1", revisionId: "r1", callCount: 1, noCalls: false, responseSha256: SHA, importedAt: new Date("2026-10-09T15:00:00Z") });
-    const result = await overrideWaiverAiBoardAction(overrideInput({ adminUserId: "someone-else", evidenceId: "" }));
+    const result = await submitLateWaiverAiBoardAction(lateInput({ adminUserId: "someone-else", reason: "ignored", confirmation: "ignored", evidenceId: "e1" }));
     expect(result).toEqual({ ok: true, callCount: 1, noCalls: false, importedAt: "2026-10-09T15:00:00.000Z" });
-    expect(overrideWaiverAiBoard).toHaveBeenCalledWith(
-      expect.objectContaining({ adminUserId: adminId, universalProfileId: "ai1", evidenceId: null, sourceReference: null, includeInCompetition: true }),
-    );
+    const [call] = overrideWaiverAiBoard.mock.calls[0] as [Record<string, unknown>];
+    expect(call).toEqual({
+      adminUserId: adminId,
+      contestId: "c1",
+      universalProfileId: "ai1",
+      responseText: "1. Player",
+      expectedResponseSha256: SHA,
+      confirmedRankableEntryIds: ["re1"],
+      modelLabel: "",
+      sourceReference: null,
+      allowLateSubmission: true,
+    });
     expect(revalidatePath).toHaveBeenCalledWith("/admin/waivers/ai/ai1/c1");
     overrideWaiverAiBoard.mockRejectedValueOnce(new WaiverAiError("CONFLICT", "Refused by the database: the week has a grade run. Nothing was saved."));
-    expect(await overrideWaiverAiBoardAction(overrideInput())).toMatchObject({ ok: false, code: "CONFLICT" });
+    expect(await submitLateWaiverAiBoardAction(lateInput())).toMatchObject({ ok: false, code: "CONFLICT" });
   });
 
   it("reviews require a non-negative integer sequence", async () => {

@@ -97,3 +97,31 @@ export function buildWaiverAiPrompt(input: WaiverAiPromptInput): WaiverAiPrompt 
   ].join("\n");
   return { version: WAIVEREYEQ_AI_PROMPT_VERSION, text, sha256: sha256Utf8(text), availableSlots: slots, poolSize: input.pool.length };
 }
+
+/**
+ * Whether a rebuilt prompt is the one AI submissions answered, judged against
+ * the prompt version and sha256 stored on AI responses for the same pinned
+ * snapshot. CONFIRMED: every recorded prompt equals the rebuilt one.
+ * MISMATCH: some recorded prompt differs. UNRECORDED: none was recorded.
+ */
+export type WaiverAiPromptProvenance = {
+  status: "CONFIRMED" | "MISMATCH" | "UNRECORDED";
+  recordedResponses: number;
+  recordedHashes: Array<{ version: string; sha256: string }>;
+};
+
+export function waiverAiPromptProvenance(
+  prompt: Pick<WaiverAiPrompt, "version" | "sha256">,
+  recorded: ReadonlyArray<{ version: string; sha256: string; responses: number }>,
+): WaiverAiPromptProvenance {
+  return {
+    status:
+      recorded.length === 0
+        ? "UNRECORDED"
+        : recorded.every((row) => row.version === prompt.version && row.sha256 === prompt.sha256)
+          ? "CONFIRMED"
+          : "MISMATCH",
+    recordedResponses: recorded.reduce((sum, row) => sum + row.responses, 0),
+    recordedHashes: recorded.map(({ version, sha256 }) => ({ version, sha256 })),
+  };
+}

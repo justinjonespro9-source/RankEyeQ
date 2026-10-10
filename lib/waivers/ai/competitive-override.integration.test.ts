@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { createWaiverFixture, expectDbGuard, type FixturePlayer, type WaiverFixture } from "@/lib/waivers/__fixtures__/competition";
 import { loadRevealableWaiverBoards } from "@/lib/waivers/access-queries";
 import { overrideWaiverAiBoard, type WaiverAiCompetitiveOverrideInput } from "@/lib/waivers/ai/competitive-override";
+import { WAIVER_AI_LATE_SUBMISSION_REASON } from "@/lib/waivers/ai/constants";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
 import { recordWaiverAiEvidence, reviewWaiverAiEvidence } from "@/lib/waivers/ai/evidence";
 import { approveWaiverAiLateEntry, verifyWaiverAiLateEntry } from "@/lib/waivers/ai/late-entry";
@@ -66,11 +67,8 @@ async function override(profileId: string, text: string, overrides: Partial<Waiv
     expectedResponseSha256: sha256Utf8(text),
     confirmedRankableEntryIds: await pickIdsFor(contestId, text),
     modelLabel: "Override model v1",
-    reason: "Provider export lost; administrator confirms the original response",
     sourceReference: null,
-    evidenceId: null,
-    confirmation: sha256Utf8(text).slice(0, 12),
-    includeInCompetition: true,
+    allowLateSubmission: true,
     ...overrides,
   });
 }
@@ -220,7 +218,7 @@ beforeAll(async () => {
   const openSnapshot = await f.freezeSnapshot({ weekId: openWeek.weekId, rows: rb.slice(1).map((player) => ({ player })) });
   openContest = (await f.createContest({ weekId: openWeek.weekId, snapshotId: openSnapshot.id, position: "RB" })).id;
 
-  for (const key of ["ok", "nocalls", "invalid", "ontime", "late", "replay", "rollback", "evid", "open", "unauth"]) {
+  for (const key of ["ok", "nocalls", "invalid", "ontime", "late", "replay", "rollback", "evid", "open", "unauth", "label"]) {
     ai[key] = (await f.addAiCompetitor(`ovr${key}`)).profileId;
   }
   ai.inactive = (await f.addAiCompetitor("ovrinactive", { competitorActive: false })).profileId;
@@ -260,7 +258,8 @@ beforeAll(async () => {
   });
   lateEvidence = { id: recorded.evidenceId, text: lateText };
 
-  lockAt = new Date();
+  // Strictly after the pre-lock evidence: timestamps are millisecond-precision.
+  lockAt = new Date(Date.now() + 5);
   await f.passLock(rbContest, lockAt);
   await ensureWaiverContestLocked(rbContest);
   humanBoardsBefore = await humanBoardsJson();
@@ -290,7 +289,7 @@ describe("admin competitive override: post-lock entry", () => {
       responseSha256: sha256Utf8(text),
       callCount: 2,
       modelLabel: "Override model v1",
-      reason: "Provider export lost; administrator confirms the original response",
+      reason: WAIVER_AI_LATE_SUBMISSION_REASON,
       sourceReference: "operator archive",
       submissionId: result.submissionId,
       revisionId: result.revisionId,
@@ -340,7 +339,7 @@ describe("admin competitive override: post-lock entry", () => {
     expect(view!.board).toMatchObject({ entryBasis: "ADMIN_COMPETITIVE_OVERRIDE", lateEntry: null, lockedRevisionNumber: 1 });
     expect(view!.board!.competitiveOverride).toMatchObject({ overrideId: row.id, reason: row.reason, evidenceId: null, authorizedByLabel: expect.any(String) });
     expect(view!.board!.competitiveOverride!.importedAt.getTime()).toBe(row.authorizedAt.getTime());
-    expect(view!.competitiveOverride.blockers).toEqual([expect.stringMatching(/already has a board/)]);
+    expect(view!.lateSubmission.blockers).toEqual([expect.stringMatching(/already has a board/)]);
     const week = await loadWaiverAiWeekView(weekId);
     expect(week!.cells[ai.ok]!.RB).toMatchObject({ status: "LOCKED", overridden: true, lateEntered: false });
     expect(week!.cells[ai.ontime]!.RB).toMatchObject({ overridden: false });
@@ -372,15 +371,25 @@ describe("admin competitive override: post-lock entry", () => {
     expect(await boardRows(ai.invalid)).toEqual(NONE);
   });
 
-  it("requires a reason, model label, typed confirmation, explicit inclusion and a matching preview", async () => {
+  it("requires “Allow late AI submission” and a matching preview, and refuses an oversized model label", async () => {
     const text = `1. ${rb[1].name}\n`;
-    await expectAiError(override(ai.unauth, text, { reason: "   " }), "INVALID_INPUT", /reason/);
-    await expectAiError(override(ai.unauth, text, { modelLabel: "" }), "INVALID_INPUT", /model label/);
-    await expectAiError(override(ai.unauth, text, { confirmation: "000000000000" }), "INVALID_INPUT", /12 characters/);
-    await expectAiError(override(ai.unauth, text, { includeInCompetition: false }), "INVALID_INPUT", /competitive inclusion/);
+    await expectAiError(override(ai.unauth, text, { allowLateSubmission: false }), "INVALID_INPUT", /Allow late AI submission/);
+    await expectAiError(override(ai.unauth, text, { modelLabel: "m".repeat(121) }), "INVALID_INPUT", /model label/);
     await expectAiError(override(ai.unauth, text, { expectedResponseSha256: sha256Utf8(`${text} `) }), "RESPONSE_HASH_MISMATCH");
     await expectAiError(override(ai.unauth, text, { confirmedRankableEntryIds: [rb[2].id] }), "PREVIEW_MISMATCH");
     expect(await boardRows(ai.unauth)).toEqual(NONE);
+  });
+
+  it("needs no typed hash or reason: records the fixed reason, the server-derived confirmation and the profile name when the label is blank", async () => {
+    const text = `1. ${rb[2].name}\n2. ${rb[4].name}\n`;
+    const result = await override(ai.label, text, { modelLabel: "   " });
+    const row = await prisma.waiverAiCompetitiveOverride.findUniqueOrThrow({ where: { id: result.overrideId } });
+    expect(row).toMatchObject({ reason: WAIVER_AI_LATE_SUBMISSION_REASON, confirmation: sha256Utf8(text).slice(0, 12), modelLabel: "AI ovrlabel" });
+    const response = await prisma.waiverAiResponse.findUniqueOrThrow({ where: { revisionId: result.revisionId } });
+    expect(response).toMatchObject({ modelLabel: "AI ovrlabel", responseText: text, responseSha256: sha256Utf8(text) });
+    // The original response is immutable once submitted.
+    await expectDbGuard(prisma.waiverAiResponse.update({ where: { revisionId: result.revisionId }, data: { responseText: `${text}3. x\n` } }), "WAIVER_IMMUTABLE");
+    expect((await loadWaiverAiBoardView(ai.label, rbContest))!.board!.entryBasis).toBe("ADMIN_COMPETITIVE_OVERRIDE");
   });
 });
 

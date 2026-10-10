@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -78,7 +78,8 @@ describe("historical evidence isolation (static)", () => {
   it("only the AI evidence, late-entry and admin query modules read or write evidence", () => {
     const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "app", "lib", "components"], { cwd: ROOT, encoding: "utf8" })
       .split("\n")
-      .filter((file) => /\.(ts|tsx)$/.test(file) && !file.startsWith("lib/generated/") && !/\.test\.tsx?$/.test(file) && !file.includes("__fixtures__"));
+      .filter((file) => /\.(ts|tsx)$/.test(file) && !file.startsWith("lib/generated/") && !/\.test\.tsx?$/.test(file) && !file.includes("__fixtures__"))
+      .filter((file) => existsSync(path.join(ROOT, file)));
     const touching = files.filter((file) => /waiverAiHistoricalEvidence/.test(readFileSync(path.join(ROOT, file), "utf8")));
     expect(touching.sort()).toEqual(["lib/waivers/ai/evidence.ts", "lib/waivers/ai/late-entry.ts", "lib/waivers/ai/queries.ts"]);
     const lateEntrySource = readFileSync(path.join(ROOT, "lib/waivers/ai/late-entry.ts"), "utf8");

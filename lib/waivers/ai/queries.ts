@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
+import { waiverAiPromptProvenance, type WaiverAiPromptProvenance } from "@/lib/waivers/ai/prompt";
 import { parseWaiverAiResponse, type WaiverAiParseResult } from "@/lib/waivers/ai/response-parser";
 import type { WaiverBoardEntryBasis } from "@/lib/waivers/ai/constants";
 import { readWaiverClock } from "@/lib/waivers/clock";
@@ -307,7 +308,8 @@ export type WaiverAiBoardView = {
   contest: { id: string; weekId: string; position: WaiverPosition; locksAt: Date; maxCalls: number };
   week: { seasonYear: number; weekNumber: number; label: string; isTest: boolean };
   snapshot: { id: string; version: number; entriesFingerprint: string; frozenAt: Date };
-  prompt: { version: string; sha256: string; text: string | null; availableSlots: number; poolSize: number };
+  /** Rebuilt from the pinned frozen snapshot in every phase (admin-only page). */
+  prompt: { version: string; sha256: string; text: string; availableSlots: number; poolSize: number; provenance: WaiverAiPromptProvenance };
   pool: Array<{ displayName: string; team: string | null }>;
   board: null | {
     submissionId: string;
@@ -323,8 +325,8 @@ export type WaiverAiBoardView = {
   evidence: WaiverAiEvidenceView[];
   /** Late Entry Override availability: open when there are no blockers. */
   lateEntry: { blockers: string[] };
-  /** Admin competitive override availability: open when there are no blockers. */
-  competitiveOverride: { blockers: string[] };
+  /** Late AI submission ("Allow late AI submission") availability after the lock: open when there are no blockers. */
+  lateSubmission: { blockers: string[] };
 };
 
 const LATE_ENTRY_PROMPT_SELECT = {
@@ -491,17 +493,27 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
     }),
     prisma.waiverGradeRun.count({ where: { weekId: context.contest.weekId } }),
   ]);
+  const recordedPrompts = await prisma.waiverAiResponse.groupBy({
+    by: ["promptVersion", "promptSha256"],
+    where: { contestId, snapshotId: context.contest.snapshotId, promptSha256: { not: null } },
+    _count: { _all: true },
+    orderBy: [{ promptVersion: "asc" }, { promptSha256: "asc" }],
+  });
+  const promptProvenance = waiverAiPromptProvenance(
+    context.prompt,
+    recordedPrompts.map((row) => ({ version: row.promptVersion ?? "", sha256: row.promptSha256 ?? "", responses: row._count._all })),
+  );
 
   const blockers: string[] = [];
   if (phase === "OPEN") blockers.push("The contest is still open — submit through the AI response import above.");
   if (submission) blockers.push("This AI already has a board for this contest; a late entry never replaces or changes a board.");
   if (gradeRuns > 0) blockers.push("This week has a grade run; late entry is closed.");
   if (profile.status !== "ACTIVE" || !profile.competitorActive) blockers.push("This AI profile is not an active competitor.");
-  const overrideBlockers: string[] = [];
-  if (phase === "OPEN") overrideBlockers.push("The contest is still open — submit through the AI response import above.");
-  if (submission) overrideBlockers.push("This AI already has a board for this contest; an override never replaces or changes a board.");
-  if (gradeRuns > 0) overrideBlockers.push("This week has a grade run; admin competitive override is closed.");
-  if (profile.status !== "ACTIVE" || !profile.competitorActive) overrideBlockers.push("This AI profile is not an active competitor.");
+  const lateSubmissionBlockers: string[] = [];
+  if (phase === "OPEN") lateSubmissionBlockers.push("The contest is still open — submit normally.");
+  if (submission) lateSubmissionBlockers.push("This AI already has a board for this contest; a late submission never replaces or changes a board.");
+  if (gradeRuns > 0) lateSubmissionBlockers.push("This week has a grade run; late AI submissions are closed.");
+  if (profile.status !== "ACTIVE" || !profile.competitorActive) lateSubmissionBlockers.push("This AI profile is not an active competitor.");
   const late = submission?.lateEntry ?? null;
   const override = submission?.competitiveOverride ?? null;
 
@@ -540,9 +552,10 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
     prompt: {
       version: context.prompt.version,
       sha256: context.prompt.sha256,
-      text: phase === "OPEN" ? context.prompt.text : null,
+      text: context.prompt.text,
       availableSlots: context.prompt.availableSlots,
       poolSize: context.prompt.poolSize,
+      provenance: promptProvenance,
     },
     pool: context.rows
       .filter((row) => row.position === context.contest.position && row.eligible)
@@ -601,7 +614,7 @@ export async function loadWaiverAiBoardView(profileId: string, contestId: string
         }
       : null,
     lateEntry: { blockers },
-    competitiveOverride: { blockers: overrideBlockers },
+    lateSubmission: { blockers: lateSubmissionBlockers },
     evidence: evidence.map((row) => ({
       id: row.id,
       modelLabel: row.modelLabel,

@@ -81,11 +81,8 @@ describe("AI boards in week-atomic grading", () => {
       expectedResponseSha256: sha256Utf8(text),
       confirmedRankableEntryIds: [f.players.def3.id, f.players.def2.id],
       modelLabel: "Fixture override model",
-      reason: "fixture override",
       sourceReference: null,
-      evidenceId: null,
-      confirmation: sha256Utf8(text).slice(0, 12),
-      includeInCompetition: true,
+      allowLateSubmission: true,
     });
     const board = await prisma.waiverSubmission.findUniqueOrThrow({ where: { id: result.submissionId }, include: { competitiveOverride: true, revisions: true } });
     expect(board).toMatchObject({ authority: "SYSTEM_OPERATED", status: "LOCKED", lockedRevisionId: result.revisionId, currentRevisionId: result.revisionId });
@@ -116,11 +113,8 @@ describe("AI boards in week-atomic grading", () => {
       expectedResponseSha256: sha256Utf8(text),
       confirmedRankableEntryIds: [f.players.def2.id],
       modelLabel: "Fixture override model",
-      reason: "after grading",
       sourceReference: null,
-      evidenceId: null,
-      confirmation: sha256Utf8(text).slice(0, 12),
-      includeInCompetition: true,
+      allowLateSubmission: true,
     };
     await expect(overrideWaiverAiBoard(input)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/grade run/) });
     // The database refuses it too, whatever the application checks.

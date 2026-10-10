@@ -242,29 +242,42 @@ row → override; a `WaiverAiLateEntryApproval` row → verified late entry;
 otherwise on time (`waiverBoardEntryBasis` in `lib/waivers/competitor-category.ts`).
 Only AI boards can carry either record (database-enforced).
 
-## Workflow (`/admin/waivers/ai/[profileId]/[contestId]` → C · Admin competitive override)
+## Workflow: late AI submission (Stage 4B.3D)
 
-1. Paste the AI's original response (stored byte-exact; sha256 shown).
+Admin → AI → Waivers → week → model → position
+(`/admin/waivers/ai/[profileId]/[contestId]` → **Submit AI picks**). The same
+form serves both sides of the lock; the administrator never chooses an
+authorization type and never handles hashes.
+
+1. Paste the AI's response (stored byte-exact).
 2. Parse and Preview: the strict parser and frozen-pool validation run against
    the contest's pinned snapshot. Unknown, ambiguous, duplicate,
    wrong-position or ineligible players and too many calls refuse the whole
    response; `NO CALLS` is valid.
-3. Enter the model label (required), the override reason (required), an
-   optional source reference, and optionally attach a historical-evidence
-   record holding the same response (it must be for the same contest, AI and
-   snapshot, and not rejected; attaching it does not make the board verified).
-4. Type the first 12 characters of the response sha256 and confirm competitive
-   inclusion.
-5. Submit (`overrideWaiverAiBoardAction`, admin-only). One transaction inserts
-   the override authorization first, then the LOCKED board, its single
-   SUBMISSION revision, its calls, the verbatim response and an
-   `waivers.ai_competitive_override` audit entry.
+3. Before the lock this is the ordinary on-time import (unchanged). After the
+   lock the form shows **Allow late AI submission**; the model label is
+   pre-filled with the AI profile's name (blank also records the profile name)
+   and a source reference is optional.
+4. Check **Allow late AI submission** and press **Submit AI Picks**
+   (`submitLateWaiverAiBoardAction`, admin-only; refused unless the box is
+   checked). One transaction inserts the override authorization first, then the
+   LOCKED board, its single SUBMISSION revision, its calls, the verbatim
+   response and a `waivers.ai_competitive_override` audit entry.
 
-The board history shows the designation, the actual import time (database
-clock), the authorizing administrator, the reason and the response hash. The
-response records no prompt claim (`promptVersion`/`promptSha256` NULL) and no
-stated generation time; the original prediction time is shown as not
-established.
+Recorded automatically: the reason is the fixed text “Administrator-authorized
+late AI submission.” (`WAIVER_AI_LATE_SUBMISSION_REASON`); the database's
+`confirmation` column holds `left(sha256, 12)` of the server-computed hash. No
+provider timestamp, evidence upload, separate approval or second confirmation is
+required. The service still accepts an optional historical-evidence id (same
+contest, AI, snapshot and response; not rejected), which the admin UI no longer
+offers. The verified pre-lock late entry is unchanged and lives under the page's
+**Advanced** section.
+
+The board history shows the entry basis and designation, the actual import time
+(database clock), the authorizing administrator, the reason and the response
+hash. The response records no prompt claim (`promptVersion`/`promptSha256`
+NULL) and no stated generation time; the original prediction time is shown as
+not established.
 
 ## Database safeguards
 
@@ -272,8 +285,8 @@ established.
   DELETE and TRUNCATE refused; fixture maintenance may delete in tests). It binds
   the contest, position, pinned snapshot, AI profile, response sha256, parse
   fingerprint, call count, parser version, model label, reason, the new board and
-  revision ids, the typed confirmation (`left(sha, 12)`), the administrator and
-  the database time.
+  revision ids, the confirmation (`left(sha, 12)`, server-derived since 4B.3D),
+  the administrator and the database time.
 - **Insert guard.** ADMIN only (`waiver_require_admin`); serialized with grading
   by the week advisory lock; only at or after `locksAt`; only on the contest's
   pinned snapshot and position; only for an active AI competitor (never HUMAN or
@@ -325,8 +338,8 @@ established.
 
 ## Known limits
 
-- The override rests on the administrator's judgment and stated reason; nothing
-  establishes when the AI produced the response. This is the intended
+- The override rests on the administrator's judgment (the recorded reason is
+  fixed text); nothing establishes when the AI produced the response. This is the intended
   trade-off; the designation is shown wherever the board is shown.
 - A single administrator authorizes an override (no two-person rule). The
   reason, identity, time and response are recorded immutably and audited.

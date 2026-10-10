@@ -5,42 +5,52 @@ import { useState, useTransition } from "react";
 import { WaiverAiParsePreview } from "@/components/admin/waivers/ai/WaiverAiParsePreview";
 import { sha256Hex } from "@/components/admin/waivers/ai/client-sha256";
 import { Button } from "@/components/ui/Button";
-import { previewWaiverAiResponseAction, submitWaiverAiBoardAction } from "@/lib/waivers/ai/actions";
+import { previewWaiverAiResponseAction, submitLateWaiverAiBoardAction, submitWaiverAiBoardAction } from "@/lib/waivers/ai/actions";
 import type { WaiverAiIssue, WaiverAiParseResult } from "@/lib/waivers/ai/response-parser";
 
 type Preview = { text: string; responseSha256: string; promptSha256: string; parse: WaiverAiParseResult };
 
-/** Paste AI Response → Parse and Preview → validation errors → Confirm and Submit. */
+/**
+ * Paste AI Response → Parse and Preview → validation → Submit AI Picks.
+ * Before the lock it submits on time; after the lock ("late") the same form
+ * requires "Allow late AI submission" and records an admin competitive override.
+ */
 export function WaiverAiResponsePanel({
   contestId,
   profileId,
   promptSha256,
   aiDisplayName,
+  late,
 }: {
   contestId: string;
   profileId: string;
   /** sha256 of the prompt shown on this page (the one the admin copied). */
   promptSha256: string;
   aiDisplayName: string;
+  /** The contest is locked: submission requires "Allow late AI submission". */
+  late: boolean;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [modelLabel, setModelLabel] = useState("");
+  const [modelLabel, setModelLabel] = useState(aiDisplayName);
   const [statedGeneratedAt, setStatedGeneratedAt] = useState("");
   const [sourceReference, setSourceReference] = useState("");
   const [sourceNote, setSourceNote] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [allowLate, setAllowLate] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string; issues?: WaiverAiIssue[] } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const stale = preview !== null && preview.text !== text;
   const promptChanged = preview !== null && preview.promptSha256 !== promptSha256;
-  const canSubmit = Boolean(preview?.parse.ok) && !stale && !promptChanged && confirmed && modelLabel.trim().length > 0 && !pending;
+  const canSubmit =
+    Boolean(preview?.parse.ok) && !stale && !promptChanged && (late ? allowLate : confirmed && modelLabel.trim().length > 0) && !pending;
 
   function parse() {
     setMessage(null);
     setConfirmed(false);
+    setAllowLate(false);
     const submitted = text;
     startTransition(async () => {
       const result = await previewWaiverAiResponseAction({ contestId, responseText: submitted });
@@ -67,31 +77,52 @@ export function WaiverAiResponsePanel({
         setMessage({ tone: "error", text: "The browser and server hashes of the response differ; nothing was saved." });
         return;
       }
-      const result = await submitWaiverAiBoardAction({
-        contestId,
-        profileId,
-        responseText: current.text,
-        expectedResponseSha256,
-        expectedPromptSha256: promptSha256,
-        confirmedRankableEntryIds: current.parse.picks.map((pick) => pick.rankableEntryId),
-        modelLabel,
-        statedGeneratedAt,
-        sourceReference,
-        sourceNote,
-      });
-      if (!result.ok) {
-        setMessage({ tone: "error", text: result.error, issues: Array.isArray(result.issues) ? (result.issues as WaiverAiIssue[]) : undefined });
-        return;
+      const confirmedRankableEntryIds = current.parse.picks.map((pick) => pick.rankableEntryId);
+      const picks = (noCalls: boolean, callCount: number) => (noCalls ? "NO CALLS" : `${callCount} pick${callCount === 1 ? "" : "s"}`);
+      if (late) {
+        const result = await submitLateWaiverAiBoardAction({
+          contestId,
+          profileId,
+          responseText: current.text,
+          expectedResponseSha256,
+          confirmedRankableEntryIds,
+          modelLabel,
+          sourceReference,
+          allowLateSubmission: allowLate,
+        });
+        if (!result.ok) {
+          setMessage({ tone: "error", text: result.error, issues: Array.isArray(result.issues) ? (result.issues as WaiverAiIssue[]) : undefined });
+          return;
+        }
+        setMessage({ tone: "ok", text: `Submitted ${aiDisplayName}'s late AI picks (${picks(result.noCalls, result.callCount)}).` });
+      } else {
+        const result = await submitWaiverAiBoardAction({
+          contestId,
+          profileId,
+          responseText: current.text,
+          expectedResponseSha256,
+          expectedPromptSha256: promptSha256,
+          confirmedRankableEntryIds,
+          modelLabel,
+          statedGeneratedAt,
+          sourceReference,
+          sourceNote,
+        });
+        if (!result.ok) {
+          setMessage({ tone: "error", text: result.error, issues: Array.isArray(result.issues) ? (result.issues as WaiverAiIssue[]) : undefined });
+          return;
+        }
+        setMessage({
+          tone: "ok",
+          text: result.changed
+            ? `Submitted revision ${result.revisionNumber} for ${aiDisplayName} (${picks(result.noCalls, result.callCount)}).`
+            : "This exact response is already the current board; nothing changed.",
+        });
       }
-      setMessage({
-        tone: "ok",
-        text: result.changed
-          ? `Submitted revision ${result.revisionNumber} for ${aiDisplayName} (${result.noCalls ? "NO CALLS" : `${result.callCount} pick${result.callCount === 1 ? "" : "s"}`}).`
-          : "This exact response is already the current board; nothing changed.",
-      });
       setText("");
       setPreview(null);
       setConfirmed(false);
+      setAllowLate(false);
       router.refresh();
     });
   }
@@ -100,7 +131,7 @@ export function WaiverAiResponsePanel({
     <div className="space-y-4">
       <label className="block text-sm">
         <span className="font-medium text-ink">2. Paste AI Response</span>
-        <span className="block text-xs text-muted">Stored exactly as pasted and hashed (sha256). Never edited, trimmed or reordered.</span>
+        <span className="block text-xs text-muted">Stored exactly as pasted. Never edited, trimmed or reordered.</span>
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -127,32 +158,33 @@ export function WaiverAiResponsePanel({
             </p>
           ) : null}
           <WaiverAiParsePreview parse={preview.parse} />
-          <p className="font-mono text-xs text-muted">response sha256 {preview.responseSha256}</p>
 
           {preview.parse.ok && !stale && !promptChanged ? (
             <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
-              <p className="text-sm font-medium text-ink">5. Confirm and Submit</p>
+              <p className="text-sm font-medium text-ink">5. Submit</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
-                  <span className="text-muted">Model label (required)</span>
+                  <span className="text-muted">Model label{late ? "" : " (required)"}</span>
                   <input
                     value={modelLabel}
                     onChange={(event) => setModelLabel(event.target.value)}
                     maxLength={120}
                     className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm"
-                    placeholder="Model and version used"
+                    placeholder={late ? aiDisplayName : "Model and version used"}
                   />
                 </label>
-                <label className="block text-sm">
-                  <span className="text-muted">Stated generation time (optional, unverified)</span>
-                  <input
-                    type="datetime-local"
-                    value={statedGeneratedAt}
-                    onChange={(event) => setStatedGeneratedAt(event.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm"
-                  />
-                  <span className="text-xs text-muted">Chicago time. Recorded as stated; the database records the actual import time.</span>
-                </label>
+                {late ? null : (
+                  <label className="block text-sm">
+                    <span className="text-muted">Stated generation time (optional, unverified)</span>
+                    <input
+                      type="datetime-local"
+                      value={statedGeneratedAt}
+                      onChange={(event) => setStatedGeneratedAt(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm"
+                    />
+                    <span className="text-xs text-muted">Chicago time. Recorded as stated; the database records the actual import time.</span>
+                  </label>
+                )}
                 <label className="block text-sm">
                   <span className="text-muted">Source reference (optional)</span>
                   <input
@@ -163,25 +195,40 @@ export function WaiverAiResponsePanel({
                     placeholder="Chat link or file name"
                   />
                 </label>
-                <label className="block text-sm">
-                  <span className="text-muted">Source note (optional)</span>
-                  <input
-                    value={sourceNote}
-                    onChange={(event) => setSourceNote(event.target.value)}
-                    maxLength={2000}
-                    className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm"
-                  />
-                </label>
+                {late ? null : (
+                  <label className="block text-sm">
+                    <span className="text-muted">Source note (optional)</span>
+                    <input
+                      value={sourceNote}
+                      onChange={(event) => setSourceNote(event.target.value)}
+                      maxLength={2000}
+                      className="mt-1 w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm"
+                    />
+                  </label>
+                )}
               </div>
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1" />
-                <span>
-                  I confirm these exact picks, in this order, are {aiDisplayName}&apos;s response to the prompt above. The server re-parses the
-                  original text and submits a new append-only revision; boards cannot change after the Waiver lock.
-                </span>
-              </label>
+              {late ? (
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={allowLate} onChange={(event) => setAllowLate(event.target.checked)} className="mt-1" />
+                  <span>
+                    <span className="font-medium text-ink">Allow late AI submission</span>
+                    <span className="block text-xs text-muted">
+                      The contest is locked. These exact picks enter competition for {aiDisplayName}, labeled ADMIN COMPETITIVE OVERRIDE with
+                      the actual submission time. The board cannot be changed or replaced afterward.
+                    </span>
+                  </span>
+                </label>
+              ) : (
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1" />
+                  <span>
+                    I confirm these exact picks, in this order, are {aiDisplayName}&apos;s response to the prompt above. The server re-parses the
+                    original text and submits a new append-only revision; boards cannot change after the Waiver lock.
+                  </span>
+                </label>
+              )}
               <Button type="button" disabled={!canSubmit} onClick={submit}>
-                Confirm and Submit
+                Submit AI Picks
               </Button>
             </div>
           ) : null}

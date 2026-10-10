@@ -37,6 +37,19 @@ verified to be this prompt: its response stores no prompt, and the original
 prompt provenance is kept on the late-entry verification (see
 [waivers-ai-late-entry.md](waivers-ai-late-entry.md)).
 
+The admin AI board page (`/admin/waivers/ai/[profileId]/[contestId]`, admin
+session checked by the page and the admin layout) shows and copies this prompt
+before the lock, after the lock and after grading. The text is not stored; it is
+rebuilt from the pinned snapshot's frozen rows, so live rosters, injuries,
+ownership and availability never affect it. Its provenance is shown against the
+prompt version and sha256 recorded on AI responses for the same pinned snapshot
+(`waiverAiPromptProvenance`): **confirmed** when every recorded prompt matches,
+a **mismatch** warning (with the recorded and rebuilt hashes) when any differs —
+for example after a prompt-builder change — and an **unrecorded** notice when
+no AI response recorded a prompt, in which case byte-identity with the prompt
+shown before the lock is not independently established. The week coverage page
+(`/admin/ai`) still offers prompts only while a contest is open.
+
 ## Strict parser — `WAIVEREYEQ_AI_PARSER_V1`
 
 `lib/waivers/ai/response-parser.ts`. It shares only line extraction with the

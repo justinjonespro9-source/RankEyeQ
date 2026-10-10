@@ -86,8 +86,8 @@ export const WAIVER_AI_PROMPT_EQUIVALENCE_LABELS: Readonly<Record<string, string
 
 /** Designation of an AI board entered by admin competitive override, wherever it is shown. */
 export const WAIVER_AI_COMPETITIVE_OVERRIDE_LABEL = "ADMIN COMPETITIVE OVERRIDE";
-/** Database-checked bound for the required override reason. */
-export const WAIVER_AI_OVERRIDE_REASON_MAX = 2000;
+/** Recorded as the override reason of every late AI submission (the database requires a non-empty reason). */
+export const WAIVER_AI_LATE_SUBMISSION_REASON = "Administrator-authorized late AI submission.";
 
 /** How a competitive AI board entered the contest (derived from its authorization records). */
 export const WAIVER_BOARD_ENTRY_BASES = ["ON_TIME", "VERIFIED_LATE_ENTRY", "ADMIN_COMPETITIVE_OVERRIDE"] as const;

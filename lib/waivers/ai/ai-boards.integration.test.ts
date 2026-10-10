@@ -256,8 +256,16 @@ describe("the Waiver lock", () => {
     expect(filterWaiverBoardsByCategory(revealed.boards, "AI").map((board) => [board.profileType, board.authority])).toEqual([["AI", "SYSTEM_OPERATED"]]);
     expect(filterWaiverBoardsByCategory(revealed.boards, "ALL")).toHaveLength(2);
 
+    // The admin board page keeps the frozen prompt after the lock; the week coverage page offers it only while open.
+    const context = await loadWaiverAiContestContext(prisma, teContestId);
     const view = await loadWaiverAiBoardView(aiSpare, teContestId);
-    expect(view).toMatchObject({ phase: "LOCKED", prompt: { text: null }, board: { status: "LOCKED", lockedRevisionNumber: 1 } });
+    expect(view).toMatchObject({
+      phase: "LOCKED",
+      prompt: { text: context!.prompt.text, sha256: context!.prompt.sha256, provenance: { status: "CONFIRMED" } },
+      board: { status: "LOCKED", lockedRevisionNumber: 1 },
+    });
+    const week = await loadWaiverAiWeekView(weekId);
+    expect(week!.contests.find((contest) => contest.contestId === teContestId)?.promptText).toBeNull();
   });
 });
 

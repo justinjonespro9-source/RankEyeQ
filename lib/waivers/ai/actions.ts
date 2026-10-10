@@ -10,7 +10,6 @@ import {
   WAIVER_AI_ARTIFACT_NAME_MAX,
   WAIVER_AI_MODEL_LABEL_MAX,
   WAIVER_AI_NOTE_MAX,
-  WAIVER_AI_OVERRIDE_REASON_MAX,
   WAIVER_AI_PROMPT_TEXT_MAX_BYTES,
   WAIVER_AI_PROMPT_VERSION_MAX,
   WAIVER_AI_RESPONSE_MAX_BYTES,
@@ -255,21 +254,19 @@ export async function verifyWaiverAiLateEntryAction(input: unknown) {
 }
 
 /**
- * Admin competitive override: after the lock, enters one AI response as a
- * competitive board without pre-lock evidence, atomically with its immutable
- * authorization. The server re-parses the exact text; client ids are only compared.
+ * Late AI submission ("Allow late AI submission"): after the lock, enters one
+ * AI response as a competitive board through the admin competitive override,
+ * atomically with its immutable authorization. The server re-parses the exact
+ * text; client ids are only compared.
  */
-export async function overrideWaiverAiBoardAction(input: unknown) {
+export async function submitLateWaiverAiBoardAction(input: unknown) {
   const userId = await adminUserId();
   if (!userId) return { ok: false as const, error: "Admin access required", code: "FORBIDDEN" };
   if (!isObject(input) || !isId(input.contestId) || !isId(input.profileId) || !isText(input.responseText, MAX_TEXT)) return invalid();
-  const { expectedResponseSha256, confirmedRankableEntryIds, modelLabel, reason, sourceReference, evidenceId, confirmation, includeInCompetition } = input;
+  const { expectedResponseSha256, confirmedRankableEntryIds, modelLabel, sourceReference, allowLateSubmission } = input;
   if (!isSha(expectedResponseSha256) || !isPickIds(confirmedRankableEntryIds)) return invalid();
-  if (!isText(modelLabel, WAIVER_AI_MODEL_LABEL_MAX) || !modelLabel.trim()) return invalid("A model label is required");
-  if (!isText(reason, WAIVER_AI_OVERRIDE_REASON_MAX) || !reason.trim()) return invalid("An override reason is required");
-  if (!isText(sourceReference, WAIVER_AI_SOURCE_REFERENCE_MAX) || !isText(confirmation, 64)) return invalid();
-  if (evidenceId !== null && evidenceId !== "" && !isId(evidenceId)) return invalid();
-  if (includeInCompetition !== true) return invalid("Confirm competitive inclusion");
+  if (!isText(modelLabel, WAIVER_AI_MODEL_LABEL_MAX) || !isText(sourceReference, WAIVER_AI_SOURCE_REFERENCE_MAX)) return invalid();
+  if (allowLateSubmission !== true) return invalid("Check “Allow late AI submission” to submit after the lock");
   const rate = await limited(userId);
   if (rate) return rate;
   try {
@@ -281,11 +278,8 @@ export async function overrideWaiverAiBoardAction(input: unknown) {
       expectedResponseSha256,
       confirmedRankableEntryIds,
       modelLabel,
-      reason,
       sourceReference: sourceReference || null,
-      evidenceId: evidenceId || null,
-      confirmation,
-      includeInCompetition: true,
+      allowLateSubmission: true,
     });
     revalidateBoard(input.profileId, input.contestId);
     return { ok: true as const, callCount: result.callCount, noCalls: result.noCalls, importedAt: result.importedAt.toISOString() };

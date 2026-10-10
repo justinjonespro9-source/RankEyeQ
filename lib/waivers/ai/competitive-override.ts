@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@/lib/generated/prisma/client";
-import { WAIVER_AI_MODEL_LABEL_MAX, WAIVER_AI_OVERRIDE_REASON_MAX, WAIVER_AI_RESPONSE_MAX_BYTES, WAIVER_AI_SOURCE_REFERENCE_MAX } from "@/lib/waivers/ai/constants";
+import {
+  WAIVER_AI_LATE_SUBMISSION_REASON,
+  WAIVER_AI_MODEL_LABEL_MAX,
+  WAIVER_AI_RESPONSE_MAX_BYTES,
+  WAIVER_AI_SOURCE_REFERENCE_MAX,
+} from "@/lib/waivers/ai/constants";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
 import { strictBoard } from "@/lib/waivers/ai/late-entry";
 import { assertWaiverAiAdmin, loadActiveAiCompetitor, WaiverAiError } from "@/lib/waivers/ai/submissions";
@@ -22,6 +27,10 @@ import { readWaiverClock, shareLockWaiverContest } from "@/lib/waivers/clock";
  * are never regenerated, corrected or reordered; an invalid response is
  * refused whole. An existing board is never replaced. Owner-authored boards
  * never pass through here.
+ *
+ * Stage 4B.3D: the administrator's only explicit step is "Allow late AI
+ * submission". The recorded reason is fixed, and the database's confirmation
+ * value is derived from the server-computed response sha256.
  */
 
 export type WaiverAiCompetitiveOverrideInput = {
@@ -34,15 +43,13 @@ export type WaiverAiCompetitiveOverrideInput = {
   expectedResponseSha256: string;
   /** Ordered RankableEntry ids the admin confirmed in the preview (compared, never written). */
   confirmedRankableEntryIds: ReadonlyArray<string>;
+  /** Blank records the AI profile's display name. */
   modelLabel: string;
-  reason: string;
   sourceReference: string | null;
-  /** Optional historical evidence holding the same response (database-checked). */
-  evidenceId: string | null;
-  /** The first 12 characters of the response sha256, typed by the admin. */
-  confirmation: string;
-  /** Explicit confirmation of competitive inclusion. */
-  includeInCompetition: boolean;
+  /** Optional historical evidence holding the same response (database-checked); not offered by the admin UI. */
+  evidenceId?: string | null;
+  /** The administrator checked "Allow late AI submission". */
+  allowLateSubmission: boolean;
 };
 
 export type WaiverAiCompetitiveOverrideResult = {
@@ -66,16 +73,10 @@ function mapDatabaseError(error: unknown): unknown {
   return error;
 }
 
-function required(value: string, max: number, label: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) throw new WaiverAiError("INVALID_INPUT", `${label} is required`);
-  if (trimmed.length > max) throw new WaiverAiError("INVALID_INPUT", `${label} is too long`);
-  return trimmed;
-}
-
 export async function overrideWaiverAiBoard(input: WaiverAiCompetitiveOverrideInput): Promise<WaiverAiCompetitiveOverrideResult> {
-  const modelLabel = required(input.modelLabel, WAIVER_AI_MODEL_LABEL_MAX, "A model label");
-  const reason = required(input.reason, WAIVER_AI_OVERRIDE_REASON_MAX, "An override reason");
+  if (input.allowLateSubmission !== true) throw new WaiverAiError("INVALID_INPUT", "Check “Allow late AI submission” to submit after the lock");
+  const modelLabel = input.modelLabel.trim();
+  if (modelLabel.length > WAIVER_AI_MODEL_LABEL_MAX) throw new WaiverAiError("INVALID_INPUT", "The model label is too long");
   const sourceReference = input.sourceReference?.trim() || null;
   if (sourceReference && sourceReference.length > WAIVER_AI_SOURCE_REFERENCE_MAX) throw new WaiverAiError("INVALID_INPUT", "Source reference is too long");
   const byteLength = utf8ByteLength(input.responseText);
@@ -84,13 +85,9 @@ export async function overrideWaiverAiBoard(input: WaiverAiCompetitiveOverrideIn
   if (responseSha256 !== input.expectedResponseSha256) {
     throw new WaiverAiError("RESPONSE_HASH_MISMATCH", "The response text changed in transit; nothing was saved");
   }
-  if (!input.includeInCompetition) throw new WaiverAiError("INVALID_INPUT", "Confirm competitive inclusion to submit an admin competitive override");
-  if (input.confirmation.trim().toLowerCase() !== responseSha256.slice(0, 12)) {
-    throw new WaiverAiError("INVALID_INPUT", "Type the first 12 characters of the response sha256 to confirm");
-  }
   try {
     return await prisma.$transaction((tx) =>
-      overrideInTransaction(tx, { ...input, modelLabel, reason, sourceReference, evidenceId: input.evidenceId || null }, responseSha256, byteLength),
+      overrideInTransaction(tx, { ...input, modelLabel, sourceReference, evidenceId: input.evidenceId || null }, responseSha256, byteLength),
     );
   } catch (error) {
     throw mapDatabaseError(error);
@@ -99,7 +96,7 @@ export async function overrideWaiverAiBoard(input: WaiverAiCompetitiveOverrideIn
 
 async function overrideInTransaction(
   tx: Prisma.TransactionClient,
-  input: WaiverAiCompetitiveOverrideInput,
+  input: WaiverAiCompetitiveOverrideInput & { evidenceId: string | null },
   responseSha256: string,
   responseByteLength: number,
 ): Promise<WaiverAiCompetitiveOverrideResult> {
@@ -113,6 +110,8 @@ async function overrideInTransaction(
     throw new WaiverAiError("INVALID_INPUT", "The contest is still open; submit through the ordinary AI import");
   }
   const profile = await loadActiveAiCompetitor(tx, input.universalProfileId);
+  const modelLabel = input.modelLabel || profile.displayName.trim().slice(0, WAIVER_AI_MODEL_LABEL_MAX);
+  const reason = WAIVER_AI_LATE_SUBMISSION_REASON;
   const board = await strictBoard(tx, context, input.responseText);
   if (board.pickIds.length !== input.confirmedRankableEntryIds.length || board.pickIds.some((id, i) => id !== input.confirmedRankableEntryIds[i])) {
     throw new WaiverAiError("PREVIEW_MISMATCH", "The confirmed preview no longer matches the response; parse and preview again");
@@ -139,8 +138,8 @@ async function overrideInTransaction(
       boardFingerprint: board.fingerprint,
       callCount: board.calls.length,
       parserVersion: board.parserVersion,
-      modelLabel: input.modelLabel,
-      reason: input.reason,
+      modelLabel,
+      reason,
       sourceReference: input.sourceReference,
       submissionId,
       revisionId,
@@ -178,7 +177,7 @@ async function overrideInTransaction(
       position: contest.position,
       snapshotId: contest.snapshotId,
       universalProfileId: profile.id,
-      modelLabel: input.modelLabel,
+      modelLabel,
       promptVersion: null,
       promptSha256: null,
       parserVersion: board.parserVersion,
@@ -211,8 +210,8 @@ async function overrideInTransaction(
         responseSha256,
         boardFingerprint: board.fingerprint,
         callCount: board.calls.length,
-        modelLabel: input.modelLabel,
-        reason: input.reason,
+        modelLabel,
+        reason,
         evidenceId: input.evidenceId,
         sourceReference: input.sourceReference,
         locksAt: contest.locksAt.toISOString(),

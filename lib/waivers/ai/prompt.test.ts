@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { buildWaiverAiPrompt, type WaiverAiPromptInput } from "@/lib/waivers/ai/prompt";
+import { buildWaiverAiPrompt, waiverAiPromptProvenance, type WaiverAiPromptInput } from "@/lib/waivers/ai/prompt";
 import { isStorableText, sha256Utf8, utf8ByteLength } from "@/lib/waivers/ai/text";
 
 const INPUT: WaiverAiPromptInput = {
@@ -61,6 +61,30 @@ describe("buildWaiverAiPrompt (WAIVEREYEQ_AI_V1)", () => {
     const prompt = buildWaiverAiPrompt({ ...INPUT, pool: [] });
     expect(prompt).toMatchObject({ availableSlots: 0, poolSize: 0 });
     expect(prompt.text).toContain("Reply with exactly:\nNO CALLS");
+  });
+});
+
+describe("waiverAiPromptProvenance", () => {
+  const prompt = { version: "WAIVEREYEQ_AI_V1", sha256: "a".repeat(64) } as const;
+
+  it("is UNRECORDED when no response recorded a prompt", () => {
+    expect(waiverAiPromptProvenance(prompt, [])).toEqual({ status: "UNRECORDED", recordedResponses: 0, recordedHashes: [] });
+  });
+
+  it("is CONFIRMED only when every recorded version and sha256 equal the rebuilt prompt", () => {
+    expect(waiverAiPromptProvenance(prompt, [{ version: prompt.version, sha256: prompt.sha256, responses: 3 }])).toEqual({
+      status: "CONFIRMED",
+      recordedResponses: 3,
+      recordedHashes: [{ version: prompt.version, sha256: prompt.sha256 }],
+    });
+  });
+
+  it("is MISMATCH when any recorded sha256 or version differs, and lists every recorded prompt", () => {
+    const other = { version: prompt.version, sha256: "b".repeat(64), responses: 1 };
+    const both = waiverAiPromptProvenance(prompt, [{ ...prompt, responses: 2 }, other]);
+    expect(both).toMatchObject({ status: "MISMATCH", recordedResponses: 3 });
+    expect(both.recordedHashes).toHaveLength(2);
+    expect(waiverAiPromptProvenance(prompt, [{ version: "WAIVEREYEQ_AI_V2", sha256: prompt.sha256, responses: 1 }]).status).toBe("MISMATCH");
   });
 });
 
