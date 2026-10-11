@@ -1,6 +1,7 @@
 import type { VerifiedSngCanonicalArtifact } from "@/lib/waivers/canonical/artifact-verifier";
+import { collectWaiverContestMembers, waiverContestMemberConflicts, waiverMemberIdentity } from "@/lib/waivers/canonical/contest-members";
 import { indexCanonicalLedger } from "@/lib/waivers/canonical/identity";
-import { detectSnapshotCanonicalConflicts, waiverHonorScoreableSlots, type SnapshotCanonicalConflict } from "@/lib/waivers/canonical/policy";
+import { waiverHonorScoreableSlots } from "@/lib/waivers/canonical/policy";
 import { evaluateCanonicalPreflightEntry, type PreflightRow, type PreflightSnapshotEntry } from "@/lib/waivers/canonical/preflight-model";
 import type { WaiverPosition } from "@/lib/waivers/constants";
 import type {
@@ -51,20 +52,6 @@ export type WaiverContestResultBuild =
     }
   | { status: "BLOCKED"; issues: WaiverGradingIssue[]; advisories: WaiverGradingAdvisory[] };
 
-type Member = {
-  category: "ELIGIBLE_POOL_MEMBER" | "INVALIDATED_CALLED_PLAYER";
-  /** The entry whose frozen identity and freeze facts the row uses. */
-  entry: PreflightSnapshotEntry;
-  /** The stored snapshotEntryId: the eligible entry, or the pinned entry of an invalidated player (null when absent). */
-  snapshotEntryId: string | null;
-  invalidationBasis: "NOT_ELIGIBLE_IN_PINNED_SNAPSHOT" | "ABSENT_FROM_PINNED_SNAPSHOT" | null;
-  /** The distinct frozen entries the locked boards originally called (invalidated players only). */
-  called: readonly PreflightSnapshotEntry[];
-};
-
-const isEligibleAt = (position: string) => (entry: PreflightSnapshotEntry) =>
-  entry.position === position && entry.evidenceRole === "CANDIDATE" && entry.eligibility === "ELIGIBLE";
-const identityOf = (entry: PreflightSnapshotEntry) => entry.frozenIdentity ?? { provider: entry.rankable.provider, externalId: entry.rankable.externalId };
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function buildWaiverContestResult(input: WaiverContestResultInput): WaiverContestResultBuild {
@@ -83,57 +70,10 @@ export function buildWaiverContestResult(input: WaiverContestResultInput): Waive
   if (!contestSet) issue("RESULT_SET_MISSING", `artifact has no ${position} result set`);
 
   // Members: the eligible pool, then players called on locked boards outside it.
-  const eligible = snapshot.entries.filter(isEligibleAt(position)).sort((a, b) => byCodeUnit(a.snapshotEntryId, b.snapshotEntryId));
-  const eligiblePlayers = new Set(eligible.map((entry) => entry.rankableEntryId));
-  const pinnedByPlayer = new Map(snapshot.entries.map((entry) => [entry.rankableEntryId, entry]));
-  const calledOutside = new Map<string, PreflightSnapshotEntry[]>();
-  for (const entry of input.calledEntries) {
-    if (eligiblePlayers.has(entry.rankableEntryId)) continue;
-    const list = calledOutside.get(entry.rankableEntryId) ?? [];
-    if (!list.some((e) => e.snapshotEntryId === entry.snapshotEntryId)) list.push(entry);
-    calledOutside.set(entry.rankableEntryId, list);
+  const { eligible, members, ambiguous } = collectWaiverContestMembers({ position, snapshotEntries: snapshot.entries, calledEntries: input.calledEntries });
+  for (const a of ambiguous) {
+    issue("CALLED_IDENTITY_AMBIGUOUS", `called player ${a.rankableEntryId} carries ${a.identityCount} different frozen identities`, a.snapshotEntryId);
   }
-  const members: Member[] = eligible.map((entry) => ({ category: "ELIGIBLE_POOL_MEMBER", entry, snapshotEntryId: entry.snapshotEntryId, invalidationBasis: null, called: [] }));
-  for (const [player, called] of [...calledOutside].sort(([a], [b]) => byCodeUnit(a, b))) {
-    const pinned = pinnedByPlayer.get(player) ?? null;
-    if (!pinned) {
-      const identities = new Set(called.map((entry) => `${identityOf(entry).provider}\u0000${identityOf(entry).externalId}`));
-      if (identities.size > 1) {
-        issue("CALLED_IDENTITY_AMBIGUOUS", `called player ${player} carries ${identities.size} different frozen identities`, called[0].snapshotEntryId);
-        continue;
-      }
-    }
-    const entry = pinned ?? [...called].sort((a, b) => byCodeUnit(a.snapshotEntryId, b.snapshotEntryId))[0];
-    members.push({
-      category: "INVALIDATED_CALLED_PLAYER",
-      entry,
-      snapshotEntryId: pinned?.snapshotEntryId ?? null,
-      invalidationBasis: pinned ? "NOT_ELIGIBLE_IN_PINNED_SNAPSHOT" : "ABSENT_FROM_PINNED_SNAPSHOT",
-      called: [...called].sort((a, b) => byCodeUnit(a.snapshotEntryId, b.snapshotEntryId)),
-    });
-  }
-
-  /**
-   * D3 conflicts of a row. An invalidated player whose corrected pinned entry is
-   * frozen on bye shows no conflict there, so a canonical BYE is looked up on the
-   * scheduled entries the locked boards originally called; more than one such
-   * entry is ambiguous and blocks. Every other row keeps its own entry's conflicts.
-   */
-  const conflictsOf = (member: Member, row: PreflightRow): SnapshotCanonicalConflict[] | "AMBIGUOUS" => {
-    const canonical = row.canonical!;
-    if (member.invalidationBasis !== "NOT_ELIGIBLE_IN_PINNED_SNAPSHOT" || canonical.cls !== "SNAPSHOT_CONFLICT" || row.conflicts.length > 0 || !member.entry.isByeAtFreeze) {
-      return row.conflicts;
-    }
-    const original = member.called.flatMap((entry) =>
-      detectSnapshotCanonicalConflicts({
-        artifactContentChecksum: verified.summary.contentChecksum,
-        snapshotEntryId: entry.snapshotEntryId,
-        snapshot: { isByeAtFreeze: entry.isByeAtFreeze, teamAtFreeze: entry.teamAtFreeze },
-        canonical: { participantId: canonical.participantId, cls: canonical.cls, disposition: canonical.disposition, teamKey: canonical.teamKey },
-      }).filter((conflict) => conflict.kind === "BYE_VS_SCHEDULED"),
-    );
-    return original.length > 1 ? "AMBIGUOUS" : original;
-  };
 
   const evaluated = members.map((member) => ({ member, row: evaluateCanonicalPreflightEntry(member.entry, index, verified) }));
   if (members.some((m) => m.entry.frozenIdentity === null)) {
@@ -175,7 +115,7 @@ export function buildWaiverContestResult(input: WaiverContestResultInput): Waive
       resultFingerprint = entry.resultFingerprint;
     }
 
-    const conflicts = conflictsOf(member, row);
+    const conflicts = waiverContestMemberConflicts(member, row, verified.summary.contentChecksum);
     if (conflicts === "AMBIGUOUS") {
       issue("UNRESOLVED_SNAPSHOT_CONFLICT", `${row.displayNameAtFreeze}: canonical BYE against more than one originally called scheduled entry`, at);
       continue;
@@ -228,7 +168,7 @@ export function buildWaiverContestResult(input: WaiverContestResultInput): Waive
     }
 
     const ranked = canonical.cls === "RANKED";
-    const identity = identityOf(member.entry);
+    const identity = waiverMemberIdentity(member.entry);
     drafts.push({
       category: member.category,
       snapshotEntryId: member.snapshotEntryId,

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { WaiverArtifactWithdrawPanel } from "@/components/admin/waivers/WaiverArtifactWithdrawPanel";
+import { WaiverResultsIntakePanel } from "@/components/admin/waivers/WaiverResultsIntakePanel";
 import { Container } from "@/components/layout/Container";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -11,6 +12,7 @@ import { privatePageMetadata } from "@/lib/seo";
 import { formatInChicago } from "@/lib/timing/chicago";
 import { WAIVER_ARTIFACT_AUTHORITY_LABEL } from "@/lib/waivers/artifacts/authority";
 import { loadWaiverArtifactDetail, reverifyWaiverArtifactContent } from "@/lib/waivers/artifacts/queries";
+import { loadWaiverResultsIntakeView } from "@/lib/waivers/intake/review";
 
 export const metadata: Metadata = privatePageMetadata("Waiver canonical artifact · Admin", "Immutable SNG canonical artifact authority record.");
 
@@ -37,6 +39,7 @@ export default async function AdminWaiverArtifactPage({ params }: { params: Prom
   const artifact = await loadWaiverArtifactDetail(artifactRowId);
   if (!artifact) notFound();
   const validation = await reverifyWaiverArtifactContent(artifactRowId);
+  const intake = await loadWaiverResultsIntakeView(artifactRowId);
 
   return (
     <Container className="py-12 sm:py-16">
@@ -99,6 +102,8 @@ export default async function AdminWaiverArtifactPage({ params }: { params: Prom
           <Field label="Preview fingerprint" value={artifact.previewFingerprint} mono />
         </dl>
       </section>
+
+      {intake ? <WaiverResultsIntakePanel intake={intake} /> : null}
 
       <section className="mb-6 rounded-lg border border-border bg-surface-elevated p-5">
         <h3 className="font-display text-lg font-semibold text-ink">Publication history</h3>

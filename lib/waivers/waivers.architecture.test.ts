@@ -77,6 +77,7 @@ const PURE_MODULES = [
   "canonical/identity",
   "canonical/policy",
   "canonical/preflight-model",
+  "canonical/contest-members",
   "artifacts/errors",
   "artifacts/authority",
   "artifacts/import-model",
@@ -88,6 +89,7 @@ const PURE_MODULES = [
   "grading/board-grade",
   "grading/week",
   "grading/rows",
+  "intake/model",
   "play-model",
   "consensus-model",
   "leaderboard-model",
@@ -119,6 +121,7 @@ const SERVICE_MODULES = [
   "artifacts/actions",
   "artifacts/upload",
   "grading/preview",
+  "intake/review",
   "play-queries",
   "leaderboard-queries",
   "ai/context",
@@ -175,6 +178,7 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/artifacts/queries",
   "lib/waivers/artifacts/authority",
   "lib/waivers/artifacts/upload-limits",
+  "lib/waivers/intake/review",
   "lib/waivers/constants",
   "lib/waivers/ai/actions",
   "lib/waivers/ai/queries",
@@ -211,6 +215,7 @@ const LEADERBOARD_WAIVERS_UI_RUNTIME_IMPORTS: Readonly<Record<string, ReadonlySe
 const QUERY_MODULES = new Set([
   "lib/waivers/snapshot/queries",
   "lib/waivers/artifacts/queries",
+  "lib/waivers/intake/review",
   "lib/waivers/play-queries",
   "lib/waivers/leaderboard-queries",
   "lib/waivers/ai/queries",
@@ -426,6 +431,30 @@ describe("Waivers architecture isolation", () => {
     }
     for (const file of waiverSourceFiles().filter((f) => !moduleName(f).startsWith("grading/"))) {
       if (/lib\/waivers\/grading/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("results intake is read-only reconciliation: no writes, transactions, raw SQL, SNG contact, artifact text, server actions or grading", () => {
+    const offenders: string[] = [];
+    const intakeFiles = waiverSourceFiles().filter((f) => moduleName(f).startsWith("intake/"));
+    expect(intakeFiles.map(moduleName).sort()).toEqual(["intake/model", "intake/review"]);
+    for (const file of intakeFiles) {
+      const source = readFileSync(file, "utf8");
+      for (const banned of [
+        /\b\w+\s*\.\s*\w+\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\s*\(/,
+        /\$(?:executeRaw|queryRaw|transaction)/,
+        /\bfetch\s*\(/,
+        /https?:\/\//,
+        /contentText/,
+        /^\s*["']use server["']/m,
+        /scoreWaiverBoard|evaluateCanonicalWaiverBoard|computeWaiverProduction/,
+      ]) {
+        if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
+      }
+    }
+    for (const file of walk(path.join(ROOT, "components/admin/waivers"))) {
+      if (/^import\s+(?!type\b)[^;]*lib\/waivers\/intake/m.test(readFileSync(file, "utf8"))) offenders.push(`${path.relative(ROOT, file)}: runtime intake import`);
     }
     expect(offenders).toEqual([]);
   });

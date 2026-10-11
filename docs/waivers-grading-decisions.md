@@ -316,6 +316,46 @@ preview. The admin workflow that follows must:
 8. **Never change locked submissions.** Revisions, calls, AI responses and
    overrides are read-only to grading.
 
+## Results intake (Stage 4B.5A)
+
+Results intake is the read-only review between importing factual results
+(step 1 above) and previewing grades (step 4). It is shown as the "Results
+intake" section of an imported artifact's admin page and is computed by
+`lib/waivers/intake/model.ts` (pure) from data loaded by
+`lib/waivers/intake/review.ts` (SELECT only).
+
+- **What it reviews.** The stored artifact, re-verified from its immutable
+  content and never fetched; every contest's pinned frozen snapshot and
+  scoring rules; every locked board, human or AI, whether standard, late
+  entry or admin competitive override, regardless of current AI profile
+  activity; and the current D3 resolutions bound to that artifact row. Contest members and D3 conflicts come from
+  `canonical/contest-members.ts`, the same module the grading engine uses, so
+  intake and the preview always see the same players and conflicts.
+- **Statuses.** `ARTIFACT_NOT_GRADABLE` (not the week's latest ACCEPTED,
+  intact revision, wrong week, or different DEF crosswalk version);
+  `INTAKE_BLOCKED` (an unlocked contest, mismatched scoring rules, an
+  unstamped submitted board, an invalid locked board, a missing contest or
+  snapshot, no contest at all, or any identity, ledger, result-entry, BYE or
+  D3-binding failure); `D3_DECISIONS_REQUIRED` (only open or mismatched
+  snapshot conflicts remain); `READY_FOR_GRADING_PREVIEW`. The first that
+  applies wins. Ready means the preview has nothing left to block on before
+  it grades. It is not a grade, an approval or an authenticity claim, and it
+  authorizes no grading, approval, application or publication. Inactive AI
+  competitors with locked boards are an advisory, as in the preview.
+- **Acknowledgments listed, never recorded.** Operator-attested authority,
+  always. The pending DEF crosswalk, when a DEF contest exists. The live
+  identity key, when any row was frozen before Stage 4B.1. A later grading
+  approval must record these.
+- **Separation kept.** Intake writes nothing: no D3 decision, grade run,
+  approval, authority pointer, audit row or artifact event. It never imports
+  the grading engine, which is still not exposed. Recording D3 decisions,
+  storing a preview, approving and applying stay separate future steps (3 to
+  6 above). No schema change: those steps use the Stage 4B.3 tables.
+- **Fingerprint.** `intakeFingerprint` covers the artifact state, every
+  contest's pinned snapshot and rules, every locked board's revision and
+  calls, unstamped board counts, current resolutions, identity rows,
+  conflicts, status and issues. It does not depend on input order.
+
 ## Timing and preflight
 
 15. **Week 5.** Not graded until artifact authority, durable results and
