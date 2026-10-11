@@ -25,6 +25,8 @@ export type SnapshotRowSpec = {
   team?: string;
   opponent?: string;
   nflGameId?: string;
+  /** Frozen on bye; an excluded bye row records exclusion reason BYE. */
+  bye?: boolean;
 };
 
 export async function withFixtureMaintenance<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -114,6 +116,24 @@ export async function createWaiverFixture(tag: string, options: { years?: { min:
       players.push({ id: entry.id, position, name });
     }
     return players;
+  }
+
+  /** Player carrying the canonical contract identity (nflcom-bootstrap, unique externalId); never DEF. */
+  async function addContractPlayer(input: { position: Exclude<ContestPosition, "DEF">; team: string; label: string }) {
+    const name = `${input.label} ${suffix}`;
+    const entry = await prisma.rankableEntry.create({
+      data: {
+        provider: "nflcom-bootstrap",
+        externalId: `nfl-${suffix}-${input.label}`,
+        type: "PLAYER",
+        name,
+        shortName: name,
+        team: input.team,
+        position: input.position,
+      },
+    });
+    playerIds.push(entry.id);
+    return { id: entry.id, position: input.position, name, team: input.team, externalId: entry.externalId };
   }
 
   /** Uniquely named player with a season roster row (the snapshot name universe). */
@@ -283,8 +303,8 @@ export async function createWaiverFixture(tag: string, options: { years?: { min:
             inputLine: `${row.player.name}, SF`,
             matchMethod: "EXACT_NAME_TEAM",
             eligibility,
-            exclusionReason: eligibility === "EXCLUDED" ? "AT_OR_ABOVE_THRESHOLD" : null,
-            isByeAtFreeze: false,
+            exclusionReason: eligibility === "EXCLUDED" ? (row.bye ? "BYE" : "AT_OR_ABOVE_THRESHOLD") : null,
+            isByeAtFreeze: row.bye ?? false,
             hardUnavailableAtFreeze: false,
             identityProviderAtFreeze: identity.provider,
             identityExternalIdAtFreeze: identity.externalId,
@@ -385,6 +405,7 @@ export async function createWaiverFixture(tag: string, options: { years?: { min:
     addAiCompetitor,
     addAdmin,
     addPlayers,
+    addContractPlayer,
     addRosterPlayer,
     addWeek,
     setAvailability,

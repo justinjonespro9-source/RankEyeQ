@@ -3,24 +3,22 @@ import type { Prisma } from "@/lib/generated/prisma/client";
 import { WAIVER_ARTIFACT_IMPORT_ATTESTATION_VERSION } from "@/lib/waivers/artifacts/authority";
 import { applyWaiverArtifactImport, buildWaiverArtifactImportPreview, previewWaiverArtifactImport } from "@/lib/waivers/artifacts/import";
 import { WAIVER_ARTIFACT_EVENT_BASIS, waiverArtifactRowData } from "@/lib/waivers/artifacts/import-model";
-import { evaluateCanonicalWaiverBoard, type CanonicalCallTreatment } from "@/lib/waivers/canonical/policy";
+import { waiverHonorScoreableSlots } from "@/lib/waivers/canonical/policy";
 import { canonicalExportChecksum } from "@/lib/waivers/canonical/serialization";
 import type { WaiverDb } from "@/lib/waivers/clock";
 import { WAIVER_EYEQ_V1, WAIVER_POSITIONS, type WaiverPosition } from "@/lib/waivers/constants";
 import { ensureWaiverContestLocked } from "@/lib/waivers/contests";
-import { divideRoundHalfAwayFromZero } from "@/lib/waivers/precision";
+import { gradeWaiverBoard } from "@/lib/waivers/grading/board-grade";
+import { waiverBoardGradeCreateData, waiverCallGradeCreateData } from "@/lib/waivers/grading/rows";
 import { rankWaiverPool } from "@/lib/waivers/ranking";
 import * as fingerprints from "@/lib/waivers/results/fingerprints";
 import {
-  deriveWaiverUngradableReason,
   WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT,
   WAIVER_GRADING_APPROVAL_ATTESTATION_VERSION,
   WAIVER_GRADING_RULESET_VERSION,
-  WAIVER_HONOR_INELIGIBLE_REASONS,
   WAIVER_RESULTS_POLICY_VERSION,
   type WaiverGradeApprovalPolicy,
 } from "@/lib/waivers/results/model";
-import { maxRawPointsForSlot, waiverEyeqHundredths } from "@/lib/waivers/scoring";
 import { saveWaiverDraft, submitWaiverBoard } from "@/lib/waivers/submissions";
 import { loadWaiverAiContestContext } from "@/lib/waivers/ai/context";
 import { recordWaiverAiEvidence, reviewWaiverAiEvidence } from "@/lib/waivers/ai/evidence";
@@ -668,145 +666,55 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
     const boards: BoardWrite[] = [];
     const boardFps: Array<{ submissionId: string; inputFingerprint: string; outputFingerprint: string }> = [];
 
+    // Boards are graded by the Stage 4B.4 engine from the stored pool rows.
     for (const position of contestPositions) {
       const result = byPosition.get(position)!;
-      const field = result.resultFieldSize;
-      const pool = new Map(result.poolResults.map((p) => [p.rankableEntryId, p]));
+      const contestRef = {
+        position,
+        contestId: result.contestId,
+        resultFieldSize: result.resultFieldSize,
+        effectiveAvailableSlots: result.effectiveAvailableSlots,
+        resultFingerprint: result.resultFingerprint,
+        honorScoreableSlots: waiverHonorScoreableSlots({
+          effectiveAvailableSlots: result.effectiveAvailableSlots,
+          eligiblePoolSize: result.eligiblePoolSize,
+          neutralizedEligibleMembers: result.poolResults.filter((p) => p.category === "ELIGIBLE_POOL_MEMBER" && p.treatment === "NEUTRALIZED").length,
+        }),
+        rows: result.poolResults,
+      };
+      const poolResultIdByEntry = new Map(result.poolResults.map((p) => [p.rankableEntryId, p.id]));
       const submissions = await db.waiverSubmission.findMany({
         where: { contestId: result.contestId, lockedRevisionId: { not: null } },
-        include: { lockedRevision: { include: { calls: { include: { snapshotEntry: { select: { rankableEntryId: true } } }, orderBy: { slot: "asc" } } } } },
+        include: {
+          universalProfile: { select: { profileType: true, competitorActive: true } },
+          lockedRevision: { include: { calls: { include: { snapshotEntry: { select: { rankableEntryId: true } } }, orderBy: { slot: "asc" } } } },
+        },
         orderBy: { id: "asc" },
       });
       for (const submission of submissions) {
         const revision = submission.lockedRevision!;
-        const calls = revision.calls.map((call) => {
-          const p = pool.get(call.snapshotEntry.rankableEntryId)!;
-          const treatment: CanonicalCallTreatment =
-            p.treatment === "RANKED"
-              ? { kind: "RANKED", waiverPoolRank: p.waiverPoolRank!, fpHundredths: p.fpHundredths! }
-              : p.treatment === "NON_PARTICIPANT_ZERO"
-                ? { kind: "NON_PARTICIPANT_ZERO", reason: p.participantDisposition }
-                : p.treatment === "INVALIDATED_PRE_LOCK"
-                  ? { kind: "INVALIDATED_PRE_LOCK" }
-                  : p.neutralizationPrecedence
-                    ? { kind: "NEUTRALIZED", reason: p.participantDisposition, invalidatedPreLock: true, precedence: p.neutralizationPrecedence }
-                    : { kind: "NEUTRALIZED", reason: p.participantDisposition };
-          return { call, p, treatment };
-        });
-        // Shrunken pool: per-call scoring never depends on the slot count, so
-        // the 4A evaluation runs over the submitted calls and only the board
-        // totals are recomputed against the corrected available slots.
-        const availableSlots = result.effectiveAvailableSlots;
-        const slotOverflow = calls.length > availableSlots;
-        const evaluation = evaluateCanonicalWaiverBoard({
-          calls: calls.map((c) => ({ slot: c.call.slot, treatment: c.treatment })),
-          availableSlots: Math.max(availableSlots, calls.length),
-          resultFieldSize: field,
-        });
-        if (evaluation.status !== "EVALUATED") throw new Error("fixture board unexpectedly blocked");
-        const callWrites = calls.map(({ call, p }, i) => {
-          const e = evaluation.calls[i];
-          const output: fingerprints.CallGradeOutput = {
-            slot: call.slot,
-            treatment: p.treatment,
-            scored: e.scored,
-            waiverPoolRank: p.waiverPoolRank,
-            canonicalPositionRank: p.canonicalPositionRank,
-            fpHundredths: e.fpHundredths,
-            inResultField: p.waiverPoolRank !== null && p.waiverPoolRank <= field,
-            exact: e.exactSlotHit,
-            earnedRawPoints: e.rawPoints,
-            maxRawPoints: e.scored ? maxRawPointsForSlot(call.slot, field) : null,
-            honorCreditEligible: e.honorCreditEligible,
-            invalidatedPreLock: e.invalidatedPreLock,
-            neutralizationPrecedence: e.precedence,
-          };
-          const inputFingerprint = fingerprints.callGradeInputFingerprint({
-            slot: call.slot,
-            callId: call.id,
-            snapshotEntryId: call.snapshotEntryId,
-            rankableEntryId: call.snapshotEntry.rankableEntryId,
-            poolRowFingerprint: p.rowFingerprint,
-            resultFieldSize: field,
-          });
-          return {
-            callId: call.id,
-            snapshotEntryId: call.snapshotEntryId,
-            rankableEntryId: call.snapshotEntry.rankableEntryId,
-            poolResultId: p.id,
-            conflictResolutionId: p.conflictResolutionId,
-            ...output,
-            inputFingerprint,
-            outputFingerprint: fingerprints.callGradeOutputFingerprint(output),
-          };
-        });
-        const scored = evaluation.scoredCalls;
-        const neutralized = evaluation.neutralizedSlots.length;
-        const eff = Math.max(availableSlots - neutralized, 0);
-        const coverageCalls = Math.min(scored, eff);
-        const graded = scored > 0 && eff > 0;
-        const resultKind =
-          evaluation.submittedCalls === 0
-            ? "NA_ZERO_CALL"
-            : evaluation.allNeutralized
-              ? "NA_ALL_NEUTRALIZED"
-              : eff === 0
-                ? "NA_NO_EFFECTIVE_SLOTS"
-                : "SCORED";
-        const output: fingerprints.BoardGradeOutput = {
-          submittedCallCount: evaluation.submittedCalls,
-          scoreableCallCount: scored,
-          neutralizedCallCount: neutralized,
-          invalidatedCallCount: evaluation.calls.filter((c) => c.invalidatedPreLock).length,
-          exactCallCount: evaluation.calls.filter((c) => c.exactSlotHit).length,
-          availableSlots,
-          effectiveAvailableSlots: eff,
-          coverageCallCount: coverageCalls,
-          slotOverflow,
-          earnedRawPoints: evaluation.earnedRawPoints,
-          maxRawPoints: evaluation.maxRawPoints,
-          coverageModifierNumerator: graded ? WAIVER_EYEQ_V1.coverageFloorPercent * eff + WAIVER_EYEQ_V1.coverageWeightPercent * coverageCalls : null,
-          coverageModifierDenominator: graded ? 100 * eff : null,
-          eyeqHundredths: graded
-            ? waiverEyeqHundredths({ earnedRawPoints: evaluation.earnedRawPoints, maxRawPoints: evaluation.maxRawPoints, callsMade: coverageCalls, availableSlots: eff })
-            : null,
-          totalFpHundredths: evaluation.totalFpHundredths,
-          fpPerCallHundredths: graded ? evaluation.fpPerCallHundredths : null,
-          fpPerAvailableSlotHundredths:
-            evaluation.allNeutralized || eff === 0 ? null : slotOverflow ? divideRoundHalfAwayFromZero(evaluation.totalFpHundredths, eff) : evaluation.fpPerAvailableSlotHundredths,
-          resultKind,
-          ungradableReason: resultKind === "NA_NO_EFFECTIVE_SLOTS" ? deriveWaiverUngradableReason(availableSlots) : null,
-          played: resultKind === "SCORED" || resultKind === "NA_ZERO_CALL",
-          honorEligible: resultKind === "SCORED",
-          honorIneligibleReason: resultKind === "SCORED" ? null : WAIVER_HONOR_INELIGIBLE_REASONS[resultKind],
-          awardedHonor: resultKind === "SCORED" ? evaluation.perfectHonor : null,
-        };
-        const inputFingerprint = fingerprints.boardGradeInputFingerprint({
+        const graded = gradeWaiverBoard(contestRef, {
           submissionId: submission.id,
           revisionId: revision.id,
           revisionFingerprint: revision.fingerprint,
-          position,
-          contestResultFingerprint: result.resultFingerprint,
-          availableSlots,
-          calls: callWrites.map((c) => ({ slot: c.slot, inputFingerprint: c.inputFingerprint })),
-        });
-        const outputFingerprint = fingerprints.boardGradeOutputFingerprint(output, callWrites);
-        boards.push({
-          board: {
-            contestId: result.contestId,
-            contestResultId: result.id,
-            position,
-            submissionId: submission.id,
-            revisionId: revision.id,
-            ...output,
-            fpPerCallDenominator: scored,
-            fpPerAvailableSlotDenominator: eff,
-            inputFingerprint,
-            outputFingerprint,
+          revisionKind: revision.kind,
+          revisionCallCount: revision.callCount,
+          competitor: {
+            universalProfileId: submission.universalProfileId,
+            profileType: submission.universalProfile.profileType,
+            competitorActive: submission.universalProfile.competitorActive,
+            authority: submission.authority,
+            entryBasis: "STANDARD",
           },
-          calls: callWrites,
+          calls: revision.calls.map((call) => ({ callId: call.id, slot: call.slot, snapshotEntryId: call.snapshotEntryId, rankableEntryId: call.snapshotEntry.rankableEntryId })),
         });
-        boardFps.push({ submissionId: submission.id, inputFingerprint, outputFingerprint });
+        if (graded.status !== "GRADED") throw new Error(`fixture board unexpectedly blocked: ${graded.issues.map((i) => i.code).join(", ")}`);
+        // Placeholder ids: writeGradeRun supplies the run and board ids.
+        boards.push({
+          board: waiverBoardGradeCreateData(graded.grade, { gradeRunId: "", contestResultId: result.id }),
+          calls: waiverCallGradeCreateData(graded.grade, { boardGradeId: "", poolResultIdByEntry }),
+        });
+        boardFps.push({ submissionId: submission.id, inputFingerprint: graded.grade.board.inputFingerprint, outputFingerprint: graded.grade.board.outputFingerprint });
       }
     }
 
@@ -980,33 +888,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
   }
 
   async function cleanup() {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(MAINTENANCE_SQL);
-      await tx.waiverBoardGradeAuthority.deleteMany({ where: { weekId } });
-      await tx.waiverContestResultAuthority.deleteMany({ where: { weekId } });
-      await tx.waiverWeekGradeAuthority.deleteMany({ where: { weekId } });
-      for (const change of await tx.waiverGradeAuthorityChange.findMany({ where: { weekId }, orderBy: { sequence: "desc" }, select: { id: true } })) {
-        await tx.waiverGradeAuthorityChange.delete({ where: { id: change.id } });
-      }
-      await tx.waiverGradeApproval.deleteMany({ where: { weekId } });
-      await tx.waiverCallGrade.deleteMany({ where: { boardGrade: { gradeRun: { weekId } } } });
-      await tx.waiverBoardGrade.deleteMany({ where: { gradeRun: { weekId } } });
-      await tx.waiverGradeRun.deleteMany({ where: { weekId } });
-      await tx.waiverEmptyPositionResult.deleteMany({ where: { weekId } });
-      await tx.waiverPoolResult.deleteMany({ where: { contestResult: { weekId } } });
-      await tx.waiverContestResult.deleteMany({ where: { weekId } });
-      const resolutions = await tx.waiverConflictResolution.findMany({
-        where: { weekId },
-        orderBy: [{ artifactRevision: "desc" }, { sequence: "desc" }],
-        select: { id: true },
-      });
-      for (const r of resolutions) await tx.waiverConflictResolution.delete({ where: { id: r.id } });
-      const artifacts = await tx.waiverCanonicalArtifact.findMany({ where: { weekId }, orderBy: { revision: "desc" }, select: { id: true } });
-      const ids = artifacts.map((a) => a.id);
-      await tx.waiverCanonicalArtifactEvent.deleteMany({ where: { OR: [{ artifactRowId: { in: ids } }, { successorArtifactRowId: { in: ids } }] } });
-      await tx.waiverCanonicalArtifactContent.deleteMany({ where: { artifactRowId: { in: ids } } });
-      for (const id of ids) await tx.waiverCanonicalArtifact.delete({ where: { id } });
-    });
+    await deleteWaiverFixtureGradingRows(weekId);
     await base.cleanup();
     await prisma.user.deleteMany({ where: { id: { in: [secondAdmin.id, member.id] } } });
   }
@@ -1047,6 +929,37 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
 }
 
 export type ResultsFixture = Awaited<ReturnType<typeof createResultsFixture>>;
+
+/** Removes a fixture week's artifacts, D3 resolutions, results, runs, approvals and authority (fixture maintenance). */
+export async function deleteWaiverFixtureGradingRows(weekId: string) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(MAINTENANCE_SQL);
+    await tx.waiverBoardGradeAuthority.deleteMany({ where: { weekId } });
+    await tx.waiverContestResultAuthority.deleteMany({ where: { weekId } });
+    await tx.waiverWeekGradeAuthority.deleteMany({ where: { weekId } });
+    for (const change of await tx.waiverGradeAuthorityChange.findMany({ where: { weekId }, orderBy: { sequence: "desc" }, select: { id: true } })) {
+      await tx.waiverGradeAuthorityChange.delete({ where: { id: change.id } });
+    }
+    await tx.waiverGradeApproval.deleteMany({ where: { weekId } });
+    await tx.waiverCallGrade.deleteMany({ where: { boardGrade: { gradeRun: { weekId } } } });
+    await tx.waiverBoardGrade.deleteMany({ where: { gradeRun: { weekId } } });
+    await tx.waiverGradeRun.deleteMany({ where: { weekId } });
+    await tx.waiverEmptyPositionResult.deleteMany({ where: { weekId } });
+    await tx.waiverPoolResult.deleteMany({ where: { contestResult: { weekId } } });
+    await tx.waiverContestResult.deleteMany({ where: { weekId } });
+    const resolutions = await tx.waiverConflictResolution.findMany({
+      where: { weekId },
+      orderBy: [{ artifactRevision: "desc" }, { sequence: "desc" }],
+      select: { id: true },
+    });
+    for (const r of resolutions) await tx.waiverConflictResolution.delete({ where: { id: r.id } });
+    const artifacts = await tx.waiverCanonicalArtifact.findMany({ where: { weekId }, orderBy: { revision: "desc" }, select: { id: true } });
+    const ids = artifacts.map((a) => a.id);
+    await tx.waiverCanonicalArtifactEvent.deleteMany({ where: { OR: [{ artifactRowId: { in: ids } }, { successorArtifactRowId: { in: ids } }] } });
+    await tx.waiverCanonicalArtifactContent.deleteMany({ where: { artifactRowId: { in: ids } } });
+    for (const id of ids) await tx.waiverCanonicalArtifact.delete({ where: { id } });
+  });
+}
 
 /** Expects a rejection whose message matches (CHECK names, unique violations, guard codes). */
 export async function expectRejected(promise: Promise<unknown>, pattern: RegExp) {

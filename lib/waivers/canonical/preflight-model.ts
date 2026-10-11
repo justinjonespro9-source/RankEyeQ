@@ -6,6 +6,7 @@ import {
   matchRankEyeQIdentity,
   rankEyeQIdentityRisks,
   type CanonicalConsumerKey,
+  type CanonicalLedgerIndex,
   type IdentityIssueCode,
   type RankEyeQIdentity,
 } from "@/lib/waivers/canonical/identity";
@@ -140,6 +141,60 @@ function canonicalView(row: SngLedgerRow) {
   };
 }
 
+/**
+ * One frozen snapshot entry against the ledger: exact identity match, frozen
+ * identity drift, blocked canonical results and D3 conflicts. Duplicate pool
+ * matches are a pool-level check left to the caller.
+ */
+export function evaluateCanonicalPreflightEntry(
+  entry: PreflightSnapshotEntry,
+  index: CanonicalLedgerIndex | null,
+  verified: VerifiedSngCanonicalArtifact | null,
+): PreflightRow {
+  const identity = toIdentity(entry);
+  const match = index ? matchRankEyeQIdentity(identity, index) : { ...rankEyeQIdentityRisks(identity), participant: null };
+  const issues: PreflightIssue[] = match.issues.map((issue) => ({ ...issue, snapshotEntryId: entry.snapshotEntryId }));
+  const frozen = entry.frozenIdentity;
+  if (frozen && (frozen.provider !== entry.rankable.provider || frozen.externalId !== entry.rankable.externalId)) {
+    issues.push({
+      code: "FROZEN_IDENTITY_MISMATCH",
+      detail: `frozen ${frozen.provider}:${frozen.externalId}; live ${entry.rankable.provider}:${entry.rankable.externalId}`,
+      snapshotEntryId: entry.snapshotEntryId,
+    });
+  }
+  const canonical = match.participant ? canonicalView(match.participant) : null;
+  let conflicts: SnapshotCanonicalConflict[] = [];
+  if (canonical && verified) {
+    if (canonical.cls === "BLOCKED") {
+      issues.push({ code: "CANONICAL_RESULT_BLOCKED", detail: `${canonical.state}/${canonical.disposition}`, snapshotEntryId: entry.snapshotEntryId });
+    }
+    conflicts = detectSnapshotCanonicalConflicts({
+      artifactContentChecksum: verified.summary.contentChecksum,
+      snapshotEntryId: entry.snapshotEntryId,
+      snapshot: { isByeAtFreeze: entry.isByeAtFreeze, teamAtFreeze: entry.teamAtFreeze },
+      canonical: { participantId: canonical.participantId, cls: canonical.cls, disposition: canonical.disposition, teamKey: canonical.teamKey },
+    });
+    for (const conflict of conflicts) {
+      issues.push({ code: "SNAPSHOT_CANONICAL_CONFLICT", detail: conflict.detail, snapshotEntryId: entry.snapshotEntryId });
+    }
+  }
+  return {
+    snapshotEntryId: entry.snapshotEntryId,
+    rankableEntryId: entry.rankableEntryId,
+    snapshotPosition: entry.position,
+    displayNameAtFreeze: entry.displayNameAtFreeze,
+    rankeyeqIdentity: { provider: identity.provider, externalId: identity.externalId },
+    identitySource: frozen ? "FROZEN_AT_SNAPSHOT" : "LIVE_NOT_FROZEN",
+    liveIdentity: { provider: entry.rankable.provider, externalId: entry.rankable.externalId },
+    consumerKey: match.consumerKey,
+    matched: canonical !== null,
+    canonical,
+    positionMismatch: canonical !== null && canonical.sngPosition !== entry.position,
+    conflicts,
+    issues,
+  };
+}
+
 export function evaluateWaiverCanonicalPreflight(input: {
   snapshot: PreflightSnapshot;
   verified: VerifiedSngCanonicalArtifact | null;
@@ -175,50 +230,7 @@ export function evaluateWaiverCanonicalPreflight(input: {
     });
   }
 
-  const rows: PreflightRow[] = pool.map((entry) => {
-    const identity = toIdentity(entry);
-    const match = index ? matchRankEyeQIdentity(identity, index) : { ...rankEyeQIdentityRisks(identity), participant: null };
-    const issues: PreflightIssue[] = match.issues.map((issue) => ({ ...issue, snapshotEntryId: entry.snapshotEntryId }));
-    const frozen = entry.frozenIdentity;
-    if (frozen && (frozen.provider !== entry.rankable.provider || frozen.externalId !== entry.rankable.externalId)) {
-      issues.push({
-        code: "FROZEN_IDENTITY_MISMATCH",
-        detail: `frozen ${frozen.provider}:${frozen.externalId}; live ${entry.rankable.provider}:${entry.rankable.externalId}`,
-        snapshotEntryId: entry.snapshotEntryId,
-      });
-    }
-    const canonical = match.participant ? canonicalView(match.participant) : null;
-    let conflicts: SnapshotCanonicalConflict[] = [];
-    if (canonical && verified) {
-      if (canonical.cls === "BLOCKED") {
-        issues.push({ code: "CANONICAL_RESULT_BLOCKED", detail: `${canonical.state}/${canonical.disposition}`, snapshotEntryId: entry.snapshotEntryId });
-      }
-      conflicts = detectSnapshotCanonicalConflicts({
-        artifactContentChecksum: verified.summary.contentChecksum,
-        snapshotEntryId: entry.snapshotEntryId,
-        snapshot: { isByeAtFreeze: entry.isByeAtFreeze, teamAtFreeze: entry.teamAtFreeze },
-        canonical: { participantId: canonical.participantId, cls: canonical.cls, disposition: canonical.disposition, teamKey: canonical.teamKey },
-      });
-      for (const conflict of conflicts) {
-        issues.push({ code: "SNAPSHOT_CANONICAL_CONFLICT", detail: conflict.detail, snapshotEntryId: entry.snapshotEntryId });
-      }
-    }
-    return {
-      snapshotEntryId: entry.snapshotEntryId,
-      rankableEntryId: entry.rankableEntryId,
-      snapshotPosition: entry.position,
-      displayNameAtFreeze: entry.displayNameAtFreeze,
-      rankeyeqIdentity: { provider: identity.provider, externalId: identity.externalId },
-      identitySource: frozen ? "FROZEN_AT_SNAPSHOT" : "LIVE_NOT_FROZEN",
-      liveIdentity: { provider: entry.rankable.provider, externalId: entry.rankable.externalId },
-      consumerKey: match.consumerKey,
-      matched: canonical !== null,
-      canonical,
-      positionMismatch: canonical !== null && canonical.sngPosition !== entry.position,
-      conflicts,
-      issues,
-    };
-  });
+  const rows: PreflightRow[] = pool.map((entry) => evaluateCanonicalPreflightEntry(entry, index, verified));
 
   const byParticipant = new Map<string, PreflightRow[]>();
   for (const row of rows) {

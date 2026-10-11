@@ -83,6 +83,11 @@ const PURE_MODULES = [
   "artifacts/upload-limits",
   "results/fingerprints",
   "results/model",
+  "grading/model",
+  "grading/contest-result",
+  "grading/board-grade",
+  "grading/week",
+  "grading/rows",
   "play-model",
   "consensus-model",
   "leaderboard-model",
@@ -113,6 +118,7 @@ const SERVICE_MODULES = [
   "artifacts/queries",
   "artifacts/actions",
   "artifacts/upload",
+  "grading/preview",
   "play-queries",
   "leaderboard-queries",
   "ai/context",
@@ -394,6 +400,32 @@ describe("Waivers architecture isolation", () => {
         const source = readFileSync(file, "utf8");
         if (write.test(source) || rawWrite.test(source)) offenders.push(path.relative(ROOT, file));
       }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the grading engine is a read-only dry run: no writes, transactions, raw SQL or SNG contact, and no UI, route or action reaches it", () => {
+    const offenders: string[] = [];
+    for (const file of waiverSourceFiles().filter((f) => moduleName(f).startsWith("grading/"))) {
+      const source = readFileSync(file, "utf8");
+      for (const banned of [
+        /\b\w+\s*\.\s*\w+\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\s*\(/,
+        /\$(?:executeRaw|queryRaw|transaction)/,
+        /\bfetch\s*\(/,
+        /https?:\/\//,
+        /contentText/,
+        /^\s*["']use server["']/,
+      ]) {
+        if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
+      }
+    }
+    for (const root of ["app", "components", "scripts"].map((d) => path.join(ROOT, d))) {
+      for (const file of walk(root)) {
+        if (/lib\/waivers\/grading/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+      }
+    }
+    for (const file of waiverSourceFiles().filter((f) => !moduleName(f).startsWith("grading/"))) {
+      if (/lib\/waivers\/grading/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
     }
     expect(offenders).toEqual([]);
   });

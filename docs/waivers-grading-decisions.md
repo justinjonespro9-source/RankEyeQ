@@ -198,6 +198,124 @@ Stage 4B.3 final corrections (approved 2026-10-08):
   blocks), using the row's `xmin` widened to 64 bits and `pg_xact_status`
   (shared helper `waiver_xmin_is_current_transaction`).
 
+Stage 4B.4 (deterministic grading engine, approved 2026-10-10):
+
+- **Accuracy keeps the configured field.** Call scoring uses N = 3 (QB, RB,
+  TE, DEF) or 5 (WR) whatever the pool size; the accuracy formula and its
+  database checks are unchanged. Effective available slots govern coverage and
+  neutralization only.
+- **Two different slot counts (final, 2026-10-10).** Both start from the
+  contest's available slots K = min(max calls, eligible pool size).
+  - *Board effective available slots* (per board, coverage only):
+    E = max(K − neutralized calls on this board, 0). Only the board's own
+    neutralized calls reduce E; a neutralized player the board did not call
+    does not. Coverage modifier = (70·E + 30·min(scoreable calls, E)) / (100·E).
+  - *Pool scoreable slots* (per contest, the same for every board; full-board
+    honors only): S = min(K, eligible pool size − eligible members whose
+    treatment is NEUTRALIZED).
+- **Full-board honors on scoreable slots.** Only a cancelled or moved game
+  (D2) or a D3 NEUTRALIZED decision reduces S; a DNP, a D3 zero, or a zero or
+  negative fantasy total never does. PERFECT PODIUM / PERFECT FIVE requires a
+  SCORED board with no neutralized call, every submitted call scoreable and
+  exact in its original slot, and exact calls = S > 0. Otherwise a SCORED
+  board whose scoreable calls are all exact earns PERFECT CALL. Example: three
+  eligible QBs, two ranked; third neutralized → two exact calls earn PERFECT
+  PODIUM; third DNP → PERFECT CALL. This implements decision 4. The database
+  settles the full-board choice at COMMIT against the stored pool rows
+  (migration `20261012000000_waivers_full_board_honor_scoreable_slots`).
+- **Accepted example: PERFECT PODIUM at 90.00.** DEF pool SF 7.00 (rank 1),
+  SEA 3.00 (rank 2), KC cancelled (neutralized); board SF, SEA. K = 3; the
+  board called no neutralized player, so E = 3 and covered calls = 2. Call
+  quality 61/61 (33 + 28); coverage (70·3 + 30·2) / (100·3) = 0.90;
+  WaiverEyeQ ⌊(2·61·270·10000 + 61·300) / (2·61·300)⌋ = 9000 = 90.00.
+  S = min(3, 3 − 1) = 2 = exact calls, so PERFECT PODIUM.
+- **Engine.** `lib/waivers/grading` is a pure engine plus a SELECT-only week
+  preview: it re-verifies the stored ACCEPTED artifact, matches every eligible
+  pool member and invalidated called player by frozen identity, applies D1/D2/
+  C2 and current D3 decisions, ranks the waiver pool only (competition ties),
+  grades every locked board identically (human, AI, AI late entry,
+  ADMIN_COMPETITIVE_OVERRIDE) and computes the run fingerprints. Missing,
+  duplicate, blocked, mismatched or unresolved inputs block the whole week;
+  nothing is fetched or inferred. Locked AI boards are graded whether or not
+  the profile is currently active (deactivation never erases historical
+  participation); an inactive profile's board is surfaced as an advisory. It
+  stores, approves and applies nothing.
+- **D3 lookup on the originally called entry (approved 2026-10-10).** A
+  called player invalidated by a pre-lock correction whose pinned corrected
+  entry is frozen on bye shows no conflict there. For a canonical BYE on such
+  a player the engine looks up the BYE_VS_SCHEDULED conflict on the scheduled
+  frozen entry the locked boards originally called, and the operator's D3
+  decision is bound to that entry (the storage guards already accept it and
+  refuse BYE_VS_SCHEDULED on an entry frozen on bye). The pool row keeps the
+  pinned entry and C2 invalidation basis; D3 NEUTRALIZED takes the existing
+  D3-over-C2 precedence, any other decision keeps INVALIDATED_PRE_LOCK.
+  Nothing is decided automatically and every other row keeps its own entry's
+  conflicts. Still fail-closed: an eligible member frozen on bye (corrupt:
+  freeze never admits one), an invalidated player whose original entries are
+  also frozen on bye, and a player originally called on more than one
+  scheduled entry.
+- **Identity fail-closed.** An inactive, merged/superseded, non-contract,
+  malformed (DEF), unmatched, duplicate or ambiguous identity, eligible or
+  invalidated, blocks the week. No identity is repaired or inferred.
+- **Live-identity fallback (rows frozen before Stage 4B.1, including all of
+  Week 5).** Such rows have no frozen identity key, so the engine uses the
+  provider/externalId of the RankableEntry the snapshot row references (an
+  immutable foreign key) and raises `IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT`.
+  Consistency is established, never assumed: the entry must be active and
+  not merged/superseded, use the contract provider `nflcom-bootstrap`, a DEF
+  key must be `def-{TEAM}` for its own team and crosswalk to an SNG team key,
+  and the key must match exactly one SNG ledger participant (SNG verifies that
+  identity on its side) with at most one contest row per participant; the
+  frozen team is compared to SNG's team (TEAM_CHANGED needs a D3 decision);
+  storage re-checks that each pool row's identity equals the called entry's
+  frozen-or-live key. Any failure blocks. The frozen snapshot is never
+  rewritten and no historical identity record is manufactured. No shipped
+  path re-keys a RankableEntry (the manual player edit form never passes an
+  externalId, and every edit is audited), but the database does not forbid
+  it, so the operator must re-run the read-only consistency evidence (unique
+  contract keys, names and teams unchanged since freeze, no identity or player
+  edit audit events since freeze) immediately before approving a Week 5 run.
+- **DEF crosswalk.** `rankeyeq-sng-team-crosswalk/1` was checked row by row
+  against SNG's own team source (sng-labs `0b119c9d`
+  `lib/game-day/nfl-foundation.ts`, identical on SNG main): 32 teams, a
+  bijection, matching abbreviations, and Washington WAS (RankEyeQ) → WSH (SNG
+  abbreviation) → `washington-commanders` (SNG team key). The SNG producer
+  requires a DEF participant's `sng-team` externalId to equal its team key.
+  Status stays `SOURCE_DERIVED_PENDING_PRODUCER_FIXTURE`: the producer
+  (`codex/canonical-nfl-export`) is not merged into SNG main and its fixtures
+  use placeholder team keys, so no SNG-produced artifact has confirmed it.
+  Production grading stays blocked until one does.
+
+## Admin grading workflow (next stage; not implemented)
+
+Stage 4B.4 stops at deterministic calculation, validation and read-only
+preview. The admin workflow that follows must:
+
+1. **Review artifact provenance.** Show the imported artifact's SNG ID,
+   series, revision, supersession, acceptance, content checksum and the
+   operator's import evidence; only the week's latest ACCEPTED, intact
+   revision can be graded.
+2. **Review results.** Show every position (pool rows, treatments, ranks,
+   ties, neutralizations, invalidated called players, empty positions) and
+   every locked board (calls, outcomes, WaiverEyeQ, coverage, honors, Played,
+   entry basis, inactive-competitor advisories).
+3. **Record D3 exceptions explicitly.** One operator decision per detected
+   conflict, bound to the exact artifact revision and frozen entry, with
+   evidence and reason; never created or carried forward automatically (a new
+   revision requires reconfirmation).
+4. **Re-run the deterministic preview** after any decision; the run that is
+   approved must be the stored, fingerprinted output of that preview.
+5. **Approve and apply separately.** A distinct grading approval event,
+   outside the transaction that imported the artifact, then a separate
+   application step.
+6. **Publish atomically.** Week, five position and every board authority
+   pointer move in one transaction, or none do.
+7. **Preserve history.** A regrade appends a new run and authority change
+   pointing to its predecessor; earlier runs, grades, approvals and authority
+   changes stay unchanged and readable.
+8. **Never change locked submissions.** Revisions, calls, AI responses and
+   overrides are read-only to grading.
+
 ## Timing and preflight
 
 15. **Week 5.** Not graded until artifact authority, durable results and

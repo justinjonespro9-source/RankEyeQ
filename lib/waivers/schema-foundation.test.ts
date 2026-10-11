@@ -81,6 +81,8 @@ const STAGE4B3B_MIGRATION = "20261010000000_waivers_ai_late_entry";
 /** Stage 4B.3C admin competitive override is covered by ai/competitive-override-schema.test.ts. */
 const STAGE4B3C_MODEL_NAMES = ["WaiverAiCompetitiveOverride"];
 const STAGE4B3C_MIGRATION = "20261011000000_waivers_ai_competitive_override";
+/** Stage 4B.4 full-board honor trigger change is covered by results/full-board-honor-migration.test.ts. */
+const STAGE4B4_MIGRATION = "20261012000000_waivers_full_board_honor_scoreable_slots";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -159,7 +161,7 @@ describe("Waivers schema foundation (static)", () => {
 describe("Waivers migration is additive only", () => {
   const statements = sqlStatements(MIGRATION_SQL);
 
-  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2/4B.3/4B.3A/4B.3B/4B.3C Waivers migrations mention Waiver objects", () => {
+  it("only the Phase 1, 2, 3 and Stage 4B.1/4B.2/4B.3/4B.3A/4B.3B/4B.3C/4B.4 Waivers migrations mention Waiver objects", () => {
     const mentioning = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .filter((d) => /Waiver/.test(readFileSync(path.join(MIGRATIONS_DIR, d.name, "migration.sql"), "utf8")))
@@ -174,6 +176,7 @@ describe("Waivers migration is additive only", () => {
       STAGE4B3A_MIGRATION,
       STAGE4B3B_MIGRATION,
       STAGE4B3C_MIGRATION,
+      STAGE4B4_MIGRATION,
     ]);
   });
 

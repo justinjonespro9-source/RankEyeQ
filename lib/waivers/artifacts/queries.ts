@@ -2,7 +2,8 @@ import { prisma } from "@/lib/db";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { WAIVER_ARTIFACT_PUBLICATION_AUTHORITY } from "@/lib/waivers/artifacts/authority";
 import { waiverArtifactByteLength, waiverArtifactTextSha256 } from "@/lib/waivers/artifacts/import-model";
-import { verifySngCanonicalArtifact } from "@/lib/waivers/canonical/artifact-verifier";
+import { verifySngCanonicalArtifact, type VerifiedSngCanonicalArtifact } from "@/lib/waivers/canonical/artifact-verifier";
+import type { WaiverDb } from "@/lib/waivers/clock";
 
 /** Read-only admin views of imported canonical artifacts. Never return artifact text. */
 
@@ -120,7 +121,36 @@ export async function loadWaiverArtifactDetail(artifactRowId: string) {
  * digests. The only read of artifact content; returns findings, never text.
  */
 export async function reverifyWaiverArtifactContent(artifactRowId: string) {
-  const row = await prisma.waiverCanonicalArtifact.findUnique({
+  const checked = await verifyStoredWaiverArtifact(prisma, artifactRowId);
+  if (!checked) return null;
+  return {
+    ok: checked.ok,
+    verifierOk: checked.verifierOk,
+    issueCodes: checked.issueCodes,
+    textSha256Matches: checked.textSha256Matches,
+    byteLengthMatches: checked.byteLengthMatches,
+  };
+}
+
+/**
+ * The stored artifact for grading: the parsed canonical artifact (never its
+ * text) only when the verifier, the text digest and the byte length all agree.
+ */
+export async function loadVerifiedWaiverArtifact(
+  db: WaiverDb,
+  artifactRowId: string,
+): Promise<{ ok: true; verified: VerifiedSngCanonicalArtifact } | { ok: false; issueCodes: string[] } | null> {
+  const checked = await verifyStoredWaiverArtifact(db, artifactRowId);
+  if (!checked) return null;
+  if (checked.ok && checked.verified) return { ok: true, verified: checked.verified };
+  const issueCodes: string[] = [...checked.issueCodes];
+  if (!checked.textSha256Matches) issueCodes.push("TEXT_SHA256_MISMATCH");
+  if (!checked.byteLengthMatches) issueCodes.push("BYTE_LENGTH_MISMATCH");
+  return { ok: false, issueCodes };
+}
+
+async function verifyStoredWaiverArtifact(db: WaiverDb, artifactRowId: string) {
+  const row = await db.waiverCanonicalArtifact.findUnique({
     where: { id: artifactRowId },
     select: {
       season: true,
@@ -143,5 +173,6 @@ export async function reverifyWaiverArtifactContent(artifactRowId: string) {
     issueCodes: result.ok ? [] : result.issues.map((issue) => issue.code),
     textSha256Matches: waiverArtifactTextSha256(text) === row.content.textSha256,
     byteLengthMatches: waiverArtifactByteLength(text) === row.byteLength && row.content.byteLength === row.byteLength,
+    verified: result.ok ? { artifact: result.artifact, summary: result.summary } : null,
   };
 }

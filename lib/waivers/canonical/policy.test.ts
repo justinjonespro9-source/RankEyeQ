@@ -10,6 +10,7 @@ import {
   type CanonicalCallTreatment,
   type SnapshotCanonicalConflict,
   type SnapshotCanonicalConflictResolution,
+  waiverHonorScoreableSlots,
 } from "@/lib/waivers/canonical/policy";
 import { computeWaiverProduction } from "@/lib/waivers/production";
 import { scoreWaiverBoard, WaiverScoringError } from "@/lib/waivers/scoring";
@@ -18,8 +19,9 @@ const ranked = (waiverPoolRank: number, fpHundredths: number): CanonicalCallTrea
 const dnp: CanonicalCallTreatment = { kind: "NON_PARTICIPANT_ZERO", reason: "DNP" };
 const cancelled: CanonicalCallTreatment = { kind: "NEUTRALIZED", reason: "CANCELLED_GAME" };
 const moved: CanonicalCallTreatment = { kind: "NEUTRALIZED", reason: "MOVED_OUT_OF_WEEK" };
-const board = (treatments: CanonicalCallTreatment[], availableSlots = 3, resultFieldSize = 3) =>
-  evaluateCanonicalWaiverBoard({ calls: treatments.map((treatment, i) => ({ slot: i + 1, treatment })), availableSlots, resultFieldSize });
+// A full pool with no neutralized eligible member: the honor scoreable slots equal the available slots.
+const board = (treatments: CanonicalCallTreatment[], availableSlots = 3, resultFieldSize = 3, honorScoreableSlots = availableSlots) =>
+  evaluateCanonicalWaiverBoard({ calls: treatments.map((treatment, i) => ({ slot: i + 1, treatment })), availableSlots, resultFieldSize, honorScoreableSlots });
 function evaluated(result: CanonicalBoardEvaluation) {
   if (result.status !== "EVALUATED") throw new Error(`expected EVALUATED, got ${JSON.stringify(result)}`);
   return result;
@@ -532,14 +534,63 @@ describe("Perfect honors with D1 and neutralized calls", () => {
     expect(honor(board([ranked(1, 2810), ranked(2, 2000), precedence]))).toBe("PERFECT_CALL");
   });
 
-  it("fails closed on a result field without a perfect-honor rule", () => {
-    expect(() => canonicalPerfectHonor([], 4)).toThrow(WaiverScoringError);
+  it("fails closed on a result field without a perfect-honor rule or an out-of-range scoreable-slot count", () => {
+    expect(() => canonicalPerfectHonor([], { resultFieldSize: 4, scoreableSlots: 3 })).toThrow(WaiverScoringError);
+    expect(() => canonicalPerfectHonor([], { resultFieldSize: 3, scoreableSlots: 4 })).toThrow(WaiverScoringError);
+    expect(() => canonicalPerfectHonor([], { resultFieldSize: 3, scoreableSlots: -1 })).toThrow(WaiverScoringError);
+  });
+});
+
+describe("full-board honors on the contest's scoreable slots", () => {
+  const honor = (result: CanonicalBoardEvaluation) => evaluated(result).perfectHonor;
+  const exact2 = [ranked(1, 2410), ranked(2, 1800)];
+
+  it("scoreable slots drop for D2 / D3-neutralized pool members only, never for a DNP", () => {
+    // Three eligible QBs, two ranked performers.
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 3, eligiblePoolSize: 3, neutralizedEligibleMembers: 1 })).toBe(2);
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 3, eligiblePoolSize: 3, neutralizedEligibleMembers: 0 })).toBe(3);
+    // A deep pool keeps the configured slots even with a neutralized member.
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 5, eligiblePoolSize: 6, neutralizedEligibleMembers: 1 })).toBe(5);
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 5, eligiblePoolSize: 5, neutralizedEligibleMembers: 1 })).toBe(4);
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 0, eligiblePoolSize: 0, neutralizedEligibleMembers: 0 })).toBe(0);
+    expect(waiverHonorScoreableSlots({ effectiveAvailableSlots: 2, eligiblePoolSize: 2, neutralizedEligibleMembers: 2 })).toBe(0);
+    expect(() => waiverHonorScoreableSlots({ effectiveAvailableSlots: 3, eligiblePoolSize: 2, neutralizedEligibleMembers: 0 })).toThrow(WaiverScoringError);
+    expect(() => waiverHonorScoreableSlots({ effectiveAvailableSlots: 2, eligiblePoolSize: 2, neutralizedEligibleMembers: 3 })).toThrow(WaiverScoringError);
+  });
+
+  it("approved example: third QB neutralized → two exact calls earn PERFECT PODIUM; third QB DNP → PERFECT CALL", () => {
+    expect(honor(board(exact2, 3, 3, 2))).toBe("PERFECT_PODIUM");
+    expect(honor(board(exact2, 3, 3, 3))).toBe("PERFECT_CALL");
+  });
+
+  it("small pools: every available scoreable slot exact earns the full-board honor (Decision 4)", () => {
+    expect(honor(board(exact2, 2, 3, 2))).toBe("PERFECT_PODIUM");
+    expect(honor(board([ranked(1, 3000), ranked(2, 2500), ranked(3, 2000), ranked(4, 1500)], 4, 5, 4))).toBe("PERFECT_FIVE");
+    expect(honor(board([ranked(1, 3000), ranked(2, 2500), ranked(3, 2000)], 5, 5, 4))).toBe("PERFECT_CALL");
+  });
+
+  it("never for a partial board while more scoreable slots exist, a tie that moves a rank, or zero scoreable slots", () => {
+    expect(honor(board([ranked(1, 2410)], 3, 3, 2))).toBe("PERFECT_CALL");
+    // A shared rank (1, 1, 3): slot 2 holding a rank-1 player is not exact.
+    expect(honor(board([ranked(1, 2000), ranked(1, 2000)], 3, 3, 2))).toBeNull();
+    expect(honor(board([], 3, 3, 0))).toBeNull();
+    expect(honor(board([cancelled], 3, 3, 0))).toBeNull();
+  });
+
+  it("never when a neutralized call is on the board, even if the exact calls fill the scoreable slots", () => {
+    expect(honor(board([...exact2, cancelled], 3, 3, 2))).toBe("PERFECT_CALL");
+    expect(honor(board([cancelled, ...exact2], 3, 3, 2))).toBeNull();
+  });
+
+  it("never when a DNP or pre-lock invalidated call is on the board", () => {
+    expect(honor(board([...exact2, dnp], 3, 3, 3))).toBeNull();
+    expect(honor(board([...exact2, { kind: "INVALIDATED_PRE_LOCK" }], 3, 3, 2))).toBeNull();
   });
 });
 
 describe("evaluateCanonicalWaiverBoard input guards", () => {
   it("requires contiguous slots within the available depth", () => {
-    expect(() => evaluateCanonicalWaiverBoard({ calls: [{ slot: 2, treatment: dnp }], availableSlots: 3, resultFieldSize: 3 })).toThrow(WaiverScoringError);
+    expect(() => evaluateCanonicalWaiverBoard({ calls: [{ slot: 2, treatment: dnp }], availableSlots: 3, resultFieldSize: 3, honorScoreableSlots: 3 })).toThrow(WaiverScoringError);
     expect(() => board([dnp, dnp, dnp, dnp])).toThrow(WaiverScoringError);
     expect(() => board([], 4, 3)).toThrow(WaiverScoringError);
   });

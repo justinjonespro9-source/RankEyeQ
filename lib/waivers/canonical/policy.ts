@@ -24,7 +24,9 @@ import { maxRawPointsForSlot, scoreWaiverCall, waiverEyeqHundredths, WaiverScori
  * C2 still scores it.
  *
  * Honors: a neutralized call is not a miss, but it never completes a
- * full-board honor (Perfect Podium / Perfect Five).
+ * full-board honor (Perfect Podium / Perfect Five). The full board is the
+ * contest's scoreable slots: D2 and D3-neutralized pool members reduce them,
+ * a DNP never does.
  */
 
 /** Audit fields a D3 resolution carries; they travel with the resolved treatment. */
@@ -232,26 +234,56 @@ export type EvaluatedCanonicalCall = {
 
 export type CanonicalPerfectHonor = "PERFECT_CALL" | "PERFECT_PODIUM" | "PERFECT_FIVE";
 
-const FULL_BOARD_HONOR_BY_FIELD_SIZE: Readonly<Record<number, { honor: CanonicalPerfectHonor; slots: number }>> = {
-  3: { honor: "PERFECT_PODIUM", slots: 3 },
-  5: { honor: "PERFECT_FIVE", slots: 5 },
+const FULL_BOARD_HONOR_BY_FIELD_SIZE: Readonly<Record<number, CanonicalPerfectHonor>> = {
+  3: "PERFECT_PODIUM",
+  5: "PERFECT_FIVE",
 };
 
 /**
- * At most one perfect honor per board. Perfect Podium (Top-3 boards) and
- * Perfect Five (WR) need every required slot submitted, non-neutralized and
- * exact. Otherwise Perfect Call needs at least one scored call and every scored
- * call exact; neutralized calls are ignored, never counted as misses.
+ * The slots a full-board honor must fill: the effective available slots,
+ * reduced by eligible pool members neutralized by a cancelled/moved game (D2)
+ * or a D3 NEUTRALIZED resolution. DNP / NON_PARTICIPANT_ZERO members and
+ * zero or negative fantasy totals never reduce them.
  */
-export function canonicalPerfectHonor(calls: readonly EvaluatedCanonicalCall[], resultFieldSize: number): CanonicalPerfectHonor | null {
-  const fullBoard = FULL_BOARD_HONOR_BY_FIELD_SIZE[resultFieldSize];
-  if (!fullBoard) throw new WaiverScoringError(`No perfect-honor rule for result field size ${resultFieldSize}`);
+export function waiverHonorScoreableSlots(input: {
+  effectiveAvailableSlots: number;
+  eligiblePoolSize: number;
+  neutralizedEligibleMembers: number;
+}): number {
+  const { effectiveAvailableSlots, eligiblePoolSize, neutralizedEligibleMembers } = input;
+  for (const value of [effectiveAvailableSlots, eligiblePoolSize, neutralizedEligibleMembers]) {
+    if (!Number.isInteger(value) || value < 0) throw new WaiverScoringError(`scoreable-slot inputs must be non-negative integers (got ${value})`);
+  }
+  if (neutralizedEligibleMembers > eligiblePoolSize || effectiveAvailableSlots > eligiblePoolSize) {
+    throw new WaiverScoringError("scoreable-slot inputs exceed the eligible pool");
+  }
+  return Math.min(effectiveAvailableSlots, eligiblePoolSize - neutralizedEligibleMembers);
+}
+
+/**
+ * At most one perfect honor per board. Perfect Podium (Top-3 boards) and
+ * Perfect Five (WR) need no neutralized call and every one of the contest's
+ * scoreable slots (S > 0) submitted and exact in its original slot. Otherwise
+ * Perfect Call needs at least one scored call and every scored call exact;
+ * neutralized calls are ignored, never counted as misses.
+ */
+export function canonicalPerfectHonor(
+  calls: readonly EvaluatedCanonicalCall[],
+  input: { resultFieldSize: number; scoreableSlots: number },
+): CanonicalPerfectHonor | null {
+  const fullBoardHonor = FULL_BOARD_HONOR_BY_FIELD_SIZE[input.resultFieldSize];
+  if (!fullBoardHonor) throw new WaiverScoringError(`No perfect-honor rule for result field size ${input.resultFieldSize}`);
+  if (!Number.isInteger(input.scoreableSlots) || input.scoreableSlots < 0 || input.scoreableSlots > input.resultFieldSize) {
+    throw new WaiverScoringError(`scoreableSlots ${input.scoreableSlots} must be within 0..${input.resultFieldSize}`);
+  }
   const scored = calls.filter((call) => call.scored);
   if (scored.length === 0 || !scored.every((call) => call.exactSlotHit)) return null;
-  const fullBoardComplete = Array.from({ length: fullBoard.slots }, (_, i) => calls.find((call) => call.slot === i + 1)).every(
-    (call) => call !== undefined && call.scored && call.exactSlotHit,
-  );
-  return fullBoardComplete ? fullBoard.honor : "PERFECT_CALL";
+  const sorted = [...calls].sort((a, b) => a.slot - b.slot);
+  const fullBoard =
+    input.scoreableSlots > 0 &&
+    sorted.length === input.scoreableSlots &&
+    sorted.every((call, i) => call.slot === i + 1 && call.scored && call.exactSlotHit);
+  return fullBoard ? fullBoardHonor : "PERFECT_CALL";
 }
 
 export type CanonicalBoardEvaluation =
@@ -279,6 +311,8 @@ export function evaluateCanonicalWaiverBoard(input: {
   calls: readonly CanonicalBoardCall[];
   availableSlots: number;
   resultFieldSize: number;
+  /** The contest's honor scoreable slots (waiverHonorScoreableSlots). */
+  honorScoreableSlots: number;
 }): CanonicalBoardEvaluation {
   const { availableSlots, resultFieldSize } = input;
   const calls = [...input.calls].sort((a, b) => a.slot - b.slot);
@@ -347,6 +381,6 @@ export function evaluateCanonicalWaiverBoard(input: {
     fpPerCallHundredths: production.fpPerCallHundredths,
     fpPerAvailableSlotHundredths: allNeutralized ? null : production.fpPerAvailableSlotHundredths,
     allNeutralized,
-    perfectHonor: canonicalPerfectHonor(evaluated, resultFieldSize),
+    perfectHonor: canonicalPerfectHonor(evaluated, { resultFieldSize, scoreableSlots: input.honorScoreableSlots }),
   };
 }

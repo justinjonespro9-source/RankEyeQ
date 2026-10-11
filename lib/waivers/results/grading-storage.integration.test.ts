@@ -162,7 +162,7 @@ describe("grade runs and board grades", () => {
     await f.writeGradeRun(built);
   });
 
-  it("honors follow the Stage 4A rules: no honor without every scored call exact; full-board honor needs every result-field slot", async () => {
+  it("honors follow the Waiver rules: no honor without every scored call exact; full-board honor needs every scoreable slot", async () => {
     const built = await f.buildGradeRun(resultIds);
     const def = submissionIds.get(`DEF:${f.alpha.profileId}`)!;
     const rb = submissionIds.get(`RB:${f.alpha.profileId}`)!;
