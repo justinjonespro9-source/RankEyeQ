@@ -13,6 +13,7 @@ import {
   assembleWaiverSnapshotPreview,
   matchedWaiverEntryIds,
   matchWaiverInputRows,
+  type WaiverPoolScope,
   type WaiverSnapshotPreview,
 } from "@/lib/waivers/snapshot/preview-model";
 
@@ -22,6 +23,7 @@ export type WaiverSnapshotPreviewInput = {
   sourceLabel: string;
   sourceUrl: string | null;
   observedAt: Date | null;
+  poolScope?: WaiverPoolScope;
 };
 
 /**
@@ -48,7 +50,7 @@ export async function buildWaiverSnapshotPreview(db: WaiverDb, input: WaiverSnap
   });
   const context = await loadWaiverPreviewContext(db, { week, now, games });
   return assembleWaiverSnapshotPreview({
-    form: { weekId: week.id, sourceLabel: input.sourceLabel, sourceUrl: input.sourceUrl, observedAt: input.observedAt },
+    form: { weekId: week.id, sourceLabel: input.sourceLabel, sourceUrl: input.sourceUrl, observedAt: input.observedAt, poolScope: input.poolScope },
     parse,
     matched,
     factsById,

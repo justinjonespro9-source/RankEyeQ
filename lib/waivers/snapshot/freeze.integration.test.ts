@@ -144,6 +144,33 @@ describe("freezeWaiverSnapshot", () => {
     expect(again.blockers.map((issue) => issue.code)).toContain("SNAPSHOT_EXISTS");
   });
 
+  it("an owner-selected snapshot requires its own attestation and freezes the disclosure into the label and provenance", async () => {
+    const { weekId } = await f.addWeek();
+    const base = input(weekId, standardRows(), { poolScope: "OWNER_SELECTED" });
+    const preview = await previewWaiverSnapshot(base);
+    expect(preview.requiredAcknowledgments).toContain("SOURCE_SELECTED_ATTESTATION");
+    expect(preview.requiredAcknowledgments).not.toContain("SOURCE_COMPLETE_ATTESTATION");
+
+    const before = await weekWrites(weekId);
+    const asComplete = preview.requiredAcknowledgments.map((code) => (code === "SOURCE_SELECTED_ATTESTATION" ? "SOURCE_COMPLETE_ATTESTATION" : code));
+    await expectSnapshotError(freezeFromPreview(base, { acknowledged: asComplete }), "ACKNOWLEDGMENT");
+    const completePreview = await previewWaiverSnapshot({ ...base, poolScope: "SOURCE_COMPLETE" });
+    await expectSnapshotError(freezeFromPreview(base, { previewFingerprint: completePreview.previewFingerprint }), "STALE_PREVIEW");
+    expect(await weekWrites(weekId)).toEqual(before);
+
+    const { result } = await freezeFromPreview(base);
+    const snapshot = await prisma.waiverSnapshot.findUniqueOrThrow({ where: { id: result.snapshotId } });
+    expect(snapshot).toMatchObject({ sourceLabel: "Sleeper · owner-selected list", thresholdBps: 5000, ...preview.counts });
+    const labels = await prisma.waiverSnapshotEntry.findMany({ where: { snapshotId: snapshot.id }, select: { sourceLabel: true } });
+    expect(new Set(labels.map((row) => row.sourceLabel))).toEqual(new Set(["Sleeper · owner-selected list"]));
+    const log = await prisma.manualImportLog.findUniqueOrThrow({ where: { id: snapshot.manualImportLogId! } });
+    expect((log.metadata as { header: { poolScope: string } }).header.poolScope).toBe("OWNER_SELECTED");
+    expect((log.metadata as { acknowledged: string[] }).acknowledged).toContain("SOURCE_SELECTED_ATTESTATION");
+    const audit = await prisma.adminAuditLog.findFirstOrThrow({ where: { action: "waivers.snapshot_frozen", entityId: snapshot.id } });
+    expect((audit.metadata as { poolScope: string }).poolScope).toBe("OWNER_SELECTED");
+    expect(await prisma.waiverContest.count({ where: { weekId } })).toBe(0);
+  });
+
   it("identical re-freeze is idempotent; a different freeze is ALREADY_FROZEN; concurrent freezes create one snapshot", async () => {
     const { weekId } = await f.addWeek();
     const base = input(weekId, standardRows());

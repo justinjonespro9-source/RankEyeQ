@@ -17,6 +17,8 @@ import {
   matchWaiverInputRows,
   validateWaiverAcknowledgments,
   WAIVER_ROSTER_STALE_AFTER_MS,
+  waiverEffectiveSourceLabel,
+  type WaiverPoolScope,
   type WaiverPreviewContext,
 } from "@/lib/waivers/snapshot/preview-model";
 
@@ -113,7 +115,11 @@ const CLEAN_PASTE = [
   "Tracked Graduate | RB | SF | 67",
 ].join("\n");
 
-function preview(text = CLEAN_PASTE, ctx = context(), form: Partial<{ sourceLabel: string; sourceUrl: string | null; observedAt: Date | null }> = {}) {
+function preview(
+  text = CLEAN_PASTE,
+  ctx = context(),
+  form: Partial<{ sourceLabel: string; sourceUrl: string | null; observedAt: Date | null; poolScope: WaiverPoolScope }> = {},
+) {
   const parse = parseWaiverInput(text);
   const index = buildWaiverMatchIndex(universe);
   const matched = matchWaiverInputRows(parse.rows, index);
@@ -236,6 +242,60 @@ describe("assembleWaiverSnapshotPreview", () => {
     });
     expect(changedFacts.previewFingerprint).not.toBe(a.previewFingerprint);
     expect(changedFacts.entriesFingerprint).not.toBe(a.entriesFingerprint);
+  });
+});
+
+describe("owner-selected pool scope", () => {
+  const complete = preview();
+  const selected = preview(CLEAN_PASTE, context(), { poolScope: "OWNER_SELECTED" });
+
+  it("defaults to the complete-list attestation", () => {
+    expect(complete.header).toMatchObject({ poolScope: "SOURCE_COMPLETE", sourceLabel: "Sleeper" });
+    expect(complete.requiredAcknowledgments).toContain("SOURCE_COMPLETE_ATTESTATION");
+    expect(complete.requiredAcknowledgments).not.toContain("SOURCE_SELECTED_ATTESTATION");
+  });
+
+  it("replaces the complete-list attestation with an owner-selected one and discloses it in the frozen label", () => {
+    expect(selected.requiredAcknowledgments).toContain("SOURCE_SELECTED_ATTESTATION");
+    expect(selected.requiredAcknowledgments).not.toContain("SOURCE_COMPLETE_ATTESTATION");
+    expect(selected.issues.find((issue) => issue.code === "SOURCE_SELECTED_ATTESTATION")?.message).toMatch(/not the source's complete under-threshold list/);
+    expect(selected.header).toMatchObject({ poolScope: "OWNER_SELECTED", sourceLabel: "Sleeper · owner-selected list" });
+    expect(selected.entries.find((entry) => entry.rankableEntryId === "qb1")?.sourceLabel).toBe("Sleeper · owner-selected list");
+    expect(selected.issues.find((issue) => issue.code === "OWNER_SELECTED_POOL")).toMatchObject({ level: "INFO" });
+  });
+
+  it("changes no eligibility, threshold, exclusion, count or blocker", () => {
+    const decisions = (p: typeof complete) =>
+      p.entries.map((entry) => [entry.rankableEntryId, entry.eligibility, entry.exclusionReason, entry.evidenceRole, entry.rosteredBps]);
+    expect(decisions(selected)).toEqual(decisions(complete));
+    expect(selected.counts).toEqual(complete.counts);
+    expect(selected.header.thresholdBps).toBe(complete.header.thresholdBps);
+    expect(selected.blockers).toEqual(complete.blockers);
+    expect(selected.missingFollowUps).toEqual(complete.missingFollowUps);
+    expect(selected.entriesFingerprint).not.toBe(complete.entriesFingerprint);
+    expect(selected.previewFingerprint).not.toBe(complete.previewFingerprint);
+  });
+
+  it("cannot be frozen with the complete-list attestation", () => {
+    const followUp = [{ rankableEntryId: "tracked2", reason: "OTHER" as const, note: "Not in the owner-selected list" }];
+    const swapped = selected.requiredAcknowledgments.map((code) => (code === "SOURCE_SELECTED_ATTESTATION" ? "SOURCE_COMPLETE_ATTESTATION" : code));
+    const errors = validateWaiverAcknowledgments(selected, swapped, followUp);
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        { code: "UNACKNOWLEDGED", items: ["SOURCE_SELECTED_ATTESTATION"] },
+        { code: "UNEXPECTED_ACKNOWLEDGMENT", items: ["SOURCE_COMPLETE_ATTESTATION"] },
+      ]),
+    );
+    expect(validateWaiverAcknowledgments(selected, selected.requiredAcknowledgments, followUp)).toEqual([]);
+  });
+
+  it("never doubles the disclosure and leaves complete-list labels untouched", () => {
+    expect(waiverEffectiveSourceLabel(" Sleeper ", "OWNER_SELECTED")).toBe("Sleeper · owner-selected list");
+    expect(waiverEffectiveSourceLabel("Sleeper · owner-selected list", "OWNER_SELECTED")).toBe("Sleeper · owner-selected list");
+    expect(waiverEffectiveSourceLabel(" Sleeper ", "SOURCE_COMPLETE")).toBe("Sleeper");
+    expect(preview(CLEAN_PASTE, context(), { poolScope: "OWNER_SELECTED", sourceLabel: " " }).blockers.map((b) => b.code)).toContain(
+      "SOURCE_LABEL_MISSING",
+    );
   });
 });
 

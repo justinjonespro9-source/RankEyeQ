@@ -12,7 +12,10 @@ import { previewWaiverSnapshot, type WaiverSnapshotPreviewInput } from "@/lib/wa
 import {
   serializeWaiverEntryEvidence,
   WAIVER_FOLLOW_UP_ACK_REASONS,
+  WAIVER_OWNER_SELECTED_LABEL_SUFFIX,
+  WAIVER_POOL_SCOPES,
   type WaiverFollowUpAck,
+  type WaiverPoolScope,
   type WaiverPreviewEntry,
   type WaiverSnapshotPreview,
 } from "@/lib/waivers/snapshot/preview-model";
@@ -49,9 +52,12 @@ function failure(error: unknown, event: string): ActionError {
 function parseSnapshotForm(input: unknown): { ok: true; value: WaiverSnapshotPreviewInput } | ActionError {
   if (!isObject(input)) return invalid();
   const { weekId, rawText, sourceLabel, sourceUrl, observedAt } = input;
+  const poolScope = input.poolScope ?? "SOURCE_COMPLETE";
   if (!isId(weekId)) return invalid("Invalid week");
   if (!isText(rawText, WAIVER_INPUT_MAX_CHARS)) return invalid("The paste exceeds the size limit");
-  if (!isText(sourceLabel, MAX_LABEL)) return invalid("Invalid source label");
+  if (!(WAIVER_POOL_SCOPES as readonly unknown[]).includes(poolScope)) return invalid("Invalid pool scope");
+  const labelMax = poolScope === "OWNER_SELECTED" ? MAX_LABEL - WAIVER_OWNER_SELECTED_LABEL_SUFFIX.length : MAX_LABEL;
+  if (!isText(sourceLabel, labelMax)) return invalid("Invalid source label");
   if (sourceUrl !== null && sourceUrl !== undefined && !isText(sourceUrl, MAX_URL)) return invalid("Invalid source URL");
   if (typeof sourceUrl === "string" && sourceUrl.trim() && !/^https?:\/\//i.test(sourceUrl.trim())) return invalid("Source URL must start with http(s)://");
   if (!isText(observedAt, 64)) return invalid("Invalid observation time");
@@ -59,7 +65,14 @@ function parseSnapshotForm(input: unknown): { ok: true; value: WaiverSnapshotPre
   if (observedAt.trim() && !parsedObservedAt) return invalid("Observation time must be Chicago local (YYYY-MM-DDTHH:MM) or ISO with a zone");
   return {
     ok: true,
-    value: { weekId, rawText, sourceLabel, sourceUrl: typeof sourceUrl === "string" ? sourceUrl : null, observedAt: parsedObservedAt },
+    value: {
+      weekId,
+      rawText,
+      sourceLabel,
+      sourceUrl: typeof sourceUrl === "string" ? sourceUrl : null,
+      observedAt: parsedObservedAt,
+      poolScope: poolScope as WaiverPoolScope,
+    },
   };
 }
 

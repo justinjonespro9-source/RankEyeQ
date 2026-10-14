@@ -105,11 +105,27 @@ export type WaiverSnapshotCounts = {
   followUpCount: number;
 };
 
+/**
+ * SOURCE_COMPLETE: the paste is the source's complete under-threshold list.
+ * OWNER_SELECTED: the paste is an owner-selected subset of the source; the
+ * frozen source label carries the disclosure so every surface showing it says so.
+ */
+export const WAIVER_POOL_SCOPES = ["SOURCE_COMPLETE", "OWNER_SELECTED"] as const;
+export type WaiverPoolScope = (typeof WAIVER_POOL_SCOPES)[number];
+export const WAIVER_OWNER_SELECTED_LABEL_SUFFIX = " · owner-selected list";
+
+export function waiverEffectiveSourceLabel(sourceLabel: string, poolScope: WaiverPoolScope): string {
+  const label = sourceLabel.trim();
+  if (!label || poolScope !== "OWNER_SELECTED" || label.endsWith(WAIVER_OWNER_SELECTED_LABEL_SUFFIX)) return label;
+  return `${label}${WAIVER_OWNER_SELECTED_LABEL_SUFFIX}`;
+}
+
 export type WaiverPreviewForm = {
   weekId: string;
   sourceLabel: string;
   sourceUrl: string | null;
   observedAt: Date | null;
+  poolScope?: WaiverPoolScope;
 };
 
 export type WaiverPreviewContext = {
@@ -127,7 +143,7 @@ export type WaiverPreviewContext = {
 
 export type WaiverSnapshotPreview = {
   weekId: string;
-  header: { sourceLabel: string; sourceUrl: string | null; observedAt: Date | null; thresholdBps: number };
+  header: { sourceLabel: string; sourceUrl: string | null; observedAt: Date | null; thresholdBps: number; poolScope: WaiverPoolScope };
   rawInputSha256: string;
   inputError: WaiverInputParse["error"];
   headerSkipped: boolean;
@@ -347,7 +363,8 @@ export function assembleWaiverSnapshotPreview(input: {
   const { form, parse, context } = input;
   const thresholdBps = context.thresholdBps;
   const trackedById = new Map(context.tracked.map((player) => [player.rankableEntryId, player]));
-  const sourceLabel = form.sourceLabel.trim();
+  const poolScope: WaiverPoolScope = form.poolScope ?? "SOURCE_COMPLETE";
+  const sourceLabel = waiverEffectiveSourceLabel(form.sourceLabel, poolScope);
   const sourceUrl = form.sourceUrl?.trim() || null;
 
   const matchedCount = new Map<string, number>();
@@ -473,10 +490,17 @@ export function assembleWaiverSnapshotPreview(input: {
     blocker("AMBIGUOUS_GAME", "A player's team appears in more than one game this week", { lineNumbers: ambiguousGameLines });
   }
 
-  confirm(
-    "SOURCE_COMPLETE_ATTESTATION",
-    "I attest the paste is the source's complete under-threshold list for all five positions at the stated observation time",
-  );
+  if (poolScope === "OWNER_SELECTED") {
+    confirm(
+      "SOURCE_SELECTED_ATTESTATION",
+      "I attest the paste is an owner-selected list, not the source's complete under-threshold list: each row is the source's rostered % at the stated observation time, players not listed are outside this week's Waiver field, and the frozen source label discloses the selection",
+    );
+  } else {
+    confirm(
+      "SOURCE_COMPLETE_ATTESTATION",
+      "I attest the paste is the source's complete under-threshold list for all five positions at the stated observation time",
+    );
+  }
   if (!sourceUrl) confirm("SOURCE_URL_MISSING", "No source URL was provided");
   const conflicts = entries.filter((entry) => entry.teamConflict);
   if (conflicts.length > 0) {
@@ -531,6 +555,7 @@ export function assembleWaiverSnapshotPreview(input: {
       lineNumbers: lines(disclosures.map((entry) => ({ lineNumber: entry.inputLineNumber }))),
     });
   }
+  if (poolScope === "OWNER_SELECTED") info("OWNER_SELECTED_POOL", `Frozen source label discloses the selection: ${sourceLabel}`);
   if (parse.ignoredLines > 0) info("IGNORED_LINES", `${parse.ignoredLines} blank or comment lines ignored`);
 
   const exclusionCounts: Partial<Record<WaiverExclusionReason, number>> = {};
@@ -549,7 +574,7 @@ export function assembleWaiverSnapshotPreview(input: {
     .filter((issue) => issue.level === "CONFIRM")
     .map((issue) => issue.code)
     .sort();
-  const header = { sourceLabel, sourceUrl, observedAt: headerObservedAt, thresholdBps };
+  const header = { sourceLabel, sourceUrl, observedAt: headerObservedAt, thresholdBps, poolScope };
   const entriesFingerprint = waiverEntriesFingerprint(entries);
   const previewFingerprint = sha256({
     v: 1,

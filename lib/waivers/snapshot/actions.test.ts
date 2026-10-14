@@ -98,12 +98,30 @@ describe("snapshot admin actions", () => {
       sourceLabel: "Sleeper",
       sourceUrl: "https://sleeper.example",
       observedAt: new Date("2026-10-06T14:30:00.000Z"),
+      poolScope: "SOURCE_COMPLETE",
       adminUserId: "admin-1",
       previewFingerprint: "fp",
       acknowledged: ["SOURCE_COMPLETE_ATTESTATION"],
       followUpAcks: [{ rankableEntryId: "p9", reason: "OTHER", note: "not listed" }],
     });
     expect(revalidatePath).toHaveBeenCalledWith("/admin/waivers");
+  });
+
+  it("passes an explicit owner-selected pool scope through and rejects unknown scopes", async () => {
+    authState.admin = { user: { id: "admin-1" } };
+    previewWaiverSnapshot.mockResolvedValue(null);
+    await previewWaiverSnapshotAction({ ...form, poolScope: "OWNER_SELECTED" });
+    expect(previewWaiverSnapshot).toHaveBeenCalledWith(expect.objectContaining({ poolScope: "OWNER_SELECTED", sourceLabel: "Sleeper" }));
+    expect(await previewWaiverSnapshotAction({ ...form, poolScope: "CURATED" })).toMatchObject({ ok: false, code: "INVALID_INPUT" });
+    expect(await freezeWaiverSnapshotAction({ ...form, poolScope: "", previewFingerprint: "fp", acknowledged: [] })).toMatchObject({
+      ok: false,
+      code: "INVALID_INPUT",
+    });
+    expect(await previewWaiverSnapshotAction({ ...form, poolScope: "OWNER_SELECTED", sourceLabel: "x".repeat(100) })).toMatchObject({
+      ok: false,
+      code: "INVALID_INPUT",
+    });
+    expect(freezeWaiverSnapshot).not.toHaveBeenCalled();
   });
 
   it("maps domain errors to codes and hides unexpected errors", async () => {

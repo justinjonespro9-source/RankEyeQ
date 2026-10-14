@@ -48,8 +48,9 @@ export function WaiversHeader({ weekLabel }: { weekLabel: string | null }) {
         </summary>
         <ul className="mt-3 list-disc space-y-1.5 pl-5">
           <li>
-            The pool is the official list of players rostered in under 50% of leagues, taken from a snapshot frozen on
-            Tuesday. Rostered percentages are the frozen values and don&apos;t change during the week.
+            The pool comes from the week&apos;s official snapshot of players rostered in under 50% of leagues, frozen on
+            Tuesday. When the snapshot is an owner-selected list rather than the source&apos;s full list, the source shown
+            beside the pool says so. Rostered percentages are the frozen values and don&apos;t change during the week.
           </li>
           <li>
             Make up to 3 calls per position (up to 5 at WR). Partial boards are allowed, and you can sit a position out

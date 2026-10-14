@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { WaiverSnapshotPreview } from "@/components/admin/waivers/WaiverSnapshotPreview";
 import { Button } from "@/components/ui/Button";
 import { freezeWaiverSnapshotAction, previewWaiverSnapshotAction, type WaiverSnapshotPreviewView } from "@/lib/waivers/snapshot/actions";
+import type { WaiverPoolScope } from "@/lib/waivers/snapshot/preview-model";
+
+const POOL_SCOPES: ReadonlyArray<{ value: WaiverPoolScope; label: string }> = [
+  { value: "SOURCE_COMPLETE", label: "Source's complete under-threshold list" },
+  { value: "OWNER_SELECTED", label: "Owner-selected list (disclosed in the source label)" },
+];
 
 const FOLLOW_UP_REASONS = [
   { value: "SOURCE_HAS_NO_LISTING", label: "Source has no listing" },
@@ -27,13 +33,14 @@ export function WaiverSnapshotImportPanel({ weekId, defaultObservedAt }: { weekI
   const [sourceLabel, setSourceLabel] = useState("Sleeper");
   const [sourceUrl, setSourceUrl] = useState("");
   const [observedAt, setObservedAt] = useState(defaultObservedAt);
+  const [poolScope, setPoolScope] = useState<WaiverPoolScope>("SOURCE_COMPLETE");
   const [preview, setPreview] = useState<WaiverSnapshotPreviewView | null>(null);
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
   const [followUps, setFollowUps] = useState<Record<string, { reason: FollowUpReason | ""; note: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const form = { weekId, rawText, sourceLabel, sourceUrl: sourceUrl.trim() || null, observedAt };
+  const form = { weekId, rawText, sourceLabel, sourceUrl: sourceUrl.trim() || null, observedAt, poolScope };
   const invalidate = () => {
     setPreview(null);
     setAcknowledged(new Set());
@@ -140,6 +147,23 @@ export function WaiverSnapshotImportPanel({ weekId, defaultObservedAt }: { weekI
           />
         </label>
       </div>
+      <label className="mt-3 block text-sm text-muted">
+        Pool scope
+        <select
+          className={inputClass}
+          value={poolScope}
+          onChange={(e) => {
+            setPoolScope(e.target.value as WaiverPoolScope);
+            invalidate();
+          }}
+        >
+          {POOL_SCOPES.map((scope) => (
+            <option key={scope.value} value={scope.value}>
+              {scope.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="mt-3 block text-sm text-muted">
         Paste
         <textarea
