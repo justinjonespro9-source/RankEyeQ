@@ -36,6 +36,8 @@ export function computeWaiverLocksAt(firstKickoff: Date): Date {
 export const WAIVER_LOCK_OVERRIDES: Readonly<Record<string, string>> = {
   // 2026 Week 5 — inaugural Production launch, extended to Tue Oct 6 10:00 PM CDT.
   cmurulv5d000006p0zghkgky7: "2026-10-07T03:00:00.000Z",
+  // 2026 Week 6 — approved late opening, extended to Wed Oct 14 10:00 PM CDT (first kickoff Thu Oct 15 7:15 PM CDT).
+  cmv7egzsb000006l7axfb8mvx: "2026-10-15T03:00:00.000Z",
 };
 
 export type WaiverLockResolution =
