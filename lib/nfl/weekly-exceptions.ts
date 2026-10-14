@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import { CONTEST_POSITIONS } from "@/lib/contest-defaults";
 import { getBenchmarkCoverage } from "@/lib/benchmarks/coverage";
+import { isSeasonPlayerEligibleForWeeklyField } from "@/lib/nfl/eligibility-rules";
 
 export type WeeklyExceptionRow = {
   kind:
@@ -77,7 +78,8 @@ export async function getWeeklyExceptionReview(weekId: string) {
       (row) => row.position === contest.position,
     )) {
       const entry = entryByPlayer.get(player.rankableEntryId);
-      if (!entry) {
+      // Off-roster and ineligible-status players are never added by the weekly sync.
+      if (!entry && isSeasonPlayerEligibleForWeeklyField(player)) {
         exceptions.push({
           kind: "missing_pool_entry",
           position: contest.position,
