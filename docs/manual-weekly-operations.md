@@ -145,4 +145,4 @@ Raw-stat → fantasy-point conversion paste is optional and not required for V1;
 4. Preview (read-only) → confirm FantasyTrack Half-PPR V2 points and full coverage.
 5. Approve → Commit provisional WeekStats only.
 
-Does **not** finalize games, calculate official finishes, grade contests, or publish standings. Finalized/verified lines are refused (use Correct Verified Stats). Format version: `rankeyeq-stat-components/1.1` (use `passingInterceptions` and `defenseInterceptions` — never a shared `interceptions` column).
+Does **not** finalize games, calculate official finishes, grade contests, or publish standings. Finalized/verified lines are refused (use Correct Verified Stats). Format version: `rankeyeq-stat-components/1.1` (use `passingInterceptions` and `defenseInterceptions` — never a shared `interceptions` column). Successful commits write `ManualImportLog` and `AdminAuditLog` inside the same database transaction as the provisional WeekStats.

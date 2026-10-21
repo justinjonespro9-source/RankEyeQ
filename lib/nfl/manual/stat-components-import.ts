@@ -25,6 +25,10 @@ import {
 
 assertUniqueStatCsvHeaders();
 
+/** Soft operational limits — full NFL weeks (~456) fit comfortably. */
+export const STAT_COMPONENTS_MAX_CSV_BYTES = 2_000_000;
+export const STAT_COMPONENTS_MAX_ROWS = 2_000;
+
 export type PoolEntrySnapshot = {
   contestEntryId: string;
   contestId: string;
@@ -462,6 +466,25 @@ export async function previewStatComponentsImport(input: {
   /** When true, differing provisional WeekStat lines may be replaced on commit. */
   replaceProvisional?: boolean;
 }): Promise<StatComponentsPreview> {
+  const csvBytes = Buffer.byteLength(input.csvText, "utf8");
+  if (csvBytes > STAT_COMPONENTS_MAX_CSV_BYTES) {
+    return {
+      ready: false,
+      blockers: [
+        `CSV exceeds ${STAT_COMPONENTS_MAX_CSV_BYTES} byte limit (${csvBytes} bytes)`,
+      ],
+      warnings: [],
+      contentSha256: sha256Text(input.csvText),
+      previewToken: "",
+      scoringVersion: "",
+      matched: [],
+      missingPoolEntries: [],
+      finalizedBlocked: [],
+      conflicts: [],
+      coverage: { poolSize: 0, matchedCount: 0, missingCount: 0 },
+    };
+  }
+
   const contentSha256 = sha256Text(input.csvText);
   const parsed = parseStatComponentsCsv(input.csvText);
   const snapshot = await loadPoolSnapshot(input.weekId);
@@ -653,6 +676,7 @@ export async function commitStatComponentsImport(input: {
   updated: number;
   unchanged: number;
   importLogId: string;
+  auditLogId: string;
   contentSha256: string;
 }> {
   if (!input.approved) {
@@ -663,6 +687,12 @@ export async function commitStatComponentsImport(input: {
   }
   if (Number.isNaN(Date.parse(input.observedAt))) {
     throw new Error("observedAt must be a valid ISO-8601 timestamp");
+  }
+  const csvBytes = Buffer.byteLength(input.csvText, "utf8");
+  if (csvBytes > STAT_COMPONENTS_MAX_CSV_BYTES) {
+    throw new Error(
+      `CSV exceeds ${STAT_COMPONENTS_MAX_CSV_BYTES} byte limit (${csvBytes} bytes)`,
+    );
   }
 
   // Fresh server-side validation (no reliance on client preview state).
@@ -682,6 +712,11 @@ export async function commitStatComponentsImport(input: {
   }
   if (!preview.ready) {
     throw new Error(preview.blockers[0] ?? "Import preview is not ready");
+  }
+  if (preview.matched.length > STAT_COMPONENTS_MAX_ROWS) {
+    throw new Error(
+      `CSV exceeds ${STAT_COMPONENTS_MAX_ROWS} row limit (${preview.matched.length} matched)`,
+    );
   }
 
   // Re-check source fields on every row match header-level operator attestation.
@@ -935,7 +970,39 @@ export async function commitStatComponentsImport(input: {
         },
       });
 
-      return { created, updated, unchanged, importLogId: importLog.id };
+      // Audit must commit atomically with stats — never leave a successful
+      // import without its AdminAuditLog row.
+      const audit = await tx.adminAuditLog.create({
+        data: {
+          adminUserId: input.adminUserId,
+          action: "live_scoring.stat_components_imported",
+          entityType: "Week",
+          entityId: input.weekId,
+          metadata: {
+            importLogId: importLog.id,
+            created,
+            updated,
+            unchanged,
+            contentSha256: preview.contentSha256,
+            previewToken: input.previewToken,
+            sourceLabel: input.sourceLabel.trim(),
+            sourceUrl: input.sourceUrl.trim(),
+            observedAt: input.observedAt.trim(),
+            replaceProvisional: Boolean(input.replaceProvisional),
+            scoringVersion: preview.scoringVersion,
+            coverage: preview.coverage,
+            formatVersion: STAT_COMPONENTS_FORMAT_VERSION,
+          } satisfies Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        created,
+        updated,
+        unchanged,
+        importLogId: importLog.id,
+        auditLogId: audit.id,
+      };
     },
     { timeout: 120_000 },
   );

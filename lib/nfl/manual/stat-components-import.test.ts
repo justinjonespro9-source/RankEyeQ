@@ -392,6 +392,12 @@ describe("stat components import — integration", () => {
   });
 
   afterAll(async () => {
+    await prisma.adminAuditLog.deleteMany({
+      where: {
+        adminUserId,
+        action: "live_scoring.stat_components_imported",
+      },
+    });
     await prisma.playerWeekStat.deleteMany({
       where: { weekId: { in: [weekId, week5Id] } },
     });
@@ -566,6 +572,11 @@ describe("stat components import — integration", () => {
     });
     expect(first.created).toBe(2);
     expect(first.unchanged).toBe(0);
+    expect(first.auditLogId).toBeTruthy();
+    const audit = await prisma.adminAuditLog.findUniqueOrThrow({
+      where: { id: first.auditLogId },
+    });
+    expect(audit.action).toBe("live_scoring.stat_components_imported");
 
     const qbStat = await prisma.playerWeekStat.findFirstOrThrow({
       where: { weekId, rankableEntryId: qbRankableId },
@@ -722,6 +733,12 @@ describe("stat components import — integration", () => {
     });
     expect(preview.ready).toBe(true);
 
+    const auditsBefore = await prisma.adminAuditLog.count({
+      where: {
+        adminUserId,
+        action: "live_scoring.stat_components_imported",
+      },
+    });
     await expect(
       commitStatComponentsImport({
         weekId,
@@ -742,6 +759,16 @@ describe("stat components import — integration", () => {
       where: { weekId, rankableEntryId: qbRankableId },
     });
     expect(qbStat.passingYards).toBe(300);
+
+    // Audit must roll back with the transaction — no silent missing audit on success,
+    // and no orphan audit on failure.
+    const auditsAfter = await prisma.adminAuditLog.count({
+      where: {
+        adminUserId,
+        action: "live_scoring.stat_components_imported",
+      },
+    });
+    expect(auditsAfter).toBe(auditsBefore);
   });
 
   it("preserves Week 5-like finalized stats and availability corrections", async () => {

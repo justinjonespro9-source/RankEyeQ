@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { logAdminAction } from "@/lib/admin/audit";
 import { assertAdmin } from "@/lib/auth/session";
 import {
   commitStatComponentsImport,
   exportStatComponentsTemplate,
   previewStatComponentsImport,
+  STAT_COMPONENTS_MAX_CSV_BYTES,
 } from "@/lib/nfl/manual/stat-components-import";
 
 function revalidateStatImport(weekId: string) {
@@ -39,6 +39,12 @@ export async function previewStatComponentsImportAction(input: {
 }) {
   await assertAdmin();
   try {
+    if (Buffer.byteLength(input.csvText, "utf8") > STAT_COMPONENTS_MAX_CSV_BYTES) {
+      return {
+        ok: false as const,
+        error: `CSV exceeds ${STAT_COMPONENTS_MAX_CSV_BYTES} byte limit`,
+      };
+    }
     const preview = await previewStatComponentsImport({
       weekId: input.weekId,
       csvText: input.csvText,
@@ -65,6 +71,7 @@ export async function commitStatComponentsImportAction(input: {
 }) {
   const admin = await assertAdmin();
   try {
+    // AdminAuditLog is written inside the import transaction (atomic with stats).
     const result = await commitStatComponentsImport({
       weekId: input.weekId,
       csvText: input.csvText,
@@ -75,19 +82,6 @@ export async function commitStatComponentsImportAction(input: {
       sourceUrl: input.sourceUrl,
       observedAt: input.observedAt,
       replaceProvisional: input.replaceProvisional,
-    });
-    await logAdminAction({
-      adminUserId: admin.user.id,
-      action: "live_scoring.stat_components_imported",
-      entityType: "Week",
-      entityId: input.weekId,
-      metadata: {
-        ...result,
-        sourceLabel: input.sourceLabel,
-        sourceUrl: input.sourceUrl,
-        observedAt: input.observedAt,
-        replaceProvisional: Boolean(input.replaceProvisional),
-      },
     });
     revalidateStatImport(input.weekId);
     return { ok: true as const, result };
