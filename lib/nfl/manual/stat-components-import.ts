@@ -14,13 +14,16 @@ import {
   type ParsedStatComponentRow,
 } from "@/lib/nfl/manual/parse-stat-components";
 import {
+  assertUniqueStatCsvHeaders,
   csvJoin,
-  DEFENSE_STAT_COLUMNS,
-  PLAYER_STAT_COLUMNS,
+  DEFENSE_CSV_COLUMNS,
+  PLAYER_CSV_COLUMNS,
   STAT_COMPONENTS_COMMON_COLUMNS,
   STAT_COMPONENTS_FORMAT_VERSION,
   STAT_COMPONENTS_IMPORT_TYPE,
 } from "@/lib/nfl/manual/stat-components-format";
+
+assertUniqueStatCsvHeaders();
 
 export type PoolEntrySnapshot = {
   contestEntryId: string;
@@ -64,16 +67,34 @@ function componentsEqual(
   return true;
 }
 
+/** Domain-field component map (WeekStat / scoring), not CSV headers. */
 function playerComponents(stats: Required<PlayerStatLine>): Record<string, number> {
-  return Object.fromEntries(
-    PLAYER_STAT_COLUMNS.map((key) => [key, stats[key]]),
-  );
+  return {
+    passingYards: stats.passingYards,
+    passingTds: stats.passingTds,
+    interceptions: stats.interceptions,
+    rushingYards: stats.rushingYards,
+    rushingTds: stats.rushingTds,
+    receptions: stats.receptions,
+    receivingYards: stats.receivingYards,
+    receivingTds: stats.receivingTds,
+    twoPointConversions: stats.twoPointConversions,
+    fumblesLost: stats.fumblesLost,
+    returnTds: stats.returnTds,
+  };
 }
 
 function defenseComponents(stats: Required<DefenseStatLine>): Record<string, number> {
-  return Object.fromEntries(
-    DEFENSE_STAT_COLUMNS.map((key) => [key, stats[key]]),
-  );
+  return {
+    sacks: stats.sacks,
+    interceptions: stats.interceptions,
+    fumbleRecoveries: stats.fumbleRecoveries,
+    defensiveTds: stats.defensiveTds,
+    specialTeamsTds: stats.specialTeamsTds,
+    safeties: stats.safeties,
+    blockedKicks: stats.blockedKicks,
+    pointsAllowed: stats.pointsAllowed,
+  };
 }
 
 async function loadPoolSnapshot(weekId: string): Promise<{
@@ -232,6 +253,7 @@ function buildStateFingerprint(input: {
   week: { id: string; status: string; updatedAt: Date };
   entries: PoolEntrySnapshot[];
   games: Array<{
+    id: string;
     externalId: string;
     status: string;
     statsFinalizedAt: Date | null;
@@ -248,9 +270,13 @@ function buildStateFingerprint(input: {
           entry.externalId,
           entry.gameId ?? "",
           entry.gameExternalId ?? "",
+          entry.gameStatus ?? "",
+          entry.gameStatsFinalizedAt ?? "",
           entry.contestStatus,
           entry.team,
           entry.contestPosition,
+          entry.fantasyPoints ?? "null",
+          entry.actualRank ?? "null",
         ].join("|"),
     )
     .sort();
@@ -258,6 +284,7 @@ function buildStateFingerprint(input: {
     .map(
       (game) =>
         [
+          game.id,
           game.externalId,
           game.status,
           game.statsFinalizedAt?.toISOString() ?? "",
@@ -274,6 +301,7 @@ function buildStateFingerprint(input: {
     .sort();
 
   return sha256Json({
+    v: 2,
     contentSha256: input.contentSha256,
     weekId: input.week.id,
     weekStatus: input.week.status,
@@ -292,8 +320,8 @@ export async function exportStatComponentsTemplate(weekId: string): Promise<{
   const snapshot = await loadPoolSnapshot(weekId);
   const header = [
     ...STAT_COMPONENTS_COMMON_COLUMNS,
-    ...PLAYER_STAT_COLUMNS,
-    ...DEFENSE_STAT_COLUMNS,
+    ...PLAYER_CSV_COLUMNS,
+    ...DEFENSE_CSV_COLUMNS,
   ];
   const lines = [csvJoin(header)];
 
@@ -319,8 +347,8 @@ export async function exportStatComponentsTemplate(weekId: string): Promise<{
       "", // sourceUrl
       "", // observedAt
     ];
-    const playerCells = PLAYER_STAT_COLUMNS.map(() => "");
-    const defenseCells = DEFENSE_STAT_COLUMNS.map(() => "");
+    const playerCells = PLAYER_CSV_COLUMNS.map(() => "");
+    const defenseCells = DEFENSE_CSV_COLUMNS.map(() => "");
     lines.push(csvJoin([...common, ...playerCells, ...defenseCells]));
   }
 

@@ -1,9 +1,11 @@
 import {
-  DEFENSE_STAT_COLUMNS,
-  PLAYER_STAT_COLUMNS,
+  DEFENSE_CSV_COLUMNS,
+  DEFENSE_CSV_TO_STAT,
+  PLAYER_CSV_COLUMNS,
+  PLAYER_CSV_TO_STAT,
   STAT_COMPONENTS_FORMAT_VERSION,
-  type DefenseStatColumn,
-  type PlayerStatColumn,
+  type DefenseCsvColumn,
+  type PlayerCsvColumn,
 } from "@/lib/nfl/manual/stat-components-format";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
 import type { DefenseStatLine } from "@/lib/fantasy/defense-scoring";
@@ -43,6 +45,7 @@ export type StatComponentParseIssue =
   | "missing_header"
   | "unknown_column"
   | "missing_column"
+  | "duplicate_header"
   | "invalid_record_type"
   | "invalid_format_version"
   | "missing_identity"
@@ -85,10 +88,10 @@ export type StatComponentsParseResult = {
   readyForMatch: boolean;
 };
 
-const PLAYER_RANGES: Record<PlayerStatColumn, { min: number; max: number; int?: boolean }> = {
+const PLAYER_RANGES: Record<PlayerCsvColumn, { min: number; max: number; int?: boolean }> = {
   passingYards: { min: -50, max: 800 },
   passingTds: { min: 0, max: 12, int: true },
-  interceptions: { min: 0, max: 12, int: true },
+  passingInterceptions: { min: 0, max: 12, int: true },
   rushingYards: { min: -50, max: 400 },
   rushingTds: { min: 0, max: 10, int: true },
   receptions: { min: 0, max: 30, int: true },
@@ -99,9 +102,9 @@ const PLAYER_RANGES: Record<PlayerStatColumn, { min: number; max: number; int?: 
   returnTds: { min: 0, max: 6, int: true },
 };
 
-const DEFENSE_RANGES: Record<DefenseStatColumn, { min: number; max: number; int?: boolean }> = {
+const DEFENSE_RANGES: Record<DefenseCsvColumn, { min: number; max: number; int?: boolean }> = {
   sacks: { min: 0, max: 20 },
-  interceptions: { min: 0, max: 12, int: true },
+  defenseInterceptions: { min: 0, max: 12, int: true },
   fumbleRecoveries: { min: 0, max: 12, int: true },
   defensiveTds: { min: 0, max: 8, int: true },
   specialTeamsTds: { min: 0, max: 8, int: true },
@@ -161,6 +164,16 @@ export function parseStatComponentsCsv(text: string): Omit<StatComponentsParseRe
   }
 
   const header = table[0]!.map((cell) => cell.trim());
+  const blockers: string[] = [];
+
+  const seenHeader = new Set<string>();
+  for (const col of header) {
+    if (seenHeader.has(col)) {
+      blockers.push(`Duplicate header column: ${col}`);
+    }
+    seenHeader.add(col);
+  }
+
   const headerIndex = new Map(header.map((name, index) => [name, index]));
   const requiredCommon = [
     "recordType",
@@ -177,8 +190,13 @@ export function parseStatComponentsCsv(text: string): Omit<StatComponentsParseRe
     "observedAt",
   ];
 
-  const blockers: string[] = [];
   for (const col of requiredCommon) {
+    if (!headerIndex.has(col)) blockers.push(`Missing required column: ${col}`);
+  }
+  for (const col of PLAYER_CSV_COLUMNS) {
+    if (!headerIndex.has(col)) blockers.push(`Missing required column: ${col}`);
+  }
+  for (const col of DEFENSE_CSV_COLUMNS) {
     if (!headerIndex.has(col)) blockers.push(`Missing required column: ${col}`);
   }
 
@@ -186,11 +204,18 @@ export function parseStatComponentsCsv(text: string): Omit<StatComponentsParseRe
     ...requiredCommon,
     "seasonYear",
     "weekNumber",
-    ...PLAYER_STAT_COLUMNS,
-    ...DEFENSE_STAT_COLUMNS,
+    ...PLAYER_CSV_COLUMNS,
+    ...DEFENSE_CSV_COLUMNS,
   ]);
   for (const col of header) {
     if (!known.has(col)) blockers.push(`Unknown column: ${col}`);
+  }
+
+  // Reject legacy ambiguous header from v1.0.
+  if (header.includes("interceptions")) {
+    blockers.push(
+      "Legacy column `interceptions` is not allowed — use `passingInterceptions` and `defenseInterceptions`",
+    );
   }
 
   if (blockers.length > 0) {
@@ -253,26 +278,34 @@ export function parseStatComponentsCsv(text: string): Omit<StatComponentsParseRe
 
     if (recordType === "PLAYER") {
       const stats: Partial<Required<PlayerStatLine>> = {};
-      for (const key of PLAYER_STAT_COLUMNS) {
-        const parsed = parseRequiredNumber(cell(cols, key), PLAYER_RANGES[key]);
+      let complete = true;
+      for (const csvKey of PLAYER_CSV_COLUMNS) {
+        const parsed = parseRequiredNumber(cell(cols, csvKey), PLAYER_RANGES[csvKey]);
         issues.push(...parsed.issues);
-        if (parsed.value != null) {
-          (stats as Record<string, number>)[key] = parsed.value;
+        if (parsed.value == null) {
+          complete = false;
+          continue;
         }
+        const field = PLAYER_CSV_TO_STAT[csvKey];
+        (stats as Record<string, number>)[field] = parsed.value;
       }
-      if (PLAYER_STAT_COLUMNS.every((key) => stats[key] != null)) {
+      if (complete) {
         playerStats = stats as Required<PlayerStatLine>;
       }
     } else if (recordType === "DEF") {
       const stats: Partial<Required<DefenseStatLine>> = {};
-      for (const key of DEFENSE_STAT_COLUMNS) {
-        const parsed = parseRequiredNumber(cell(cols, key), DEFENSE_RANGES[key]);
+      let complete = true;
+      for (const csvKey of DEFENSE_CSV_COLUMNS) {
+        const parsed = parseRequiredNumber(cell(cols, csvKey), DEFENSE_RANGES[csvKey]);
         issues.push(...parsed.issues);
-        if (parsed.value != null) {
-          (stats as Record<string, number>)[key] = parsed.value;
+        if (parsed.value == null) {
+          complete = false;
+          continue;
         }
+        const field = DEFENSE_CSV_TO_STAT[csvKey];
+        (stats as Record<string, number>)[field] = parsed.value;
       }
-      if (DEFENSE_STAT_COLUMNS.every((key) => stats[key] != null)) {
+      if (complete) {
         defenseStats = stats as Required<DefenseStatLine>;
       }
     }

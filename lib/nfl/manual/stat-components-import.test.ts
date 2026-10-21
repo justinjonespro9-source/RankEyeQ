@@ -4,16 +4,20 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   calculateDefenseLiveFantasyPoints,
   calculatePlayerLiveFantasyPoints,
+  finalizeLiveGame,
   LIVE_MANUAL_PROVIDER,
   saveLivePlayerStats,
 } from "@/lib/admin/live-scoring";
+import { calculateLeagueActualFinishesForWeek } from "@/lib/nfl/actual-finishes";
+import { getFinalizeWeekReadiness } from "@/lib/nfl/finalize-week";
 import { prisma } from "@/lib/db";
 import { FANTASYTRACK_NFL_HALF_PPR_V2 } from "@/lib/fantasy/scoring-config";
 import { parseStatComponentsCsv } from "@/lib/nfl/manual/parse-stat-components";
 import {
+  assertUniqueStatCsvHeaders,
   csvJoin,
-  PLAYER_STAT_COLUMNS,
-  DEFENSE_STAT_COLUMNS,
+  PLAYER_CSV_COLUMNS,
+  DEFENSE_CSV_COLUMNS,
   STAT_COMPONENTS_COMMON_COLUMNS,
   STAT_COMPONENTS_FORMAT_VERSION,
 } from "@/lib/nfl/manual/stat-components-format";
@@ -27,20 +31,33 @@ import { zonedLocalToUtc } from "@/lib/timing/chicago";
 const suffix = `statimp${Date.now()}`;
 
 function zeroPlayerCells(): string[] {
-  return PLAYER_STAT_COLUMNS.map(() => "0");
+  return PLAYER_CSV_COLUMNS.map(() => "0");
 }
 
 function zeroDefCells(): string[] {
-  return DEFENSE_STAT_COLUMNS.map(() => "0");
+  return DEFENSE_CSV_COLUMNS.map(() => "0");
 }
+
+function headerLine() {
+  return csvJoin([
+    ...STAT_COMPONENTS_COMMON_COLUMNS,
+    ...PLAYER_CSV_COLUMNS,
+    ...DEFENSE_CSV_COLUMNS,
+  ]);
+}
+
+describe("stat components CSV format", () => {
+  it("has unique PLAYER and DEF component headers", () => {
+    expect(() => assertUniqueStatCsvHeaders()).not.toThrow();
+    expect(PLAYER_CSV_COLUMNS).toContain("passingInterceptions");
+    expect(DEFENSE_CSV_COLUMNS).toContain("defenseInterceptions");
+    expect(PLAYER_CSV_COLUMNS).not.toContain("interceptions");
+    expect(DEFENSE_CSV_COLUMNS).not.toContain("interceptions");
+  });
+});
 
 describe("parseStatComponentsCsv", () => {
   it("rejects blank component cells (never infers zero)", () => {
-    const header = [
-      ...STAT_COMPONENTS_COMMON_COLUMNS,
-      ...PLAYER_STAT_COLUMNS,
-      ...DEFENSE_STAT_COLUMNS,
-    ];
     const row = [
       "PLAYER",
       STAT_COMPONENTS_FORMAT_VERSION,
@@ -56,20 +73,112 @@ describe("parseStatComponentsCsv", () => {
       "NFL",
       "https://example.com",
       "2026-10-20T00:00:00.000Z",
-      ...PLAYER_STAT_COLUMNS.map((col) => (col === "passingYards" ? "" : "0")),
+      ...PLAYER_CSV_COLUMNS.map((col) => (col === "passingYards" ? "" : "0")),
       ...zeroDefCells(),
     ];
-    const parsed = parseStatComponentsCsv(`${csvJoin(header)}\n${csvJoin(row)}\n`);
+    const parsed = parseStatComponentsCsv(`${headerLine()}\n${csvJoin(row)}\n`);
     expect(parsed.readyForMatch).toBe(false);
     expect(parsed.rows[0]?.issues).toContain("blank_stat_cell");
   });
 
-  it("accepts explicit zero rows", () => {
-    const header = [
-      ...STAT_COMPONENTS_COMMON_COLUMNS,
-      ...PLAYER_STAT_COLUMNS,
-      ...DEFENSE_STAT_COLUMNS,
+  it("maps passingInterceptions and defenseInterceptions independently", () => {
+    const playerRow = [
+      "PLAYER",
+      STAT_COMPONENTS_FORMAT_VERSION,
+      "2026",
+      "6",
+      "rid-qb",
+      "nflcom-bootstrap",
+      "josh-allen",
+      "manual-2026-w6-BUF-LV",
+      "BUF",
+      "QB",
+      "Josh Allen",
+      "NFL",
+      "https://example.com",
+      "2026-10-20T00:00:00.000Z",
+      "250",
+      "1",
+      "3", // passingInterceptions
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "9", // defenseInterceptions cell must not affect PLAYER mapping
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
     ];
+    const defRow = [
+      "DEF",
+      STAT_COMPONENTS_FORMAT_VERSION,
+      "2026",
+      "6",
+      "rid-def",
+      "nflcom-bootstrap",
+      "def-BUF",
+      "manual-2026-w6-BUF-LV",
+      "BUF",
+      "DEF",
+      "Buffalo",
+      "NFL",
+      "https://example.com",
+      "2026-10-20T00:00:00.000Z",
+      ...zeroPlayerCells(),
+      "2",
+      "4", // defenseInterceptions
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "17",
+    ];
+    const parsed = parseStatComponentsCsv(
+      `${headerLine()}\n${csvJoin(playerRow)}\n${csvJoin(defRow)}\n`,
+    );
+    expect(parsed.readyForMatch).toBe(true);
+    expect(parsed.rows[0]?.playerStats?.interceptions).toBe(3);
+    expect(parsed.rows[1]?.defenseStats?.interceptions).toBe(4);
+  });
+
+  it("rejects legacy duplicate interceptions header", () => {
+    const badHeader = csvJoin([
+      ...STAT_COMPONENTS_COMMON_COLUMNS,
+      "passingYards",
+      "passingTds",
+      "interceptions",
+      "rushingYards",
+      "rushingTds",
+      "receptions",
+      "receivingYards",
+      "receivingTds",
+      "twoPointConversions",
+      "fumblesLost",
+      "returnTds",
+      "sacks",
+      "interceptions",
+      "fumbleRecoveries",
+      "defensiveTds",
+      "specialTeamsTds",
+      "safeties",
+      "blockedKicks",
+      "pointsAllowed",
+    ]);
+    const parsed = parseStatComponentsCsv(`${badHeader}\n`);
+    expect(parsed.readyForMatch).toBe(false);
+    expect(parsed.blockers.join(" ")).toMatch(/Duplicate header|Legacy column/i);
+  });
+
+  it("accepts explicit zero rows", () => {
     const row = [
       "PLAYER",
       STAT_COMPONENTS_FORMAT_VERSION,
@@ -88,7 +197,7 @@ describe("parseStatComponentsCsv", () => {
       ...zeroPlayerCells(),
       ...zeroDefCells(),
     ];
-    const parsed = parseStatComponentsCsv(`${csvJoin(header)}\n${csvJoin(row)}\n`);
+    const parsed = parseStatComponentsCsv(`${headerLine()}\n${csvJoin(row)}\n`);
     expect(parsed.readyForMatch).toBe(true);
     expect(parsed.rows[0]?.playerStats?.passingYards).toBe(0);
   });
@@ -316,15 +425,11 @@ describe("stat components import — integration", () => {
     qbGame?: string;
     omitDef?: boolean;
   }) {
-    const header = csvJoin([
-      ...STAT_COMPONENTS_COMMON_COLUMNS,
-      ...PLAYER_STAT_COLUMNS,
-      ...DEFENSE_STAT_COLUMNS,
-    ]);
+    const header = headerLine();
     const qbStats = overrides?.qbStats ?? [
       "300", // passingYards — V2 bonus
       "2",
-      "0",
+      "0", // passingInterceptions
       "100", // rushingYards — V2 bonus
       "1",
       "0",
@@ -336,7 +441,7 @@ describe("stat components import — integration", () => {
     ];
     const defStats = overrides?.defStats ?? [
       "3",
-      "1",
+      "1", // defenseInterceptions
       "0",
       "0",
       "0",
@@ -661,6 +766,47 @@ describe("stat components import — integration", () => {
     expect(refuse.blockers.join(" ")).toMatch(/COMPLETE|FINAL/i);
   });
 
+  it("refuses commit after concurrent game finalization (race)", async () => {
+    const csv = buildFullCsv();
+    const preview = await previewStatComponentsImport({
+      weekId,
+      csvText: csv,
+      replaceProvisional: true,
+    });
+    expect(preview.ready).toBe(true);
+
+    // Concurrent operator finalizes the game after Preview.
+    await finalizeLiveGame({ weekId, gameId, adminUserId });
+
+    await expect(
+      commitStatComponentsImport({
+        weekId,
+        csvText: csv,
+        adminUserId,
+        previewToken: preview.previewToken,
+        approved: true,
+        sourceLabel,
+        sourceUrl,
+        observedAt,
+        replaceProvisional: true,
+      }),
+    ).rejects.toThrow(/Stale preview|finalized|FINAL/i);
+
+    // Reopen so remaining tests / cleanup can proceed.
+    await prisma.nflGame.update({
+      where: { id: gameId },
+      data: { status: "IN_PROGRESS", statsFinalizedAt: null },
+    });
+    await prisma.playerWeekStat.updateMany({
+      where: { weekId },
+      data: { isProvisional: true },
+    });
+    await prisma.defenseWeekStat.updateMany({
+      where: { weekId },
+      data: { isProvisional: true },
+    });
+  });
+
   it("rejects unapproved commits and content tampering", async () => {
     const csv = buildFullCsv();
     const preview = await previewStatComponentsImport({
@@ -701,5 +847,52 @@ describe("stat components import — integration", () => {
     expect(createHash("sha256").update(csv, "utf8").digest("hex")).toBe(
       preview.contentSha256,
     );
+  });
+
+  it("staging path: finalize + actual finishes + readiness without grading", async () => {
+    /**
+     * SYNTHETIC_STAGING_ONLY — stats in this suite are fixtures, not verified
+     * official Week 6 NFL results. Real-data intake remains an owner blocker.
+     */
+    const csv = buildFullCsv();
+    const preview = await previewStatComponentsImport({
+      weekId,
+      csvText: csv,
+      replaceProvisional: true,
+    });
+    expect(preview.ready).toBe(true);
+
+    const started = Date.now();
+    const commit = await commitStatComponentsImport({
+      weekId,
+      csvText: csv,
+      adminUserId,
+      previewToken: preview.previewToken,
+      approved: true,
+      sourceLabel,
+      sourceUrl,
+      observedAt,
+      replaceProvisional: true,
+    });
+    const elapsedMs = Date.now() - started;
+    expect(elapsedMs).toBeLessThan(120_000);
+    expect(commit.unchanged + commit.updated + commit.created).toBe(2);
+
+    const playerRows = await prisma.playerWeekStat.count({ where: { weekId } });
+    const defRows = await prisma.defenseWeekStat.count({ where: { weekId } });
+    expect(playerRows + defRows).toBe(2);
+
+    await finalizeLiveGame({ weekId, gameId, adminUserId });
+    const finishes = await calculateLeagueActualFinishesForWeek(weekId);
+    expect(finishes.length).toBeGreaterThan(0);
+
+    const readiness = await getFinalizeWeekReadiness(weekId);
+    const graded = await prisma.rankingSubmission.count({
+      where: { contest: { weekId }, status: "GRADED" },
+    });
+    expect(graded).toBe(0);
+    expect(
+      readiness.positions.every((row) => row.contestStatus !== "FINAL"),
+    ).toBe(true);
   });
 });
