@@ -10,11 +10,20 @@ import {
   waiverGradeRunCreateData,
   waiverPoolResultCreateData,
 } from "@/lib/waivers/grading/rows";
-import { isWaiverGradingSourceStorable, loadWaiverWeekGradingPreviewFromSource, type WaiverGradingSource } from "@/lib/waivers/grading/source";
+import {
+  isWaiverGradingSourceStorable,
+  loadWaiverWeekGradingPreviewFromSource,
+  waiverGradingSourceOfStored,
+  waiverStoredSourceRef,
+  type WaiverGradingSource,
+} from "@/lib/waivers/grading/source";
 import type { WaiverWeekGradingPreview } from "@/lib/waivers/grading/week";
 import {
   WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT,
   WAIVER_GRADING_APPROVAL_ATTESTATION_VERSION,
+  WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_TEXT,
+  WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_VERSION,
+  WAIVER_RANKEYEQ_NATIVE_CROSSWALK_VERSION,
   type WaiverGradeApprovalPolicy,
 } from "@/lib/waivers/results/model";
 
@@ -30,9 +39,15 @@ import {
  *
  * Every write stage re-evaluates the live inputs inside its own transaction
  * (the read-only preview) and refuses when the reviewed run no longer matches:
- * a changed artifact checksum, a superseded or withdrawn source revision, a
+ * a changed source checksum, a superseded or withdrawn source revision, a
  * new D3 decision, or an incomplete (BLOCKED) preview. WAIVER_EYEQ_V1 scoring
  * is untouched; rows come from the pure engine through `grading/rows.ts`.
+ *
+ * Dual source: a run is bound to exactly one verified source, either an SNG
+ * canonical artifact (`artifactRowId`) or a RankEyeQ final-week-stats snapshot
+ * (`rankEyeQSnapshotId`); the database enforces the XOR. The stored run decides
+ * which source later stages re-verify, so a RankEyeQ run is never re-checked
+ * against SNG (and vice versa).
  */
 
 const TX = { maxWait: 10_000, timeout: 300_000 } as const;
@@ -81,20 +96,29 @@ function assertPreviewReady(preview: WaiverWeekGradingPreview): asserts preview 
   );
 }
 
-type StoredRun = { id: string; weekId: string; artifactRowId: string; artifactContentChecksum: string; inputFingerprint: string; outputFingerprint: string };
+type StoredRun = {
+  id: string;
+  weekId: string;
+  artifactRowId: string | null;
+  rankEyeQSnapshotId: string | null;
+  artifactContentChecksum: string;
+  inputFingerprint: string;
+  outputFingerprint: string;
+};
 
 /**
- * Refuses unless the live inputs (re-verified artifact, frozen snapshots,
+ * Refuses unless the live inputs (re-verified source, frozen snapshots,
  * locked boards, current D3 decisions) still produce exactly this stored run.
+ * The source is the run's own: its SNG artifact, or its pinned RankEyeQ snapshot.
  */
 async function assertRunMatchesLiveInputs(tx: Tx, run: StoredRun) {
   const preview = await loadWaiverWeekGradingPreviewFromSource(tx, {
     weekId: run.weekId,
-    source: { kind: "SNG_ARTIFACT", artifactRowId: run.artifactRowId },
+    source: waiverGradingSourceOfStored(run),
   });
   assertPreviewReady(preview);
   if (preview.artifact.contentChecksum !== run.artifactContentChecksum) {
-    throw new WaiverGradingError("STALE", "The artifact checksum no longer matches the grade run; preview and store a new run");
+    throw new WaiverGradingError("STALE", "The source checksum no longer matches the grade run; preview and store a new run");
   }
   if (preview.run.inputFingerprint !== run.inputFingerprint || preview.run.outputFingerprint !== run.outputFingerprint) {
     throw new WaiverGradingError("STALE", "The live grading inputs changed since this run was stored; preview and store a new run", {
@@ -137,18 +161,18 @@ export type StoreWaiverWeekGradingRunResult = {
  * on the run's input fingerprint. It never approves, applies or publishes.
  */
 export async function storeWaiverWeekGradingRun(input: StoreWaiverWeekGradingRunInput): Promise<StoreWaiverWeekGradingRunResult> {
-  // RankEyeQ is preview-only: the stored rows reference WaiverCanonicalArtifact, so a RankEyeQ snapshot id would break the FK.
+  // Both verified sources are storable (SNG artifact or RankEyeQ snapshot); anything else is refused before any read or write.
   if (!isWaiverGradingSourceStorable(input.source)) {
-    throw new WaiverGradingError(
-      "SOURCE_UNSUPPORTED",
-      "Storing a grading run from the RankEyeQ results source is not supported yet (dual-source storage is pending). The preview is available; nothing was stored.",
-    );
+    throw new WaiverGradingError("SOURCE_UNSUPPORTED", "This grading source cannot be stored; nothing was stored.");
   }
   return prisma.$transaction(async (tx) => {
     await begin(tx, input.adminUserId, input.weekId);
     const preview = await loadWaiverWeekGradingPreviewFromSource(tx, { weekId: input.weekId, source: input.source });
     assertPreviewReady(preview);
     const { run: planned } = preview;
+    // The preview's source row id is the SNG artifact row or the RankEyeQ snapshot row, per the requested source.
+    if (!preview.artifact.rowId) throw new WaiverGradingError("PREVIEW_BLOCKED", "The grading preview has no source row to bind");
+    const sourceRef = waiverStoredSourceRef(input.source.kind, preview.artifact.rowId);
     if (planned.inputFingerprint !== input.expectedInputFingerprint || planned.outputFingerprint !== input.expectedOutputFingerprint) {
       throw new WaiverGradingError("STALE", "The grading preview changed since it was reviewed; preview again");
     }
@@ -209,7 +233,7 @@ export async function storeWaiverWeekGradingRun(input: StoreWaiverWeekGradingRun
       data: waiverGradeRunCreateData(planned, {
         weekId: input.weekId,
         runNumber: (lastRun._max.runNumber ?? 0) + 1,
-        artifactRowId: preview.artifact.rowId,
+        ...sourceRef,
         artifactContentChecksum: preview.artifact.contentChecksum,
         contestResultIds,
         emptyPositionResultIds,
@@ -229,7 +253,8 @@ export async function storeWaiverWeekGradingRun(input: StoreWaiverWeekGradingRun
       weekId: input.weekId,
       runNumber: run.runNumber,
       sourceKind: input.source.kind,
-      artifactRowId: preview.artifact.rowId,
+      artifactRowId: sourceRef.artifactRowId,
+      rankEyeQSnapshotId: sourceRef.rankEyeQSnapshotId,
       artifactRevision: preview.artifact.revision,
       artifactContentChecksum: preview.artifact.contentChecksum,
       inputFingerprint: run.inputFingerprint,
@@ -259,24 +284,68 @@ export type ApproveWaiverGradeRunInput = {
   /** The output fingerprint the operator reviewed. */
   expectedOutputFingerprint: string;
   reason: string;
-  /** The approver reviewed the DEF team crosswalk version the artifact was imported under. */
+  /**
+   * The approver reviewed the DEF team crosswalk version the SNG artifact was imported under. Required for an SNG run;
+   * not applicable to a RankEyeQ run (the approval then records the native marker, acknowledged as N/A).
+   */
   acknowledgeDefCrosswalk: boolean;
   /** The approver affirms the exact approval attestation text. */
   attested: boolean;
   policy?: WaiverGradeApprovalPolicy;
 };
 
+/**
+ * The approval's copy of its run's source (the database re-verifies every field). SNG copies the artifact's revision, DEF
+ * crosswalk and importer; RankEyeQ copies the snapshot's revision, uses the `rankeyeq-native/1` crosswalk marker (N/A) and the
+ * snapshot's builder as the importer equivalent, with RankEyeQ-specific attestation text.
+ */
+async function approvalSourceEvidence(tx: Tx, run: StoredRun) {
+  if (run.rankEyeQSnapshotId !== null) {
+    const snapshot = await tx.waiverRankEyeQResultsSnapshot.findUniqueOrThrow({
+      where: { id: run.rankEyeQSnapshotId },
+      select: { id: true, revision: true, contentChecksum: true, builtByUserId: true },
+    });
+    return {
+      artifactRowId: null,
+      rankEyeQSnapshotId: snapshot.id,
+      revision: snapshot.revision,
+      contentChecksum: snapshot.contentChecksum,
+      defCrosswalkVersion: WAIVER_RANKEYEQ_NATIVE_CROSSWALK_VERSION,
+      importedByUserId: snapshot.builtByUserId,
+      attestationVersion: WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_VERSION,
+      attestationText: WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_TEXT,
+    };
+  }
+  if (run.artifactRowId === null) throw new WaiverGradingError("PREVIEW_BLOCKED", "The grade run has no source");
+  const artifact = await tx.waiverCanonicalArtifact.findUniqueOrThrow({
+    where: { id: run.artifactRowId },
+    select: { id: true, revision: true, contentChecksum: true, defCrosswalkVersion: true, importedByUserId: true },
+  });
+  return {
+    artifactRowId: artifact.id,
+    rankEyeQSnapshotId: null,
+    revision: artifact.revision,
+    contentChecksum: artifact.contentChecksum,
+    defCrosswalkVersion: artifact.defCrosswalkVersion,
+    importedByUserId: artifact.importedByUserId,
+    attestationVersion: WAIVER_GRADING_APPROVAL_ATTESTATION_VERSION,
+    attestationText: WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT,
+  };
+}
+
 export type ApproveWaiverGradeRunResult = { status: "APPROVED" | "ALREADY_APPROVED"; approvalId: string; gradeRunId: string };
 
 /** Records an explicit, immutable approval of one stored run. Never applies or publishes. */
 export async function approveWaiverGradeRun(input: ApproveWaiverGradeRunInput): Promise<ApproveWaiverGradeRunResult> {
   if (input.attested !== true) throw new WaiverGradingError("ATTESTATION_REQUIRED", "The approval attestation is required");
-  if (input.acknowledgeDefCrosswalk !== true) throw new WaiverGradingError("ATTESTATION_REQUIRED", "Acknowledge the DEF team crosswalk version to approve");
   const reason = reasonOf(input.reason);
   const policy = input.policy ?? "SINGLE_ADMIN_EXPLICIT";
   return prisma.$transaction(async (tx) => {
     const run = await tx.waiverGradeRun.findUnique({ where: { id: input.gradeRunId } });
     if (!run) throw new WaiverGradingError("NOT_FOUND", "Grade run not found");
+    if (run.rankEyeQSnapshotId === null && input.acknowledgeDefCrosswalk !== true) {
+      throw new WaiverGradingError("ATTESTATION_REQUIRED", "Acknowledge the DEF team crosswalk version to approve");
+    }
     await begin(tx, input.adminUserId, run.weekId);
     if (run.outputFingerprint !== input.expectedOutputFingerprint) {
       throw new WaiverGradingError("STALE", "The grade run does not match the output fingerprint that was reviewed");
@@ -285,29 +354,27 @@ export async function approveWaiverGradeRun(input: ApproveWaiverGradeRunInput): 
     if (prior) return { status: "ALREADY_APPROVED" as const, approvalId: prior.id, gradeRunId: run.id };
 
     await assertRunMatchesLiveInputs(tx, run);
-    const artifact = await tx.waiverCanonicalArtifact.findUniqueOrThrow({
-      where: { id: run.artifactRowId },
-      select: { id: true, revision: true, contentChecksum: true, defCrosswalkVersion: true, importedByUserId: true },
-    });
+    const evidence = await approvalSourceEvidence(tx, run);
     const approval = await tx.waiverGradeApproval.create({
       data: {
         weekId: run.weekId,
         gradeRunId: run.id,
-        artifactRowId: artifact.id,
-        artifactRevision: artifact.revision,
-        artifactContentChecksum: artifact.contentChecksum,
+        artifactRowId: evidence.artifactRowId,
+        rankEyeQSnapshotId: evidence.rankEyeQSnapshotId,
+        artifactRevision: evidence.revision,
+        artifactContentChecksum: evidence.contentChecksum,
         snapshotSetFingerprint: run.snapshotSetFingerprint,
         resolutionSetFingerprint: run.resolutionSetFingerprint,
         inputFingerprint: run.inputFingerprint,
         outputFingerprint: run.outputFingerprint,
-        defCrosswalkVersion: artifact.defCrosswalkVersion,
+        defCrosswalkVersion: evidence.defCrosswalkVersion,
         defCrosswalkAcknowledged: true,
         approvalPolicy: policy,
         approvedByUserId: input.adminUserId,
-        artifactImportedByUserId: artifact.importedByUserId,
+        artifactImportedByUserId: evidence.importedByUserId,
         gradeRunInitiatedByUserId: run.initiatedByUserId,
-        attestationVersion: WAIVER_GRADING_APPROVAL_ATTESTATION_VERSION,
-        attestationText: WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT,
+        attestationVersion: evidence.attestationVersion,
+        attestationText: evidence.attestationText,
         reason,
       },
     });
@@ -316,11 +383,14 @@ export async function approveWaiverGradeRun(input: ApproveWaiverGradeRunInput): 
       gradeRunId: run.id,
       runNumber: run.runNumber,
       approvalPolicy: policy,
-      artifactRevision: artifact.revision,
-      defCrosswalkVersion: artifact.defCrosswalkVersion,
+      sourceKind: evidence.rankEyeQSnapshotId !== null ? "RANKEYEQ_SNAPSHOT" : "SNG_ARTIFACT",
+      artifactRowId: evidence.artifactRowId,
+      rankEyeQSnapshotId: evidence.rankEyeQSnapshotId,
+      artifactRevision: evidence.revision,
+      defCrosswalkVersion: evidence.defCrosswalkVersion,
       inputFingerprint: run.inputFingerprint,
       outputFingerprint: run.outputFingerprint,
-      attestationVersion: WAIVER_GRADING_APPROVAL_ATTESTATION_VERSION,
+      attestationVersion: evidence.attestationVersion,
       reason,
     });
     return { status: "APPROVED" as const, approvalId: approval.id, gradeRunId: run.id };
@@ -403,7 +473,13 @@ export async function applyWaiverGradeAuthority(input: ApplyWaiverGradeAuthority
       update: { ...pointer, outputFingerprint: run.outputFingerprint },
     });
     for (const result of results) {
-      const data = { weekId: approval.weekId, contestResultId: result.id, artifactRowId: run.artifactRowId, ...pointer };
+      const data = {
+        weekId: approval.weekId,
+        contestResultId: result.id,
+        artifactRowId: run.artifactRowId,
+        rankEyeQSnapshotId: run.rankEyeQSnapshotId,
+        ...pointer,
+      };
       await tx.waiverContestResultAuthority.upsert({ where: { contestId: result.contestId }, create: { contestId: result.contestId, ...data }, update: data });
     }
     for (const board of boards) {

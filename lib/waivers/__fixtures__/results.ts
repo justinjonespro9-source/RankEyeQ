@@ -662,7 +662,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
     });
     const empty = emptyPosition ? await db.waiverEmptyPositionResult.findUniqueOrThrow({ where: { id: resultIds[emptyPosition] } }) : null;
     const byPosition = new Map(results.map((r) => [r.position as WaiverPosition, r]));
-    const artifact = await loadArtifact(results[0].artifactRowId, db);
+    const artifact = await loadArtifact(results[0].artifactRowId!, db);
     const boards: BoardWrite[] = [];
     const boardFps: Array<{ submissionId: string; inputFingerprint: string; outputFingerprint: string }> = [];
 
@@ -796,7 +796,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
   // -------------------------------------------------------------------------
   async function approvalData(gradeRunId: string, input: { approvedByUserId?: string; policy?: WaiverGradeApprovalPolicy } = {}, db: WaiverDb = prisma) {
     const run = await db.waiverGradeRun.findUniqueOrThrow({ where: { id: gradeRunId } });
-    const artifact = await loadArtifact(run.artifactRowId, db);
+    const artifact = await loadArtifact(run.artifactRowId!, db);
     return {
       weekId,
       gradeRunId,
@@ -930,7 +930,7 @@ export async function createResultsFixture(tag: string, scenario: ResultsScenari
 
 export type ResultsFixture = Awaited<ReturnType<typeof createResultsFixture>>;
 
-/** Removes a fixture week's artifacts, D3 resolutions, results, runs, approvals and authority (fixture maintenance). */
+/** Removes a fixture week's artifacts, RankEyeQ snapshots, D3 resolutions, results, runs, approvals and authority (fixture maintenance). */
 export async function deleteWaiverFixtureGradingRows(weekId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(MAINTENANCE_SQL);
@@ -959,6 +959,10 @@ export async function deleteWaiverFixtureGradingRows(weekId: string) {
     await tx.waiverCanonicalArtifactEvent.deleteMany({ where: { OR: [{ artifactRowId: { in: ids } }, { successorArtifactRowId: { in: ids } }] } });
     await tx.waiverCanonicalArtifactContent.deleteMany({ where: { artifactRowId: { in: ids } } });
     for (const id of ids) await tx.waiverCanonicalArtifact.delete({ where: { id } });
+    // RankEyeQ results snapshots (dual-source grading rows above reference them; newest revision first for the lineage FK).
+    await tx.waiverRankEyeQParticipationDecision.deleteMany({ where: { snapshot: { weekId } } });
+    const snapshots = await tx.waiverRankEyeQResultsSnapshot.findMany({ where: { weekId }, orderBy: { revision: "desc" }, select: { id: true } });
+    for (const snapshot of snapshots) await tx.waiverRankEyeQResultsSnapshot.delete({ where: { id: snapshot.id } });
   });
 }
 

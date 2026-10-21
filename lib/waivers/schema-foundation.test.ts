@@ -90,6 +90,7 @@ const GRADE_PUBLICATION_MIGRATION = "20261013000000_waivers_grade_publication";
 const RANKEYEQ_RESULTS_MODEL_NAMES = ["WaiverRankEyeQParticipationDecision", "WaiverRankEyeQResultsSnapshot"];
 const RANKEYEQ_RESULTS_ENUM_NAMES = ["WaiverRankEyeQResultsPublicationState", "WaiverZeroPointDecision"];
 const RANKEYEQ_RESULTS_MIGRATION = "20261013120000_waivers_rankeyeq_results_snapshot";
+const DUAL_SOURCE_GRADING_MIGRATION = "20261021120000_waivers_dual_source_grading";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -188,6 +189,7 @@ describe("Waivers migration is additive only", () => {
       STAGE4B4_MIGRATION,
       GRADE_PUBLICATION_MIGRATION,
       RANKEYEQ_RESULTS_MIGRATION,
+      DUAL_SOURCE_GRADING_MIGRATION,
     ]);
   });
 

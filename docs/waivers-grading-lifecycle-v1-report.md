@@ -1,75 +1,94 @@
-# WaiverEyeQ Grading & Publication V1 — Feature Report
+# WaiverEyeQ Grading Lifecycle V1 — Completion Report
 
 **Branch:** `feat/waivereyeq-rankeyeq-results-grading-v1`  
-**Status:** Implemented on isolated feature branch. **Not merged. Not deployed. No Production grading.**
+**Base:** `72d1116a2fec451a28570cc5add6a96b3e5defd3`  
+**Status:** Dual-source storage complete on feature branch. **Not merged. Not deployed. No Production grading, contest-lock stamp, or publication.**
 
-## 1. Results-source architecture
+## 1. Dual-source storage (`SOURCE_UNSUPPORTED` resolved)
 
-| Source | Schema | Tables | Authority |
-| --- | --- | --- | --- |
-| SNG Labs | `sng-canonical-nfl-weekly-performance/1` | `WaiverCanonicalArtifact*` | `OPERATOR_ATTESTED` |
-| RankEyeQ | `rankeyeq-final-week-stats/1` | `WaiverRankEyeQResultsSnapshot`, `WaiverRankEyeQParticipationDecision` | `RANKEYEQ_OPERATOR_ATTESTED` |
+Migration `20261021120000_waivers_dual_source_grading` makes grading storage accept exactly one verified source:
 
-RankEyeQ reads finalized `PlayerWeekStat` / `DefenseWeekStat` (`manual`, non-provisional, `FANTASYTRACK_NFL_HALF_PPR_V2`) joined by `RankableEntry.id` / frozen identity. It never re-scores FantasyTrack lines and never claims to be an SNG artifact.
+| Table | SNG | RankEyeQ |
+| --- | --- | --- |
+| `WaiverContestResult`, `WaiverGradeRun`, `WaiverGradeApproval`, `WaiverContestResultAuthority` | `artifactRowId` set | `rankEyeQSnapshotId` set |
 
-## 2. Participation-review workflow
+- Database XOR: `num_nonnulls("artifactRowId", "rankEyeQSnapshotId") = 1`
+- Existing SNG rows keep `artifactRowId`; no destructive backfill
+- Superseded / non-ACCEPTED RankEyeQ snapshots cannot be stored, approved, applied, or published (`SOURCE_SUPERSEDED` / DB guards)
+- `WAIVER_EYEQ_V1` unchanged
+- `isWaiverGradingSourceStorable` is true for both `SNG_ARTIFACT` and `RANKEYEQ_SNAPSHOT`
 
-Zero fantasy points → `PENDING_ZERO_REVIEW` (operator queue).  
-Missing stats → `ABSENT_UNRESOLVED` (not zero; blocks ACCEPTED).  
-Operator decisions: `PLAYED_ZERO` → `PARTICIPATED_ZERO`; `DID_NOT_PLAY` → `VERIFIED_NON_PARTICIPANT`/`DNP` with evidence.
+`SOURCE_UNSUPPORTED` remains only as a defensive error code; both product sources are storable.
 
-## 3. Admin screens & actions
+## 2. Week 6 Production lifecycle (read-only)
 
-- `/admin/waivers/grading` — source select (SNG / RankEyeQ), preview, create run, approve, apply, publish
-- Server actions in `lib/waivers/grading/actions.ts` (admin-gated, audited)
-- Preview is SELECT-only
-- Apply sets week authority; **Publish** is a separate stage (`WaiverWeekGradePublication`) required for public leaderboards
+Week id `cmv7egzsb000006l7axfb8mvx`. All five contests share `locksAt = 2026-10-15 03:00:00 UTC` (= approved Wed Oct 14, 2026, 10:00 PM CDT).
 
-## 4. Public results
+| Position | Contest status | Boards | Board status | Call counts (current rev) |
+| --- | --- | --- | --- | --- |
+| QB | LOCKED | 8 | 8 LOCKED | all 3 |
+| WR | LOCKED | 8 | 8 LOCKED | 3 (commish) + 5×7 AI |
+| RB | OPEN | 8 | 8 SUBMITTED | all 3 |
+| TE | OPEN | 8 | 8 SUBMITTED | all 3 |
+| DEF | OPEN | 8 | 8 SUBMITTED | 2 (deepseek) + 3×7 |
 
-`loadGradedWaiverBoards` reads `WaiverWeekGradeAuthority` + board grades **only when published**.
+- **40 boards total** (8 per position × 5). Prior “8 per position” matches; **16 locked** = QB+WR only.
+- Profiles: `commish` + 7 AI (`claude`, `deepseek`, `gemini`, `gpt`, `grok`, `mistral`, `perplexity`). **`llama` has zero Week 6 boards** (not a lock defect).
+- Every `submittedAt` is before `locksAt` / the Oct 14 10pm CDT deadline. No late entries, competitive overrides, or post-lock revisions. Draft revisions exist only as pre-submit history (commish).
+- Root cause: **lazy lock stamp not executed** for RB/TE/DEF. `ensureWaiverContestLocked` stamps `OPEN→LOCKED` and `SUBMITTED→LOCKED` with `lockedAt = locksAt` only when invoked after `locksAt`. QB/WR were stamped that way; RB/TE/DEF were not. Play layer already treats past-`locksAt` as locked for writes (`waiverPhaseAt`), so this is a **database-status / lifecycle-execution gap**, not a display bug and not wrong submission data.
+- Stamp readiness: all 24 OPEN-contest SUBMITTED boards have a pre-`locksAt` SUBMISSION revision (`submitted_MISSING_prelock_revision = 0`).
 
-## 5. Production discovery (read-only)
+### Proposed correction (owner approval required; not executed)
 
-| Week | Eligible pool | Contests | Locked boards | Grade runs | SNG artifacts | Final WeekStats |
-| --- | --- | --- | --- | --- | --- | --- |
-| 5 | **102** | 5 LOCKED | **45** (9×5) | 0 | 0 | 473 player / 30 DEF |
-| 6 | **87** | QB+WR LOCKED; **RB/TE/DEF OPEN** | **16** (QB 8 + WR 8) | 0 | 0 | 428 player / 28 DEF |
+1. Call production `ensureWaiverContestLocked` for:
+   - RB `cmv7kj0l7000106jtdvzcy5xm`
+   - TE `cmv7kj0nn000306jt5tz2ovju`
+   - DEF `cmv7kj0ov000406jtc7wqt6g8`
+2. Expect: each returns `{ locked: true, stampedSubmissions: 8 }`; contests → LOCKED; 40 boards LOCKED; `lockedAt = locksAt`.
+3. Read-only verify; stop. Do **not** backdate submissions, create picks, late-entry, or grade.
 
-## 6. Test report (local disposable DB / unit)
+## 3. Staging (disposable DB)
+
+Database `rankiq_glv1_stage` (local Postgres): `prisma migrate deploy` through `20261021120000_waivers_dual_source_grading`, then representative fixture lifecycle pack:
 
 | Suite | Result |
 | --- | --- |
-| `lib/waivers/rankeyeq-results/*` | PASS |
-| `contest-result-rankeyeq.test.ts` | PASS (23) |
-| `grading/lifecycle.integration.test.ts` | PASS |
-| `grading/preview.integration.test.ts` | PASS |
-| `results/grading-authority.integration.test.ts` | PASS |
-| Focused unit pack (152 tests) | PASS |
+| Dual-source schema + foundation | PASS |
+| `lifecycle-rankeyeq.integration.test.ts` (store→approve→apply→publish→regrade/supersede + XOR guards) | PASS |
+| `lifecycle.integration.test.ts` (SNG path) | PASS |
+| Preview / contest-result-rankeyeq / rankeyeq-results / grading-hardening / grading-authority / AI boards / lock-authority | PASS |
+| **Total** | **14 files, 224 passed** |
 
-Week 5/6 **Production staging grading** was **not** executed (stop condition + dual-source store gap).
+Covers RankEyeQ snapshot build+commit, zero-point decisions, frozen identities via fixtures, five-position preview (DEF empty-pool when unused), D3 on SNG path, versioned runs, approval/apply/publish separation, supersession, SNG compatibility, idempotency, historical week isolation. Grading services do not mutate Rankings WeekStats or original waiver call rows.
 
-## 7. Remaining blockers / decisions
+**Not run:** Production-cloned Week 5/6 end-to-end grading on a dump (would require a separate approved clone). Week 6 Production staging grading is blocked until the three contests are stamped LOCKED.
 
-1. **Dual-source storage** — RankEyeQ preview works; `storeWaiverWeekGradingRun` refuses `RANKEYEQ_SNAPSHOT` with `SOURCE_UNSUPPORTED` until `WaiverContestResult` / `WaiverGradeRun` accept `rankEyeQSnapshotId` XOR `artifactRowId` and DB triggers are patched.
-2. **Week 6 contest lock** — RB, TE, DEF still `OPEN` (16/40 boards locked). Cannot grade full Week 6 until contests lock.
-3. **Called-outside-pool ABSENT_UNRESOLVED** — missing WeekStat for invalidated called players blocks ACCEPTED snapshot; product may want a softer rule.
-4. **Week 5 identity** — pre-4B.1 NULL frozen keys remain advisory (`IDENTITY_KEY_NOT_FROZEN_AT_SNAPSHOT`); match uses live RankableEntry.
-5. **No unpublish** — publication is append-only.
-6. **MHJ ALT-1** — RankEyeQ snapshot reads attributed WeekStat as stored; does not rewrite ContestEntry/team/game.
+## 4. Validation
 
-## 8. GO / NO-GO
+| Check | Result |
+| --- | --- |
+| Focused staging pack (224) | PASS |
+| `tsc --noEmit` | PASS (no errors) |
+| `eslint` | Pre-existing error in `stat-components-full-volume.staging.test.ts` (unrelated to this branch) |
+| `npm run build` | PASS |
 
-### NO-GO for Production RankEyeQ grading/publication of Weeks 5–6
+## 5. Remaining blockers
 
-Reasons: dual-source store not landed; Week 6 contests incomplete; no disposable staging E2E against Production-cloned data.
+1. Week 6 RB/TE/DEF still OPEN in Production until owner-approved lock stamp.
+2. No Production-cloned W5/W6 grading rehearsal yet.
+3. RankEyeQ snapshot commit still has no admin UI/route (service API only).
+4. Called-outside-pool `ABSENT_UNRESOLVED` can still block ACCEPTED snapshots when WeekStats are missing.
+5. Week 5 pre-4B.1 NULL frozen identity keys remain advisory.
+6. Publication is append-only (no unpublish).
 
-### CONDITIONAL GO for merging this feature branch (code only)
+## 6. GO / NO-GO
 
-Safe to merge when owner approves **code merge only** (still no Production grading):
+### NO-GO for Production deploy / grading / publication / contest-lock changes
 
-- SNG grading lifecycle (store → approve → apply → publish) + leaderboard wiring is complete and tested
-- RankEyeQ snapshot build / participation review / grading **preview** is complete and tested
-- Follow-up PR required: dual-source FK + trigger patches + Week 6 lock ops + staging E2E
+Owner has not approved merge or deploy. Week 6 lock stamp and any Production grading require separate approval.
 
-**Stop:** no merge, deploy, Production snapshot commit, grading or publication without separate owner approval.
+### CONDITIONAL GO for merging **code only** (still no Production ops)
+
+Safe when owner approves a code-only merge: dual-source storage + RankEyeQ lifecycle are implemented and tested on disposable DB; SNG historical path preserved.
+
+**Stop:** no merge, deploy, Production snapshot commit, contest lock stamp, grading, or publication without separate owner approval.

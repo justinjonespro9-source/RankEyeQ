@@ -19,7 +19,9 @@ import { submitWaiverBoard } from "@/lib/waivers/submissions";
 /**
  * Grading lifecycle on the local database: a READY SNG-artifact preview is
  * stored, approved, applied and published through the production services, and
- * public leaderboards read graded boards only after publication.
+ * public leaderboards read graded boards only after publication. The RankEyeQ
+ * source's full lifecycle (dual-source storage) is in
+ * `lifecycle-rankeyeq.integration.test.ts`.
  */
 
 // The RankEyeQ results store is another stage's module (its migration may not be applied locally): mock its loader.
@@ -320,9 +322,9 @@ describe("grading lifecycle: preview → store → approve → apply → publish
     await rejectedWith(storeWaiverWeekGradingRun({ ...storeInput(r1, run), expectedOutputFingerprint: "0".repeat(64) }), "STALE");
     await rejectedWith(storeWaiverWeekGradingRun(storeInput("no-such-artifact", run)), "PREVIEW_BLOCKED");
     await rejectedWith(storeWaiverWeekGradingRun({ ...storeInput(r1, run), weekId: "no-such-week" }), "NOT_FOUND");
-    await rejectedWith(storeWaiverWeekGradingRun({ ...storeInput(r1, run), source: { kind: "RANKEYEQ_SNAPSHOT", snapshotId: null } }), "SOURCE_UNSUPPORTED");
-    // Refused before any source is loaded: a RankEyeQ snapshot id would break the WaiverCanonicalArtifact FK.
-    expect(rankeyeq.load).not.toHaveBeenCalled();
+    // The RankEyeQ source is storable (dual-source storage): with no accepted snapshot the preview is BLOCKED, never SOURCE_UNSUPPORTED.
+    await rejectedWith(storeWaiverWeekGradingRun({ ...storeInput(r1, run), source: { kind: "RANKEYEQ_SNAPSHOT", snapshotId: null } }), "PREVIEW_BLOCKED");
+    expect(rankeyeq.load).toHaveBeenCalledTimes(1);
     expect(await counts()).toEqual(before);
   });
 

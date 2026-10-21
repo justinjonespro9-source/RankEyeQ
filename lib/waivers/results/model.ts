@@ -25,6 +25,20 @@ export const WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT =
   "D3 resolution set and complete week output fingerprint. I have reviewed the DEF team crosswalk version it uses. " +
   "This approval is separate from, and not implied by, the artifact import.";
 
+/**
+ * RankEyeQ-sourced approvals (dual-source storage). The DEF crosswalk is not
+ * applicable (RankEyeQ identity is def-{TEAM}), so the approval stores the marker
+ * below with `defCrosswalkAcknowledged = true` meaning "not applicable,
+ * acknowledged". The attestation version stays under the
+ * `rankeyeq-waiver-grading-approval/` prefix the database pins.
+ */
+export const WAIVER_RANKEYEQ_NATIVE_CROSSWALK_VERSION = "rankeyeq-native/1";
+export const WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_VERSION = "rankeyeq-waiver-grading-approval/rankeyeq-results-1";
+export const WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_TEXT =
+  "I approve this exact Waivers grade run for competitive use: its RankEyeQ final-week-stats snapshot revision, frozen snapshots " +
+  "and complete week output fingerprint. The RankEyeQ source has no SNG team crosswalk (not applicable). " +
+  "This approval is separate from, and not implied by, committing the RankEyeQ results snapshot.";
+
 export const WAIVER_HONOR_INELIGIBLE_REASONS = {
   NA_ZERO_CALL: "ZERO_CALL_BOARD",
   NA_ALL_NEUTRALIZED: "ALL_CALLS_NEUTRALIZED",

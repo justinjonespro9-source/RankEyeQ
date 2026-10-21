@@ -312,7 +312,7 @@ describe("empty eligible position: no contest, represented explicitly", () => {
     // Both a contest result and an empty result for TE (the BEFORE guard refuses it ahead of the CHECK).
     await expectRejected(
       f.writeGradeRun({ ...again, run: { ...rerun, teContestResultId: graded.resultIds.QB } }),
-      /WaiverGradeRun_shape_check|WAIVER_INVALID: a grade run needs one contest result of its week and artifact for each of the five positions/,
+      /WaiverGradeRun_shape_check|WAIVER_INVALID: a grade run needs one contest result of its week and (artifact|source) for each of the five positions/,
     );
     await expectDbGuard(
       f.writeGradeRun({ ...again, run: { ...rerun, qbContestResultId: null, qbEmptyPositionResultId: graded.resultIds.TE } }),
@@ -514,7 +514,7 @@ describe("cross-binding: results, runs and approvals never mix weeks, snapshots,
     const ids = await f.writeAllResults(r1);
     const built = await f.buildGradeRun(ids);
     const withRun = (patch: Record<string, unknown>) => f.writeGradeRun({ ...built, run: { ...built.run, ...patch } });
-    const runMessage = /WAIVER_INVALID: a grade run needs one contest result of its week and artifact for each of the five positions/;
+    const runMessage = /WAIVER_INVALID: a grade run needs one contest result of its week and (artifact|source) for each of the five positions/;
     await expectRejected(withRun({ qbContestResultId: ids.RB, rbContestResultId: ids.QB }), runMessage);
     await expectRejected(withRun({ qbContestResultId: other.resultIds.QB }), runMessage);
     await expectDbGuard(withRun({ weekId: g.weekId }), "WAIVER_INVALID");

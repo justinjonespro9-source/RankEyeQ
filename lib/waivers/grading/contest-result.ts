@@ -278,6 +278,7 @@ export function buildWaiverContestResult(input: WaiverContestResultInput): Waive
       position,
       snapshotId: contest.snapshotId,
       artifactRowId: artifact.rowId,
+      rankEyeQSnapshotId: null,
       artifactContentChecksum: artifact.contentChecksum,
       resultsPolicyVersion: WAIVER_RESULTS_POLICY_VERSION,
       sngResultSetChecksum: contestSet.resultSetChecksum,

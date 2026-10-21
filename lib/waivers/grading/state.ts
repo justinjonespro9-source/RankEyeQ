@@ -10,7 +10,11 @@ export type WaiverGradingRunView = {
   runNumber: number;
   stage: WaiverGradeRunStage;
   nextAction: "APPROVE" | "APPLY" | "PUBLISH" | null;
+  /** Which verified source the run was graded from. */
+  sourceKind: "SNG_ARTIFACT" | "RANKEYEQ_SNAPSHOT";
+  /** The source revision (SNG artifact or RankEyeQ snapshot). */
   artifactRevision: number;
+  /** The source content checksum. */
   artifactContentChecksum: string;
   inputFingerprint: string;
   outputFingerprint: string;
@@ -37,6 +41,7 @@ export async function loadWaiverGradingLifecycleState(weekId: string): Promise<W
       take: 25,
       include: {
         artifact: { select: { revision: true } },
+        rankEyeQSnapshot: { select: { revision: true } },
         initiatedBy: { select: { name: true, email: true } },
         approvals: { orderBy: { approvedAt: "asc" }, include: { approvedBy: { select: { name: true, email: true } }, change: { select: { id: true } } } },
         changesAsNew: { select: { id: true } },
@@ -70,7 +75,8 @@ export async function loadWaiverGradingLifecycleState(weekId: string): Promise<W
         runNumber: run.runNumber,
         stage,
         nextAction: waiverGradeRunNextAction(stage),
-        artifactRevision: run.artifact.revision,
+        sourceKind: run.rankEyeQSnapshotId !== null ? ("RANKEYEQ_SNAPSHOT" as const) : ("SNG_ARTIFACT" as const),
+        artifactRevision: (run.artifact ?? run.rankEyeQSnapshot)?.revision ?? 0,
         artifactContentChecksum: run.artifactContentChecksum,
         inputFingerprint: run.inputFingerprint,
         outputFingerprint: run.outputFingerprint,

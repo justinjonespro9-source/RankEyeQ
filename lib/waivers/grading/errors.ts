@@ -15,7 +15,7 @@ export type WaiverGradingErrorCode =
   | "NOT_APPLIED"
   | "ALREADY_USED"
   | "NOT_IMPLEMENTED"
-  /** The grading source can be previewed but not stored/approved (RankEyeQ until dual-source storage lands). */
+  /** Defensive: the requested grading source kind cannot be stored. Both SNG and RankEyeQ sources are storable (dual-source storage). */
   | "SOURCE_UNSUPPORTED"
   /** A database guard (WAIVER_INVALID / WAIVER_IMMUTABLE) refused the write. */
   | "DB_GUARD";

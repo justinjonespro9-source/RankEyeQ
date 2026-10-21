@@ -16,7 +16,7 @@ import type { WaiverGradingReview } from "@/lib/waivers/grading/review-model";
 import type { WaiverGradingSource } from "@/lib/waivers/grading/source";
 import type { WaiverGradingLifecycleState, WaiverGradingRunView } from "@/lib/waivers/grading/state";
 import type { WaiverGradeRunStage } from "@/lib/waivers/grading/state-model";
-import { WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT } from "@/lib/waivers/results/model";
+import { WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT, WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_TEXT } from "@/lib/waivers/results/model";
 
 const inputClass = "w-full rounded-md border border-border bg-surface-elevated px-3 py-2 text-sm text-ink";
 const points = (value: number | null) => (value === null ? "N/A" : (value / 100).toFixed(2));
@@ -85,7 +85,6 @@ export function WaiverGradingWorkflowPanel({
   const [storeError, setStoreError] = useState<string | null>(null);
   const [storeNote, setStoreNote] = useState<string | null>(null);
 
-  const storable = source.kind === "SNG_ARTIFACT";
   const sourceReady = source.kind === "SNG_ARTIFACT" ? artifact !== null : true;
 
   const runPreview = () => {
@@ -163,7 +162,7 @@ export function WaiverGradingWorkflowPanel({
             <p>
               Grades the week from its current ACCEPTED RankEyeQ final-week-stats snapshot.{" "}
               {rankeyeqAvailable
-                ? "The read-only preview is available. Creating a run from this source is not supported yet (dual-source storage is pending), so it is preview-only."
+                ? "Preview it read-only, then create, approve, apply and publish a run bound to that snapshot (never to an SNG artifact). D3 snapshot-conflict decisions do not apply: RankEyeQ has no BYE disposition."
                 : "It is not available yet: previewing this source reports that explicitly and never falls back to SNG."}
             </p>
           </div>
@@ -189,11 +188,10 @@ export function WaiverGradingWorkflowPanel({
           the preview is blocked or has changed since you reviewed it.
         </p>
         <div className="mt-3">
-          <Button type="button" size="sm" disabled={pending || !storable || review?.status !== "READY" || !review.run} onClick={createRun}>
+          <Button type="button" size="sm" disabled={pending || review?.status !== "READY" || !review.run} onClick={createRun}>
             {pending ? "Working…" : "Create grading run"}
           </Button>
-          {!storable ? <span className="ml-3 text-xs text-muted">RankEyeQ results are preview-only until dual-source storage lands.</span> : null}
-          {storable && review && review.status !== "READY" ? <span className="ml-3 text-xs text-danger">Preview is blocked; resolve the blockers first.</span> : null}
+          {review && review.status !== "READY" ? <span className="ml-3 text-xs text-danger">Preview is blocked; resolve the blockers first.</span> : null}
         </div>
         <Message error={storeError} note={storeNote} />
       </Card>
@@ -419,7 +417,7 @@ function RunRow({ run, weekId, state }: { run: WaiverGradingRunView; weekId: str
         <span className="font-semibold text-ink">Run #{run.runNumber}</span>
         <Badge tone={STAGE_TONE[run.stage]}>{STAGE_LABEL[run.stage]}</Badge>
         <span className="text-xs text-muted">
-          artifact r{run.artifactRevision} · {run.boardGradeCount} boards · stored {when(run.createdAt)} by {run.initiatedBy}
+          {run.sourceKind === "RANKEYEQ_SNAPSHOT" ? "RankEyeQ snapshot" : "SNG artifact"} r{run.artifactRevision} · {run.boardGradeCount} boards · stored {when(run.createdAt)} by {run.initiatedBy}
         </span>
       </div>
       <p className="mt-1 break-all font-mono text-xs text-muted">output {run.outputFingerprint}</p>
@@ -467,7 +465,9 @@ function ApproveForm({ run }: { run: WaiverGradingRunView }) {
   const [crosswalk, setCrosswalk] = useState(false);
   const [attested, setAttested] = useState(false);
   const [separate, setSeparate] = useState(false);
-  const ready = reason.trim() && crosswalk && attested;
+  const rankeyeq = run.sourceKind === "RANKEYEQ_SNAPSHOT";
+  // A RankEyeQ source has no SNG team crosswalk: acknowledging it is not applicable (recorded as N/A acknowledged).
+  const ready = reason.trim() && (rankeyeq || crosswalk) && attested;
   return (
     <div className="mt-3 border-t border-border pt-3">
       <h4 className="text-sm font-semibold text-ink">Approve run #{run.runNumber}</h4>
@@ -475,17 +475,21 @@ function ApproveForm({ run }: { run: WaiverGradingRunView }) {
         Reason (required)
         <textarea className={`${inputClass} h-16`} value={reason} maxLength={1000} onChange={(e) => setReason(e.target.value)} />
       </label>
-      <label className="mt-2 flex items-start gap-2 text-sm">
-        <input type="checkbox" checked={crosswalk} onChange={(e) => setCrosswalk(e.target.checked)} />
-        <span className="text-muted">I reviewed the DEF team crosswalk version this artifact was imported under.</span>
-      </label>
+      {rankeyeq ? (
+        <p className="mt-2 text-xs text-muted">DEF team crosswalk: not applicable to a RankEyeQ source (recorded as rankeyeq-native/1, acknowledged as N/A).</p>
+      ) : (
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={crosswalk} onChange={(e) => setCrosswalk(e.target.checked)} />
+          <span className="text-muted">I reviewed the DEF team crosswalk version this artifact was imported under.</span>
+        </label>
+      )}
       <label className="mt-2 flex items-start gap-2 text-sm">
         <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
-        <span className="text-muted">{WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT}</span>
+        <span className="text-muted">{rankeyeq ? WAIVER_GRADING_APPROVAL_RANKEYEQ_ATTESTATION_TEXT : WAIVER_GRADING_APPROVAL_ATTESTATION_TEXT}</span>
       </label>
       <label className="mt-2 flex items-start gap-2 text-sm">
         <input type="checkbox" checked={separate} onChange={(e) => setSeparate(e.target.checked)} />
-        <span className="text-muted">Require a separate approver (not the artifact importer or run creator). Cannot be undone for this week.</span>
+        <span className="text-muted">Require a separate approver (not the {rankeyeq ? "RankEyeQ snapshot builder" : "artifact importer"} or run creator). Cannot be undone for this week.</span>
       </label>
       <div className="mt-3">
         <Button
@@ -499,7 +503,7 @@ function ApproveForm({ run }: { run: WaiverGradingRunView }) {
                   gradeRunId: run.id,
                   expectedOutputFingerprint: run.outputFingerprint,
                   reason,
-                  acknowledgeDefCrosswalk: crosswalk,
+                  acknowledgeDefCrosswalk: rankeyeq ? true : crosswalk,
                   attested,
                   policy: separate ? "SEPARATE_APPROVER" : "SINGLE_ADMIN_EXPLICIT",
                 }),

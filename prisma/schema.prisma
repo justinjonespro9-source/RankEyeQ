@@ -1755,7 +1755,9 @@ model WaiverCanonicalArtifactEvent {
 // A second, product-approved results source (`rankeyeq-final-week-stats/1`)
 // derived from RankEyeQ's own already-calculated PlayerWeekStat/DefenseWeekStat
 // rows and operator-attested participation reviews. It never impersonates SNG
-// and is independent of WaiverCanonicalArtifact (no result/grade FKs yet).
+// and is independent of WaiverCanonicalArtifact. Dual-source grading storage
+// (20261021120000) lets contest results, grade runs and approvals reference
+// exactly one of an SNG artifact or one of these snapshots (database XOR).
 // Docs: docs/waivers-rankeyeq-results-source.md.
 // ---------------------------------------------------------------------------
 
@@ -1812,6 +1814,10 @@ model WaiverRankEyeQResultsSnapshot {
   supersedes   WaiverRankEyeQResultsSnapshot?        @relation("WaiverRankEyeQResultsSnapshotSupersedes", fields: [supersedesSnapshotId], references: [id], onDelete: Restrict)
   supersededBy WaiverRankEyeQResultsSnapshot?        @relation("WaiverRankEyeQResultsSnapshotSupersedes")
   decisions    WaiverRankEyeQParticipationDecision[]
+  /// Dual-source grading storage: results, runs and approvals sourced from this snapshot.
+  contestResults WaiverContestResult[]
+  gradeRuns      WaiverGradeRun[]
+  gradeApprovals WaiverGradeApproval[]
 
   @@unique([seriesKey, revision])
   @@index([weekId, revision])
@@ -1986,7 +1992,11 @@ model WaiverContestResult {
   position                 ContestPosition
   /// The contest's pinned snapshot version at lock.
   snapshotId               String
-  artifactRowId            String
+  /// Exactly one verified source: an SNG canonical artifact (`artifactRowId`) XOR a RankEyeQ
+  /// final-week-stats snapshot (`rankEyeQSnapshotId`); database-checked.
+  artifactRowId            String?
+  rankEyeQSnapshotId       String?
+  /// The source content checksum: the SNG artifact's, or the RankEyeQ snapshot's `rankeyeq-final-week-stats/1` checksum.
   artifactContentChecksum  String
   /// Contiguous per contest, from 1.
   resultVersion            Int
@@ -2012,7 +2022,8 @@ model WaiverContestResult {
 
   contest       WaiverContest                  @relation(fields: [contestId], references: [id], onDelete: Restrict)
   snapshot      WaiverSnapshot                 @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
-  artifact      WaiverCanonicalArtifact        @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  artifact      WaiverCanonicalArtifact?       @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  rankEyeQSnapshot WaiverRankEyeQResultsSnapshot? @relation(fields: [rankEyeQSnapshotId], references: [id], onDelete: Restrict)
   poolResults   WaiverPoolResult[]
   boardGrades   WaiverBoardGrade[]
   qbGradeRuns   WaiverGradeRun[]               @relation("WaiverGradeRunQbResult")
@@ -2027,6 +2038,7 @@ model WaiverContestResult {
   @@index([weekId])
   @@index([snapshotId])
   @@index([artifactRowId])
+  @@index([rankEyeQSnapshotId])
 }
 
 /// Immutable per-player row of a contest result: every eligible frozen pool
@@ -2080,7 +2092,10 @@ model WaiverGradeRun {
   weekId                   String
   /// Contiguous per week, from 1.
   runNumber                Int
-  artifactRowId            String
+  /// Exactly one verified source (database-checked XOR): an SNG canonical artifact or a RankEyeQ results snapshot.
+  artifactRowId            String?
+  rankEyeQSnapshotId       String?
+  /// The source content checksum (SNG artifact or RankEyeQ snapshot).
   artifactContentChecksum  String
   /// Each position has exactly one of a contest result or an explicit empty-position result.
   qbContestResultId        String?
@@ -2106,7 +2121,8 @@ model WaiverGradeRun {
   createdAt                DateTime             @default(now())
 
   week              Week                           @relation(fields: [weekId], references: [id], onDelete: Restrict)
-  artifact          WaiverCanonicalArtifact        @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  artifact          WaiverCanonicalArtifact?       @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  rankEyeQSnapshot  WaiverRankEyeQResultsSnapshot? @relation(fields: [rankEyeQSnapshotId], references: [id], onDelete: Restrict)
   qbContestResult   WaiverContestResult?           @relation("WaiverGradeRunQbResult", fields: [qbContestResultId], references: [id], onDelete: Restrict)
   rbContestResult   WaiverContestResult?           @relation("WaiverGradeRunRbResult", fields: [rbContestResultId], references: [id], onDelete: Restrict)
   wrContestResult   WaiverContestResult?           @relation("WaiverGradeRunWrResult", fields: [wrContestResultId], references: [id], onDelete: Restrict)
@@ -2130,6 +2146,7 @@ model WaiverGradeRun {
   @@unique([weekId, runNumber])
   @@unique([weekId, inputFingerprint])
   @@index([artifactRowId])
+  @@index([rankEyeQSnapshotId])
   @@index([qbContestResultId])
   @@index([rbContestResultId])
   @@index([wrContestResultId])
@@ -2276,18 +2293,24 @@ model WaiverGradeApproval {
   id                        String                    @id @default(cuid())
   weekId                    String
   gradeRunId                String
-  artifactRowId             String
+  /// Exactly one verified source (database-checked XOR), equal to the grade run's.
+  artifactRowId             String?
+  rankEyeQSnapshotId        String?
+  /// The source revision: the SNG artifact's, or the RankEyeQ snapshot's.
   artifactRevision          Int
+  /// The source content checksum (SNG artifact or RankEyeQ snapshot).
   artifactContentChecksum   String
   snapshotSetFingerprint    String
   resolutionSetFingerprint  String
   inputFingerprint          String
   outputFingerprint         String
+  /// The artifact's DEF crosswalk version; `rankeyeq-native/1` (acknowledged = "not applicable") for a RankEyeQ source.
   defCrosswalkVersion       String
   defCrosswalkAcknowledged  Boolean
   approvalPolicy            WaiverGradeApprovalPolicy
   approvedByUserId          String
-  /// Evidence copies (database-verified) for separation-of-duties checks.
+  /// Evidence copies (database-verified) for separation-of-duties checks. For a RankEyeQ source this is
+  /// the snapshot's `builtByUserId` (the importer equivalent).
   artifactImportedByUserId  String
   gradeRunInitiatedByUserId String?
   attestationVersion        String
@@ -2298,13 +2321,15 @@ model WaiverGradeApproval {
 
   week       Week                        @relation(fields: [weekId], references: [id], onDelete: Restrict)
   gradeRun   WaiverGradeRun              @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
-  artifact   WaiverCanonicalArtifact     @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  artifact   WaiverCanonicalArtifact?    @relation(fields: [artifactRowId], references: [id], onDelete: Restrict)
+  rankEyeQSnapshot WaiverRankEyeQResultsSnapshot? @relation(fields: [rankEyeQSnapshotId], references: [id], onDelete: Restrict)
   approvedBy User                        @relation("WaiverGradeApprovalApprovedBy", fields: [approvedByUserId], references: [id], onDelete: Restrict)
   change     WaiverGradeAuthorityChange?
 
   @@unique([gradeRunId, approvedByUserId])
   @@index([weekId])
   @@index([artifactRowId])
+  @@index([rankEyeQSnapshotId])
   @@index([approvedByUserId])
 }
 
@@ -2393,7 +2418,9 @@ model WaiverContestResultAuthority {
   contestId       String   @id
   weekId          String
   contestResultId String
-  artifactRowId   String
+  /// The contest result's source (database-checked equal to it): exactly one of an SNG artifact or a RankEyeQ snapshot.
+  artifactRowId   String?
+  rankEyeQSnapshotId String?
   gradeRunId      String
   changeId        String
   /// Database clock (`waiver_utc_now()`), set by the write trigger.

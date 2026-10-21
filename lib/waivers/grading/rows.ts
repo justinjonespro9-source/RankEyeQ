@@ -16,10 +16,17 @@ function omitKeys<T extends object, K extends keyof T>(value: T, keys: readonly 
   return copy as Omit<T, K>;
 }
 
-export const waiverContestResultCreateData = (
+export function waiverContestResultCreateData(
   result: WaiverGradingContestResult,
   resultVersion: number,
-): Prisma.WaiverContestResultUncheckedCreateInput => ({ ...result, resultVersion });
+): Prisma.WaiverContestResultUncheckedCreateInput {
+  const artifactRowId = result.artifactRowId ?? null;
+  const rankEyeQSnapshotId = result.rankEyeQSnapshotId ?? null;
+  if ((artifactRowId === null) === (rankEyeQSnapshotId === null)) {
+    throw new RangeError("a contest result needs exactly one source: an SNG artifact row or a RankEyeQ snapshot row");
+  }
+  return { ...result, artifactRowId, rankEyeQSnapshotId, resultVersion };
+}
 
 export const waiverPoolResultCreateData = (rows: readonly WaiverGradingPoolRow[], contestResultId: string): Prisma.WaiverPoolResultCreateManyInput[] =>
   rows.map((row) => ({ ...omitKeys(row, ["meta"]), contestResultId }));
@@ -31,13 +38,21 @@ export function waiverGradeRunCreateData(
   ids: {
     weekId: string;
     runNumber: number;
-    artifactRowId: string;
+    /** Exactly one verified source: the SNG artifact row XOR the RankEyeQ snapshot row (the database enforces it too). */
+    artifactRowId?: string | null;
+    rankEyeQSnapshotId?: string | null;
+    /** The source content checksum (SNG artifact or RankEyeQ snapshot). */
     artifactContentChecksum: string;
     contestResultIds: Partial<Record<WaiverPosition, string>>;
     emptyPositionResultIds: Partial<Record<WaiverPosition, string>>;
     initiatedByUserId: string | null;
   },
 ): Prisma.WaiverGradeRunUncheckedCreateInput {
+  const artifactRowId = ids.artifactRowId ?? null;
+  const rankEyeQSnapshotId = ids.rankEyeQSnapshotId ?? null;
+  if ((artifactRowId === null) === (rankEyeQSnapshotId === null)) {
+    throw new RangeError("a grade run needs exactly one source: an SNG artifact row or a RankEyeQ snapshot row");
+  }
   const contest = (p: WaiverPosition) => ids.contestResultIds[p] ?? null;
   const empty = (p: WaiverPosition) => ids.emptyPositionResultIds[p] ?? null;
   for (const position of WAIVER_POSITIONS) {
@@ -48,7 +63,8 @@ export function waiverGradeRunCreateData(
   return {
     weekId: ids.weekId,
     runNumber: ids.runNumber,
-    artifactRowId: ids.artifactRowId,
+    artifactRowId,
+    rankEyeQSnapshotId,
     artifactContentChecksum: ids.artifactContentChecksum,
     qbContestResultId: contest("QB"),
     rbContestResultId: contest("RB"),

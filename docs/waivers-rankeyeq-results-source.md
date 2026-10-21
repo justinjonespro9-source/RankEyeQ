@@ -28,10 +28,12 @@ acceptance id or `sng-*` key, and the verifier rejects the SNG schema version,
 SNG ruleset and SNG attestation version. The snapshot attestation says in
 plain words that it is not an SNG artifact.
 
-The snapshot stays independent: `WaiverContestResult` and `WaiverGradeRun` still
-reference `WaiverCanonicalArtifact` only (dual-source storage is a separate
-migration; see "Known gaps"). `WAIVER_EYEQ_V1`, locked boards and frozen
-snapshots are untouched.
+The snapshot stays independent of SNG, but grading storage is dual-source:
+`WaiverContestResult`, `WaiverGradeRun`, `WaiverGradeApproval` and
+`WaiverContestResultAuthority` reference **exactly one** verified source, either
+`WaiverCanonicalArtifact` (`artifactRowId`) or `WaiverRankEyeQResultsSnapshot`
+(`rankEyeQSnapshotId`); see "Dual-source grading storage". `WAIVER_EYEQ_V1`,
+locked boards and frozen snapshots are untouched.
 
 ## Provenance model
 
@@ -174,19 +176,58 @@ new build for a week that has them yields a new revision (new checksum). Grading
 blocks with `PARTICIPANT_NOT_IN_LEDGER` for a called player an older accepted
 snapshot lacks, so rebuild and accept a new revision.
 
+## Dual-source grading storage
+
+Migration `20261021120000_waivers_dual_source_grading` lets a grading run be
+stored from either verified source (`storeWaiverWeekGradingRun` no longer
+refuses `RANKEYEQ_SNAPSHOT`; `isWaiverGradingSourceStorable` is true for both):
+
+| Table | SNG source | RankEyeQ source |
+| --- | --- | --- |
+| `WaiverContestResult`, `WaiverGradeRun`, `WaiverGradeApproval`, `WaiverContestResultAuthority` | `artifactRowId` set, `rankEyeQSnapshotId` null | `rankEyeQSnapshotId` set, `artifactRowId` null |
+
+- **XOR is database-enforced**: `*_source_xor_check` CHECK constraints
+  (`num_nonnulls("artifactRowId", "rankEyeQSnapshotId") = 1`) on all four tables.
+  Existing rows all carry `artifactRowId`, so nothing is backfilled.
+- `artifactContentChecksum` keeps its column name and is now the **source content
+  checksum**: the SNG artifact's, or the snapshot's `rankeyeq-final-week-stats/1`
+  checksum. The snapshot FKs are `ON DELETE RESTRICT`.
+- The trigger functions `waiver_contest_result_guard`, `waiver_grade_run_guard`,
+  `waiver_grade_approval_guard`, `waiver_grade_authority_change_guard`,
+  `waiver_grade_authority_pointer_guard`, `waiver_week_grade_publication_guard`
+  (and the NULL-safe D3 comparison in `waiver_pool_result_guard`) are
+  `CREATE OR REPLACE`d. A RankEyeQ source requires: the snapshot's `weekId`
+  matches, `publicationState = 'ACCEPTED'` and `contentChecksum` equals the stored
+  source checksum. A run's contest results must share the run's exact source.
+  Authority change, contest pointers and publication re-require an `ACCEPTED`
+  source (`waiver_grading_source_accepted`), exactly as for SNG.
+- **Approval** of a RankEyeQ run stores `artifactRevision` = the snapshot revision,
+  `artifactImportedByUserId` = the snapshot's `builtByUserId` (the importer
+  equivalent for `SEPARATE_APPROVER`), `defCrosswalkVersion = 'rankeyeq-native/1'`
+  with `defCrosswalkAcknowledged = true` meaning "not applicable, acknowledged",
+  and RankEyeQ-specific attestation text/version
+  (`rankeyeq-waiver-grading-approval/rankeyeq-results-1`). The approval cannot be
+  recorded in the snapshot's commit transaction. An SNG approval can never carry
+  the native crosswalk marker (CHECK).
+- Later stages re-verify the run's **own** source: `assertRunMatchesLiveInputs`
+  reloads the pinned RankEyeQ snapshot (or the SNG artifact). A newer ACCEPTED
+  snapshot makes older RankEyeQ runs `SOURCE_SUPERSEDED`; checksum or input drift
+  is `STALE`. A RankEyeQ run is never checked against SNG, and vice versa.
+- `WaiverConflictResolution` (D3) stays **SNG-only**: it binds an SNG artifact
+  revision. RankEyeQ has no BYE disposition, so no D3 resolution can apply to a
+  RankEyeQ-sourced result (`waiver_contest_result_resolutions_current` joins on
+  `artifactRowId` and finds none).
+
 ## Known gaps / follow-ups
 
-- **Dual-source storage is still pending, so RankEyeQ grading is preview-only.**
-  `WaiverContestResult`, `WaiverGradeRun`, `WaiverGradeApproval` and
-  `WaiverContestResultAuthority` reference `WaiverCanonicalArtifact` only
-  (`artifactRowId` FK), and the INSERT validation triggers accept SNG artifacts
-  only. Storing a RankEyeQ preview would fail the FK, so
-  `storeWaiverWeekGradingRun` refuses a `RANKEYEQ_SNAPSHOT` source up front with
-  `SOURCE_UNSUPPORTED` (and the admin panel disables "Create grading run" for it).
-  Approve / apply / publish operate on stored runs and are therefore SNG-only.
-  The follow-up migration needs a nullable `rankEyeQSnapshotId` on those four
-  tables, a nullable `artifactRowId`, an exactly-one-source check, lifecycle/rows
-  writing the right FK, and the trigger patches accepting `ACCEPTED` RankEyeQ
-  snapshots.
-- The migration's SQL guards were written against the existing Waiver guard
-  conventions but have not been run against a live database in this stage.
+- The RankEyeQ snapshot build/commit is still not wired to a UI, route or server
+  action (commit it with `commitRankEyeQFinalWeekStats`).
+- Column names `artifactRowId` / `artifactContentChecksum` / `artifactRevision` /
+  `artifactImportedByUserId` / `defCrosswalk*` on the grading tables keep their SNG
+  names for minimal churn; for a RankEyeQ source they hold the source checksum,
+  snapshot revision, snapshot builder and the `rankeyeq-native/1` N/A marker.
+- `WaiverContestResultAuthority.rankEyeQSnapshotId` has no foreign key (like its
+  `artifactRowId`); the pointer guard requires it to equal the contest result's
+  source.
+- Staging/Production validation of the migration is still to do (it was exercised
+  against the local database only).

@@ -272,7 +272,9 @@ export function buildWaiverContestResultFromRankEyeQ(input: WaiverContestResultR
       weekId: contest.weekId,
       position,
       snapshotId: contest.snapshotId,
-      artifactRowId: artifact.rowId,
+      // The RankEyeQ snapshot row is the source; it is never stored as an SNG artifact id.
+      artifactRowId: null,
+      rankEyeQSnapshotId: artifact.rowId,
       artifactContentChecksum: artifact.contentChecksum,
       resultsPolicyVersion: WAIVER_RESULTS_POLICY_VERSION,
       sngResultSetChecksum: resultSetChecksum,

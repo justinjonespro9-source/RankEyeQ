@@ -148,7 +148,7 @@ describe("buildWaiverContestResultFromRankEyeQ", () => {
         revision: 1,
         contentChecksum: source.contentChecksum,
       });
-      expect(build.result).toMatchObject({ artifactRowId: "rq-row-1", artifactContentChecksum: source.contentChecksum, snapshotId: RQ_SNAPSHOT_ID, weekId: RQ_WEEK_ID, position: "QB" });
+      expect(build.result).toMatchObject({ artifactRowId: null, rankEyeQSnapshotId: "rq-row-1", artifactContentChecksum: source.contentChecksum, snapshotId: RQ_SNAPSHOT_ID, weekId: RQ_WEEK_ID, position: "QB" });
       expect(build.result.resolutionSetFingerprint).toMatch(/^[a-f0-9]{64}$/);
     });
   });

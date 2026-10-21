@@ -304,7 +304,7 @@ async function approveAndApply(gradeRunId: string) {
   return prisma.$transaction(
     async (tx) => {
       const run = await tx.waiverGradeRun.findUniqueOrThrow({ where: { id: gradeRunId }, include: { boardGrades: { orderBy: { submissionId: "asc" } } } });
-      const artifact = await tx.waiverCanonicalArtifact.findUniqueOrThrow({ where: { id: run.artifactRowId } });
+      const artifact = await tx.waiverCanonicalArtifact.findUniqueOrThrow({ where: { id: run.artifactRowId! } });
       const approval = await tx.waiverGradeApproval.create({
         data: {
           weekId,

@@ -83,7 +83,13 @@ export type WaiverGradingContestResult = {
   weekId: string;
   position: WaiverPosition;
   snapshotId: string;
-  artifactRowId: string;
+  /**
+   * Exactly one verified source: the SNG canonical artifact row (`artifactRowId`) XOR the
+   * RankEyeQ final-week-stats snapshot row (`rankEyeQSnapshotId`). Database-checked.
+   */
+  artifactRowId?: string | null;
+  rankEyeQSnapshotId?: string | null;
+  /** The SOURCE content checksum (SNG artifact or RankEyeQ snapshot); the column keeps its historical name. */
   artifactContentChecksum: string;
   resultsPolicyVersion: string;
   sngResultSetChecksum: string;

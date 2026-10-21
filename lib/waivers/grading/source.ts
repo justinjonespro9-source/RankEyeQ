@@ -25,10 +25,10 @@ export type WaiverGradingSourceKind = WaiverGradingSource["kind"];
  * READY or BLOCKED `WaiverWeekGradingPreview`; it never falls back to SNG and
  * never invents results.
  *
- * Preview only: storing a run (and so approving, applying, publishing) is
- * refused by the lifecycle with `SOURCE_UNSUPPORTED` until dual-source storage
- * lands, because `WaiverContestResult` / `WaiverGradeRun` reference
- * `WaiverCanonicalArtifact` only (docs/waivers-rankeyeq-results-source.md).
+ * Dual-source storage: a stored run references exactly one verified source,
+ * either `WaiverCanonicalArtifact` (SNG) or `WaiverRankEyeQResultsSnapshot`, so
+ * storing, approving, applying and publishing work for both
+ * (docs/waivers-rankeyeq-results-source.md).
  */
 export async function loadWaiverWeekGradingPreviewFromRankEyeQ(
   db: WaiverDb,
@@ -37,14 +37,29 @@ export async function loadWaiverWeekGradingPreviewFromRankEyeQ(
   return loadWaiverWeekGradingPreviewFromRankEyeQSource(db, input);
 }
 
-/** True when the RankEyeQ source returns a real READY / BLOCKED preview (storing from it is separate: see `isWaiverGradingSourceStorable`). */
+/** True when the RankEyeQ source returns a real READY / BLOCKED preview. */
 export function isWaiverRankEyeQResultsAvailable(): boolean {
   return true;
 }
 
-/** Whether a run can be stored from the source. RankEyeQ is preview-only until its snapshot can be referenced by the grading tables. */
+/** Whether a run can be stored from the source: both verified sources are (dual-source storage). */
 export function isWaiverGradingSourceStorable(source: WaiverGradingSource): boolean {
-  return source.kind === "SNG_ARTIFACT";
+  return source.kind === "SNG_ARTIFACT" || source.kind === "RANKEYEQ_SNAPSHOT";
+}
+
+/** The stored foreign keys of a run's source: exactly one is non-null (the database enforces the XOR). */
+export type WaiverStoredSourceRef = { artifactRowId: string | null; rankEyeQSnapshotId: string | null };
+
+/** Maps a loaded preview's source row id (`preview.artifact.rowId`) to the stored FK pair for the source kind. */
+export function waiverStoredSourceRef(kind: WaiverGradingSource["kind"], rowId: string): WaiverStoredSourceRef {
+  return kind === "SNG_ARTIFACT" ? { artifactRowId: rowId, rankEyeQSnapshotId: null } : { artifactRowId: null, rankEyeQSnapshotId: rowId };
+}
+
+/** The grading source a stored run (or approval) was created from, pinned to its exact source row. */
+export function waiverGradingSourceOfStored(ref: WaiverStoredSourceRef): WaiverGradingSource {
+  if (ref.rankEyeQSnapshotId !== null && ref.artifactRowId === null) return { kind: "RANKEYEQ_SNAPSHOT", snapshotId: ref.rankEyeQSnapshotId };
+  if (ref.artifactRowId !== null && ref.rankEyeQSnapshotId === null) return { kind: "SNG_ARTIFACT", artifactRowId: ref.artifactRowId };
+  throw new RangeError("a stored grade run must reference exactly one source");
 }
 
 /** The week's grading preview from the chosen source (SELECT only). */

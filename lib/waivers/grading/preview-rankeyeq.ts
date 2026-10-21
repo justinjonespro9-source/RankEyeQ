@@ -16,9 +16,9 @@ import { loadVerifiedRankEyeQResultsSource } from "@/lib/waivers/rankeyeq-result
  *
  * The snapshot's provenance is the grading `artifact`: `rowId` is the
  * `WaiverRankEyeQResultsSnapshot` id, which is NOT a `WaiverCanonicalArtifact`
- * id. The preview is exact and fingerprinted, but storing it
- * (`WaiverContestResult.artifactRowId` and friends) needs the dual-source
- * migration, so the lifecycle refuses RankEyeQ stores explicitly.
+ * id. The lifecycle stores it in `rankEyeQSnapshotId` (never `artifactRowId`)
+ * on the contest results, grade run and approval; the database enforces that
+ * exactly one of the two source ids is set (dual-source grading storage).
  */
 
 export type WaiverWeekGradingPreviewFromRankEyeQInput = {
