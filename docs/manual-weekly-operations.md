@@ -134,3 +134,15 @@ Does **not** require SportsDataIO credentials or provider game-FINAL flags.
 - Collecting AI/expert boards (unchanged)
 
 Raw-stat → fantasy-point conversion paste is optional and not required for V1; direct fantasy-point paste is the fast path.
+
+### Batch statistical components (Live Scoring)
+
+`/admin/live-scoring` includes **Batch statistical components**:
+
+1. Download the week’s blank CSV template (one row per active pool entry with RankEyeQ IDs + game external IDs).
+2. Fill every component cell with explicit numbers (including `0`). Blank ≠ zero.
+3. Set the same `sourceLabel`, `sourceUrl`, and `observedAt` on every row.
+4. Preview (read-only) → confirm FantasyTrack Half-PPR V2 points and full coverage.
+5. Approve → Commit provisional WeekStats only.
+
+Does **not** finalize games, calculate official finishes, grade contests, or publish standings. Finalized/verified lines are refused (use Correct Verified Stats). Format version: `rankeyeq-stat-components/1`.

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AdminBanner } from "@/components/admin/AdminBanner";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { LiveScoringConsole } from "@/components/admin/LiveScoringConsole";
+import { StatComponentsImportPanel } from "@/components/admin/StatComponentsImportPanel";
 import { Container } from "@/components/layout/Container";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionHeading";
@@ -113,23 +114,26 @@ export default async function AdminLiveScoringPage({
           Create an NFL season and week before using live scoring.
         </p>
       ) : (
-        <LiveScoringConsole
-          seasons={seasons.map((season) => ({
-            id: season.id,
-            year: season.year,
-            weeks: season.weeks.map((week) => ({
-              id: week.id,
-              weekNumber: week.weekNumber,
-              label: week.label,
-            })),
-          }))}
-          seasonId={selectedSeason.id}
-          weekId={weekId}
-          gameId={gameId}
-          games={games}
-          entries={serializedEntries}
-          scoringVersion={scoringVersion}
-        />
+        <>
+          <LiveScoringConsole
+            seasons={seasons.map((season) => ({
+              id: season.id,
+              year: season.year,
+              weeks: season.weeks.map((week) => ({
+                id: week.id,
+                weekNumber: week.weekNumber,
+                label: week.label,
+              })),
+            }))}
+            seasonId={selectedSeason.id}
+            weekId={weekId}
+            gameId={gameId}
+            games={games}
+            entries={serializedEntries}
+            scoringVersion={scoringVersion}
+          />
+          {weekId ? <StatComponentsImportPanel weekId={weekId} /> : null}
+        </>
       )}
     </Container>
   );
