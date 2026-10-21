@@ -123,6 +123,34 @@ export const contestSourceFingerprint = (input: {
     participants: sortedBy(input.participants, (p) => p.participantId).map((p) => ({ ...p })),
   });
 
+/**
+ * RankEyeQ final-week-stats source. There is no separate SNG-style result set
+ * or per-entry result fingerprint, so the equivalents are derived from the
+ * snapshot participants themselves (identity, state and integer hundredths).
+ */
+export type RankEyeQParticipantResultInput = {
+  rankableEntryId: string;
+  participationState: string;
+  participantDisposition: string;
+  pointsHundredths: number | null;
+};
+
+/** The per-participant result fact (stored in the pool row's `sngResultFingerprint` column for ranked participants). */
+export const rankEyeQParticipantResultFingerprint = (p: RankEyeQParticipantResultInput) =>
+  fp("rankeyeq-participant-result", {
+    rankableEntryId: p.rankableEntryId,
+    participationState: p.participationState,
+    participantDisposition: p.participantDisposition,
+    pointsHundredths: p.pointsHundredths,
+  });
+
+/** The per-position checksum of a RankEyeQ source's participants (stored in the `sngResultSetChecksum` column). */
+export const rankEyeQPositionResultSetChecksum = (input: { position: WaiverPosition; participants: readonly RankEyeQParticipantResultInput[] }) =>
+  fp("rankeyeq-position-result-set", {
+    position: input.position,
+    participants: sortedBy(input.participants, (p) => p.rankableEntryId).map((p) => ({ ...p })),
+  });
+
 export type PoolRowFingerprintInput = {
   category: "ELIGIBLE_POOL_MEMBER" | "INVALIDATED_CALLED_PLAYER";
   snapshotEntryId: string | null;

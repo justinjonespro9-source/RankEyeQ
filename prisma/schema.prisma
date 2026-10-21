@@ -509,6 +509,8 @@ model User {
   waiverRevisionsAuthored       WaiverSubmissionRevision[] @relation("WaiverRevisionAuthor")
   waiverCanonicalArtifactsImported WaiverCanonicalArtifact[] @relation("WaiverCanonicalArtifactImportedBy")
   waiverCanonicalArtifactEvents    WaiverCanonicalArtifactEvent[] @relation("WaiverCanonicalArtifactEventOperator")
+  waiverRankEyeQResultsSnapshotsBuilt WaiverRankEyeQResultsSnapshot[] @relation("WaiverRankEyeQResultsSnapshotBuiltBy")
+  waiverRankEyeQParticipationDecisions WaiverRankEyeQParticipationDecision[] @relation("WaiverRankEyeQParticipationDecisionDecidedBy")
   waiverConflictResolutions        WaiverConflictResolution[]     @relation("WaiverConflictResolutionResolvedBy")
   waiverGradeRunsInitiated         WaiverGradeRun[]               @relation("WaiverGradeRunInitiatedBy")
   waiverGradeApprovals             WaiverGradeApproval[]          @relation("WaiverGradeApprovalApprovedBy")
@@ -518,6 +520,7 @@ model User {
   waiverAiLateEntryVerifications   WaiverAiLateEntryVerification[] @relation("WaiverAiLateEntryVerifiedBy")
   waiverAiLateEntryApprovals       WaiverAiLateEntryApproval[]     @relation("WaiverAiLateEntryApprovedBy")
   waiverAiCompetitiveOverrides     WaiverAiCompetitiveOverride[]   @relation("WaiverAiCompetitiveOverrideAuthorizedBy")
+  waiverGradePublications          WaiverWeekGradePublication[]    @relation("WaiverWeekGradePublicationPublishedBy")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -630,10 +633,12 @@ model Week {
   waiverSnapshots          WaiverSnapshot[]
   waiverContests           WaiverContest[]
   waiverCanonicalArtifacts WaiverCanonicalArtifact[]
+  waiverRankEyeQResultsSnapshots WaiverRankEyeQResultsSnapshot[]
   waiverGradeRuns          WaiverGradeRun[]
   waiverGradeApprovals     WaiverGradeApproval[]
   waiverGradeAuthorityChanges WaiverGradeAuthorityChange[]
   waiverGradeAuthority     WaiverWeekGradeAuthority?
+  waiverGradePublications  WaiverWeekGradePublication[]
   waiverEmptyPositionResults WaiverEmptyPositionResult[]
 
   @@unique([seasonId, weekNumber])
@@ -1746,6 +1751,91 @@ model WaiverCanonicalArtifactEvent {
 }
 
 // ---------------------------------------------------------------------------
+// RankEyeQ Waivers — RankEyeQ final-week-stats results source.
+// A second, product-approved results source (`rankeyeq-final-week-stats/1`)
+// derived from RankEyeQ's own already-calculated PlayerWeekStat/DefenseWeekStat
+// rows and operator-attested participation reviews. It never impersonates SNG
+// and is independent of WaiverCanonicalArtifact (no result/grade FKs yet).
+// Docs: docs/waivers-rankeyeq-results-source.md.
+// ---------------------------------------------------------------------------
+
+/// RankEyeQ-native publication state of one final-week-stats snapshot revision.
+enum WaiverRankEyeQResultsPublicationState {
+  ACCEPTED
+  SUPERSEDED
+  WITHDRAWN
+}
+
+/// Operator decision for a zero-fantasy-point WeekStat row. Zero never implies DNP.
+enum WaiverZeroPointDecision {
+  PENDING
+  PLAYED_ZERO
+  DID_NOT_PLAY
+}
+
+/// Immutable RankEyeQ final-week-stats results snapshot (one revision of a week series).
+model WaiverRankEyeQResultsSnapshot {
+  id                   String                                @id @default(cuid())
+  weekId               String
+  revision             Int
+  /// `rankeyeq-final-week-stats/1`.
+  schemaVersion        String
+  /// sha256 of the canonical JSON `content` (recomputable by the verifier).
+  contentChecksum      String                                @unique
+  /// FANTASYTRACK_NFL_HALF_PPR_V2 (Week.fantasyScoringVersion at build).
+  scoringVersion       String
+  /// Week.status at build; always COMPLETE for an accepted snapshot.
+  rankingsWeekStatus   String
+  /// Equals weekId: the RankEyeQ week whose WeekStat rows were read.
+  sourceWeekId         String
+  seriesKey            String
+  /// The previous revision of the same series (null for revision 1).
+  supersedesSnapshotId String?                               @unique
+  participantCount     Int
+  pendingZeroCount     Int
+  unresolvedCount      Int
+  /// RANKEYEQ_OPERATOR_ATTESTED.
+  authorityBasis       String
+  attestationVersion   String
+  attestationText      String
+  sourceReference      String
+  previewFingerprint   String
+  builtByUserId        String
+  /// Database clock at commit.
+  builtAt              DateTime                              @default(now())
+  publicationState     WaiverRankEyeQResultsPublicationState @default(ACCEPTED)
+  /// The immutable snapshot content (`RankEyeQFinalWeekStatsContent`).
+  content              Json
+
+  week         Week                                  @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  builtBy      User                                  @relation("WaiverRankEyeQResultsSnapshotBuiltBy", fields: [builtByUserId], references: [id], onDelete: Restrict)
+  supersedes   WaiverRankEyeQResultsSnapshot?        @relation("WaiverRankEyeQResultsSnapshotSupersedes", fields: [supersedesSnapshotId], references: [id], onDelete: Restrict)
+  supersededBy WaiverRankEyeQResultsSnapshot?        @relation("WaiverRankEyeQResultsSnapshotSupersedes")
+  decisions    WaiverRankEyeQParticipationDecision[]
+
+  @@unique([seriesKey, revision])
+  @@index([weekId, revision])
+}
+
+/// Operator zero-point participation review applied in a committed snapshot.
+model WaiverRankEyeQParticipationDecision {
+  id                String                  @id @default(cuid())
+  snapshotId        String
+  rankableEntryId   String
+  decision          WaiverZeroPointDecision
+  evidenceReference String
+  reason            String
+  decidedByUserId   String
+  decidedAt         DateTime
+
+  snapshot  WaiverRankEyeQResultsSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  decidedBy User                          @relation("WaiverRankEyeQParticipationDecisionDecidedBy", fields: [decidedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, rankableEntryId])
+  @@index([rankableEntryId])
+}
+
+// ---------------------------------------------------------------------------
 // RankEyeQ Waivers — immutable results and grading authority (Stage 4B.3).
 // Storage only: D3 resolutions, versioned contest/pool results, grade runs
 // with board and call grades, separate grading approvals, an append-only
@@ -2033,6 +2123,7 @@ model WaiverGradeRun {
   changesAsNew      WaiverGradeAuthorityChange[]   @relation("WaiverGradeAuthorityChangeNewRun")
   changesAsPrior    WaiverGradeAuthorityChange[]   @relation("WaiverGradeAuthorityChangePriorRun")
   weekAuthorities   WaiverWeekGradeAuthority[]
+  publications      WaiverWeekGradePublication[]
   contestAuthorities WaiverContestResultAuthority[]
   boardAuthorities  WaiverBoardGradeAuthority[]
 
@@ -2243,6 +2334,7 @@ model WaiverGradeAuthorityChange {
   newGradeRun        WaiverGradeRun                 @relation("WaiverGradeAuthorityChangeNewRun", fields: [newGradeRunId], references: [id], onDelete: Restrict)
   approval           WaiverGradeApproval            @relation(fields: [approvalId], references: [id], onDelete: Restrict)
   weekAuthority      WaiverWeekGradeAuthority?
+  publication        WaiverWeekGradePublication?
   contestAuthorities WaiverContestResultAuthority[]
   boardAuthorities   WaiverBoardGradeAuthority[]
 
@@ -2267,6 +2359,33 @@ model WaiverWeekGradeAuthority {
   change   WaiverGradeAuthorityChange @relation(fields: [changeId], references: [id], onDelete: Restrict)
 
   @@index([gradeRunId])
+}
+
+/// Explicit operator publication of one week authority change. Applying
+/// grading authority never publishes: public leaderboards read a week's
+/// grades only while its CURRENT authority change has a row here. A regrade
+/// creates a new authority change, which is unpublished until published again.
+/// Append-only.
+model WaiverWeekGradePublication {
+  id                String   @id @default(cuid())
+  weekId            String
+  /// The authority change that was published (one publication per change).
+  changeId          String   @unique
+  gradeRunId        String
+  outputFingerprint String
+  publishedByUserId String
+  reason            String
+  /// Database clock (`waiver_utc_now()`), set by the insert trigger.
+  publishedAt       DateTime @default(now())
+
+  week        Week                       @relation(fields: [weekId], references: [id], onDelete: Restrict)
+  change      WaiverGradeAuthorityChange @relation(fields: [changeId], references: [id], onDelete: Restrict)
+  gradeRun    WaiverGradeRun             @relation(fields: [gradeRunId], references: [id], onDelete: Restrict)
+  publishedBy User                       @relation("WaiverWeekGradePublicationPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([weekId])
+  @@index([gradeRunId])
+  @@index([publishedByUserId])
 }
 
 /// Current authoritative result for one contest (moves only with the week).

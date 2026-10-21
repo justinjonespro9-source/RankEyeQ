@@ -52,6 +52,10 @@ export default async function AdminWaiversPage({ searchParams }: { searchParams:
         <Link href={`/admin/waivers/artifacts${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
           Canonical artifacts (SNG) →
         </Link>
+        {" · "}
+        <Link href={`/admin/waivers/grading${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
+          Grading: preview, approve, apply, publish →
+        </Link>
       </p>
       <div className="mb-6 flex flex-wrap gap-2">
         {weeks.map((week) => (

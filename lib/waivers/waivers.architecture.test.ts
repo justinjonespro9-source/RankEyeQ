@@ -86,10 +86,22 @@ const PURE_MODULES = [
   "results/model",
   "grading/model",
   "grading/contest-result",
+  "grading/contest-result-rankeyeq",
   "grading/board-grade",
   "grading/week",
   "grading/rows",
+  "grading/errors",
+  "grading/review-model",
+  "grading/state-model",
   "intake/model",
+  "rankeyeq-results/contract",
+  "rankeyeq-results/errors",
+  "rankeyeq-results/checksum",
+  "rankeyeq-results/types",
+  "rankeyeq-results/summary",
+  "rankeyeq-results/participation",
+  "rankeyeq-results/verify",
+  "rankeyeq-results/ledger",
   "play-model",
   "consensus-model",
   "leaderboard-model",
@@ -121,6 +133,13 @@ const SERVICE_MODULES = [
   "artifacts/actions",
   "artifacts/upload",
   "grading/preview",
+  "grading/preview-rankeyeq",
+  "grading/source",
+  "grading/state",
+  "grading/lifecycle",
+  "grading/actions",
+  "rankeyeq-results/build",
+  "rankeyeq-results/store",
   "intake/review",
   "play-queries",
   "leaderboard-queries",
@@ -133,7 +152,7 @@ const SERVICE_MODULES = [
   "ai/queries",
   "ai/actions",
 ];
-const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions", "ai/actions"];
+const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions", "ai/actions", "grading/actions"];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/fantasy/competition-rank",
@@ -179,6 +198,10 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/artifacts/authority",
   "lib/waivers/artifacts/upload-limits",
   "lib/waivers/intake/review",
+  "lib/waivers/grading/actions",
+  "lib/waivers/grading/state",
+  "lib/waivers/grading/source",
+  "lib/waivers/results/model",
   "lib/waivers/constants",
   "lib/waivers/ai/actions",
   "lib/waivers/ai/queries",
@@ -216,6 +239,7 @@ const QUERY_MODULES = new Set([
   "lib/waivers/snapshot/queries",
   "lib/waivers/artifacts/queries",
   "lib/waivers/intake/review",
+  "lib/waivers/grading/state",
   "lib/waivers/play-queries",
   "lib/waivers/leaderboard-queries",
   "lib/waivers/ai/queries",
@@ -261,6 +285,31 @@ const RESULTS_STORAGE_STEMS = [
   "ContestResultAuthority",
   "BoardGradeAuthority",
 ];
+/**
+ * The grading lifecycle: the only application code allowed to write results and
+ * grading storage (store run, approve, apply, publish), reachable only from the
+ * grading server actions. Every other grading module is a read-only engine.
+ */
+const GRADING_LIFECYCLE_MODULE = "grading/lifecycle";
+const GRADING_LIFECYCLE_FILE = "lib/waivers/grading/lifecycle.ts";
+/** Grading modules that read, never write: the pure engine, the preview and the operator view models. */
+const GRADING_READ_ONLY_MODULES = [
+  "grading/model",
+  "grading/contest-result",
+  "grading/contest-result-rankeyeq",
+  "grading/board-grade",
+  "grading/week",
+  "grading/rows",
+  "grading/preview",
+  "grading/preview-rankeyeq",
+  "grading/review-model",
+  "grading/state-model",
+  "grading/state",
+  "grading/source",
+  "grading/errors",
+];
+/** The only UI that may reference lib/waivers/grading (the staged admin workflow). */
+const GRADING_UI_FILES = ["app/admin/waivers/grading/page.tsx", "components/admin/waivers/WaiverGradingWorkflowPanel.tsx"];
 const WAIVER_DELEGATE_STEMS = [
   "Snapshot(?:Entry|Correction)?",
   "Contest",
@@ -394,24 +443,55 @@ describe("Waivers architecture isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("results and grading storage is not written by any application code yet (no grading workflow in Stage 4B.3)", () => {
+  it("results and grading storage is written only by the grading lifecycle service, which only the grading actions import", () => {
     const delegates = RESULTS_STORAGE_STEMS.map((stem) => `waiver${stem}`).join("|");
-    const write = new RegExp(`\\.\\s*(?:${delegates})\\s*\\.\\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\\s*\\(`);
-    const rawWrite = new RegExp(`(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|TRUNCATE)\\s+"Waiver(?:${RESULTS_STORAGE_STEMS.join("|")})"`, "i");
+    const write = new RegExp(`\\.\\s*(?:${delegates}|waiverEmptyPositionResult|waiverWeekGradePublication)\\s*\\.\\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\\s*\\(`);
+    const rawWrite = new RegExp(`(?:INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|TRUNCATE)\\s+"Waiver(?:${RESULTS_STORAGE_STEMS.join("|")}|EmptyPositionResult|WeekGradePublication)"`, "i");
     const offenders: string[] = [];
     for (const root of ["app", "components", "lib", "scripts"].map((d) => path.join(ROOT, d))) {
       for (const file of walk(root)) {
         if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep)) continue;
+        if (path.relative(ROOT, file).split(path.sep).join("/") === GRADING_LIFECYCLE_FILE) continue;
         const source = readFileSync(file, "utf8");
         if (write.test(source) || rawWrite.test(source)) offenders.push(path.relative(ROOT, file));
       }
     }
     expect(offenders).toEqual([]);
+    const importers: string[] = [];
+    for (const root of ["app", "components", "lib", "scripts"].map((d) => path.join(ROOT, d))) {
+      for (const file of walk(root)) {
+        if (/\.test\.ts$/.test(file) || file.startsWith(FIXTURES_DIR + path.sep)) continue;
+        const rel = path.relative(ROOT, file).split(path.sep).join("/");
+        if (rel === GRADING_LIFECYCLE_FILE) continue;
+        if (readImports(readFileSync(file, "utf8")).some((ref) => normalizeSpecifier(file, ref.specifier) === "lib/waivers/grading/lifecycle")) importers.push(rel);
+      }
+    }
+    expect(importers).toEqual(["lib/waivers/grading/actions.ts"]);
   });
 
-  it("the grading engine is a read-only dry run: no writes, transactions, raw SQL or SNG contact, and no UI, route or action reaches it", () => {
+  it("the lifecycle admin-checks every stage, audits every write stage, and never publishes as a side effect of apply", () => {
+    const source = readFileSync(path.join(WAIVERS_DIR, `${GRADING_LIFECYCLE_MODULE}.ts`), "utf8");
+    const stages = ["storeWaiverWeekGradingRun", "approveWaiverGradeRun", "applyWaiverGradeAuthority", "publishWaiverWeekGrades"];
+    for (const stage of stages) {
+      const body = source.slice(source.indexOf(`export async function ${stage}`));
+      const end = body.indexOf("\n}\n");
+      const fn = body.slice(0, end);
+      expect(fn, stage).toMatch(/begin\(tx, input\.adminUserId/);
+      expect(fn, stage).toMatch(/audit\(tx, input\.adminUserId/);
+    }
+    // Publication rows are created in exactly one place: the publish stage.
+    expect([...source.matchAll(/waiverWeekGradePublication\s*\.\s*create\s*\(/g)]).toHaveLength(1);
+    const apply = source.slice(source.indexOf("export async function applyWaiverGradeAuthority"), source.indexOf("export type PublishWaiverWeekGradesInput"));
+    expect(apply).not.toMatch(/waiverWeekGradePublication\s*\.\s*create/);
+  });
+
+  it("the grading engine is a read-only dry run: no writes, transactions, raw SQL or SNG contact; only the lifecycle and its actions write, and only the staged admin workflow UI reaches grading", () => {
     const offenders: string[] = [];
-    for (const file of waiverSourceFiles().filter((f) => moduleName(f).startsWith("grading/"))) {
+    const gradingFiles = waiverSourceFiles().filter((f) => moduleName(f).startsWith("grading/"));
+    expect(gradingFiles.map(moduleName).sort()).toEqual(
+      [...GRADING_READ_ONLY_MODULES, GRADING_LIFECYCLE_MODULE, "grading/actions"].sort(),
+    );
+    for (const file of gradingFiles.filter((f) => GRADING_READ_ONLY_MODULES.includes(moduleName(f)))) {
       const source = readFileSync(file, "utf8");
       for (const banned of [
         /\b\w+\s*\.\s*\w+\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\s*\(/,
@@ -424,9 +504,16 @@ describe("Waivers architecture isolation", () => {
         if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
       }
     }
+    for (const file of gradingFiles.filter((f) => !GRADING_READ_ONLY_MODULES.includes(moduleName(f)))) {
+      const source = readFileSync(file, "utf8");
+      for (const banned of [/\bfetch\s*\(/, /https?:\/\//, /contentText/, /sng-labs\//]) {
+        if (banned.test(source)) offenders.push(`${path.relative(ROOT, file)}: ${banned}`);
+      }
+    }
     for (const root of ["app", "components", "scripts"].map((d) => path.join(ROOT, d))) {
       for (const file of walk(root)) {
-        if (/lib\/waivers\/grading/.test(readFileSync(file, "utf8"))) offenders.push(path.relative(ROOT, file));
+        const rel = path.relative(ROOT, file).split(path.sep).join("/");
+        if (/lib\/waivers\/grading/.test(readFileSync(file, "utf8")) && !GRADING_UI_FILES.includes(rel)) offenders.push(rel);
       }
     }
     for (const file of waiverSourceFiles().filter((f) => !moduleName(f).startsWith("grading/"))) {
@@ -629,7 +716,7 @@ describe("Waivers architecture isolation", () => {
         if (/["'`]\/admin\/waivers/.test(readFileSync(file, "utf8"))) linkers.push(path.relative(ROOT, file).split(path.sep).join("/"));
       }
     }
-    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", "lib/waivers/ai/actions.ts", ...WAIVERS_UI_DIRS];
+    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", "lib/waivers/ai/actions.ts", "lib/waivers/grading/actions.ts", ...WAIVERS_UI_DIRS];
     expect(linkers.filter((file) => !allowed.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)))).toEqual([]);
   });
 

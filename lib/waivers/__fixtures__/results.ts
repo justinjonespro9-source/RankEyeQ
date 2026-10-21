@@ -934,6 +934,7 @@ export type ResultsFixture = Awaited<ReturnType<typeof createResultsFixture>>;
 export async function deleteWaiverFixtureGradingRows(weekId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(MAINTENANCE_SQL);
+    await tx.waiverWeekGradePublication.deleteMany({ where: { weekId } });
     await tx.waiverBoardGradeAuthority.deleteMany({ where: { weekId } });
     await tx.waiverContestResultAuthority.deleteMany({ where: { weekId } });
     await tx.waiverWeekGradeAuthority.deleteMany({ where: { weekId } });

@@ -7,7 +7,7 @@ import { RANKEYEQ_SNG_TEAM_CROSSWALK_VERSION } from "@/lib/waivers/canonical/tea
 import type { WaiverDb } from "@/lib/waivers/clock";
 import { WAIVER_EYEQ_V1, WAIVER_MAX_CALLS, WAIVER_POSITIONS, WAIVER_RESULT_FIELD_SIZE, type WaiverPosition } from "@/lib/waivers/constants";
 import type { WaiverGradingBoardInput } from "@/lib/waivers/grading/board-grade";
-import { buildWaiverContestResult } from "@/lib/waivers/grading/contest-result";
+import { buildWaiverContestResult, type WaiverContestResultBuild } from "@/lib/waivers/grading/contest-result";
 import type { WaiverGradingAdvisory, WaiverGradingIssue } from "@/lib/waivers/grading/model";
 import { assembleWaiverWeekGrading, type WaiverWeekGradingPreview, type WaiverWeekPositionInput } from "@/lib/waivers/grading/week";
 import * as fingerprints from "@/lib/waivers/results/fingerprints";
@@ -21,7 +21,7 @@ import * as fingerprints from "@/lib/waivers/results/fingerprints";
 
 export type WaiverWeekGradingPreviewInput = { weekId: string; artifactRowId: string };
 
-const ENTRY_SELECT = {
+export const ENTRY_SELECT = {
   id: true,
   rankableEntryId: true,
   position: true,
@@ -35,7 +35,7 @@ const ENTRY_SELECT = {
   rankableEntry: { select: { provider: true, externalId: true, team: true, active: true, adminNotes: true, name: true } },
 } satisfies Prisma.WaiverSnapshotEntrySelect;
 
-function toPreflightEntry(entry: Prisma.WaiverSnapshotEntryGetPayload<{ select: typeof ENTRY_SELECT }>): PreflightSnapshotEntry {
+export function toPreflightEntry(entry: Prisma.WaiverSnapshotEntryGetPayload<{ select: typeof ENTRY_SELECT }>): PreflightSnapshotEntry {
   return {
     snapshotEntryId: entry.id,
     rankableEntryId: entry.rankableEntryId,
@@ -106,13 +106,91 @@ export async function loadWaiverWeekGradingPreview(db: WaiverDb, input: WaiverWe
   else if (!loaded.ok) issues.push({ code: "ARTIFACT_CONTENT_INVALID", detail: loaded.issueCodes.join(", ") });
   else verified = loaded.verified;
   if (!verified) return blockedWeek(artifact);
+  const sngVerified: VerifiedSngCanonicalArtifact = verified;
 
+  const positions = await loadWaiverWeekPositions(db, {
+    weekRef,
+    issues,
+    advisories,
+    crosswalkAdvisory: true,
+    buildContest: async (load) => {
+      const resolutions = await db.waiverConflictResolution.findMany({
+        where: { contestId: load.contest.id, artifactRowId: artifact.rowId, supersededBy: null },
+        orderBy: { conflictKey: "asc" },
+        select: { id: true, conflictKey: true, sequence: true, conflictKind: true, resolution: true, snapshotEntryId: true, sngParticipantId: true },
+      });
+      return buildWaiverContestResult({
+        position: load.position,
+        contest: { id: load.contest.id, weekId: load.contest.weekId, snapshotId: load.contest.snapshotId, maxCalls: load.contest.maxCalls, resultFieldSize: load.contest.resultFieldSize },
+        snapshot: load.snapshot,
+        artifact,
+        verified: sngVerified,
+        calledEntries: load.calledEntries,
+        resolutions,
+      });
+    },
+  });
+
+  const preview = assembleWaiverWeekGrading({ week: weekRef, artifact, positions, issues, advisories });
+  for (const p of preview.positions) {
+    if (p.kind !== "CONTEST_RESULT") continue;
+    const stored = await db.waiverContestResult.findUnique({ where: { contestId_inputFingerprint: { contestId: p.contestId, inputFingerprint: p.result.inputFingerprint } }, select: { id: true, resultFingerprint: true } });
+    if (stored) {
+      preview.advisories.push({
+        code: "CONTEST_RESULT_ALREADY_STORED",
+        detail: `stored contest result ${stored.id} has these inputs${stored.resultFingerprint === p.result.resultFingerprint ? " and the same result" : " but a DIFFERENT result"}`,
+        position: p.position,
+      });
+    }
+  }
+  if (preview.run) {
+    const stored = await db.waiverGradeRun.findUnique({ where: { weekId_inputFingerprint: { weekId: week.id, inputFingerprint: preview.run.inputFingerprint } }, select: { id: true, outputFingerprint: true } });
+    if (stored) {
+      preview.advisories.push({
+        code: "GRADE_RUN_ALREADY_STORED",
+        detail: `stored grade run ${stored.id} has these inputs${stored.outputFingerprint === preview.run.outputFingerprint ? " and the same output" : " but a DIFFERENT output"}`,
+      });
+    }
+  }
+  return preview;
+}
+
+export type WaiverContestRow = { id: string; weekId: string; snapshotId: string; status: string; maxCalls: number; resultFieldSize: number; scoringVersion: string; position: string };
+
+/** Everything a source-specific contest builder needs: the pinned snapshot, the called entries and the locked boards. */
+export type WaiverContestLoad = {
+  position: WaiverPosition;
+  contest: WaiverContestRow;
+  snapshot: { season: number; weekNumber: number; version: number; entriesFingerprint: string; entries: readonly PreflightSnapshotEntry[] };
+  calledEntries: PreflightSnapshotEntry[];
+  boards: WaiverGradingBoardInput[];
+};
+
+/**
+ * The week's five positions (SELECT only), shared by every grading source: a
+ * contest position (the source-specific `buildContest` over the loaded
+ * snapshot, called entries and locked boards), an explicit empty position, or
+ * a blocked one. Source-independent checks (contest status and rules, pinned
+ * snapshot, lock stamps) are made here, once.
+ */
+export async function loadWaiverWeekPositions(
+  db: WaiverDb,
+  ctx: {
+    weekRef: { id: string; season: number; weekNumber: number };
+    issues: WaiverGradingIssue[];
+    advisories: WaiverGradingAdvisory[];
+    /** SNG DEF matching uses the source-derived team crosswalk; approval must acknowledge it. */
+    crosswalkAdvisory: boolean;
+    buildContest: (load: WaiverContestLoad) => Promise<WaiverContestResultBuild> | WaiverContestResultBuild;
+  },
+): Promise<WaiverWeekPositionInput[]> {
+  const { weekRef, issues, advisories } = ctx;
   const currentSnapshot = await db.waiverSnapshot.findFirst({
-    where: { currentForWeekId: week.id, status: "FROZEN" },
+    where: { currentForWeekId: weekRef.id, status: "FROZEN" },
     select: { id: true, version: true, entriesFingerprint: true, entries: { where: { evidenceRole: "CANDIDATE", eligibility: "ELIGIBLE" }, select: { position: true } } },
   });
-  const contests = await db.waiverContest.findMany({ where: { weekId: week.id } });
-  if (contests.some((c) => c.position === "DEF")) {
+  const contests = await db.waiverContest.findMany({ where: { weekId: weekRef.id } });
+  if (ctx.crosswalkAdvisory && contests.some((c) => c.position === "DEF")) {
     advisories.push({ code: "TEAM_CROSSWALK_PENDING_PRODUCER_CONFIRMATION", detail: "DEF matching uses the source-derived SNG team crosswalk; approval must acknowledge it" });
   }
 
@@ -141,44 +219,20 @@ export async function loadWaiverWeekGradingPreview(db: WaiverDb, input: WaiverWe
       }
       continue;
     }
-    positions.push(await loadContestPosition(db, { position, contest, weekRef, artifact, verified, currentSnapshotId: currentSnapshot?.id ?? null, issues, advisories }));
+    positions.push(await loadContestPosition(db, { position, contest, currentSnapshotId: currentSnapshot?.id ?? null, issues, advisories, buildContest: ctx.buildContest }));
   }
-
-  const preview = assembleWaiverWeekGrading({ week: weekRef, artifact, positions, issues, advisories });
-  for (const p of preview.positions) {
-    if (p.kind !== "CONTEST_RESULT") continue;
-    const stored = await db.waiverContestResult.findUnique({ where: { contestId_inputFingerprint: { contestId: p.contestId, inputFingerprint: p.result.inputFingerprint } }, select: { id: true, resultFingerprint: true } });
-    if (stored) {
-      preview.advisories.push({
-        code: "CONTEST_RESULT_ALREADY_STORED",
-        detail: `stored contest result ${stored.id} has these inputs${stored.resultFingerprint === p.result.resultFingerprint ? " and the same result" : " but a DIFFERENT result"}`,
-        position: p.position,
-      });
-    }
-  }
-  if (preview.run) {
-    const stored = await db.waiverGradeRun.findUnique({ where: { weekId_inputFingerprint: { weekId: week.id, inputFingerprint: preview.run.inputFingerprint } }, select: { id: true, outputFingerprint: true } });
-    if (stored) {
-      preview.advisories.push({
-        code: "GRADE_RUN_ALREADY_STORED",
-        detail: `stored grade run ${stored.id} has these inputs${stored.outputFingerprint === preview.run.outputFingerprint ? " and the same output" : " but a DIFFERENT output"}`,
-      });
-    }
-  }
-  return preview;
+  return positions;
 }
 
 async function loadContestPosition(
   db: WaiverDb,
   ctx: {
     position: WaiverPosition;
-    contest: { id: string; weekId: string; snapshotId: string; status: string; maxCalls: number; resultFieldSize: number; scoringVersion: string };
-    weekRef: { season: number; weekNumber: number };
-    artifact: { rowId: string; artifactId: string; seriesKey: string; revision: number; contentChecksum: string };
-    verified: VerifiedSngCanonicalArtifact;
+    contest: WaiverContestRow;
     currentSnapshotId: string | null;
     issues: WaiverGradingIssue[];
     advisories: WaiverGradingAdvisory[];
+    buildContest: (load: WaiverContestLoad) => Promise<WaiverContestResultBuild> | WaiverContestResultBuild;
   },
 ): Promise<WaiverWeekPositionInput> {
   const { position, contest } = ctx;
@@ -223,11 +277,6 @@ async function loadContestPosition(
 
   const pinned = await loadWaiverCanonicalPreflightSnapshot(db, contest.snapshotId);
   const snapshotRow = await db.waiverSnapshot.findUniqueOrThrow({ where: { id: contest.snapshotId }, select: { version: true, entriesFingerprint: true } });
-  const resolutions = await db.waiverConflictResolution.findMany({
-    where: { contestId: contest.id, artifactRowId: ctx.artifact.rowId, supersededBy: null },
-    orderBy: { conflictKey: "asc" },
-    select: { id: true, conflictKey: true, sequence: true, conflictKind: true, resolution: true, snapshotEntryId: true, sngParticipantId: true },
-  });
 
   const locked = submissions.filter((s) => s.lockedRevision !== null);
   const boards: WaiverGradingBoardInput[] = locked.map((s) => {
@@ -248,14 +297,12 @@ async function loadContestPosition(
       calls: revision.calls.map((call) => ({ callId: call.id, slot: call.slot, snapshotEntryId: call.snapshotEntryId, rankableEntryId: call.snapshotEntry.rankableEntryId })),
     };
   });
-  const build = buildWaiverContestResult({
+  const build = await ctx.buildContest({
     position,
-    contest: { id: contest.id, weekId: contest.weekId, snapshotId: contest.snapshotId, maxCalls: contest.maxCalls, resultFieldSize: contest.resultFieldSize },
+    contest,
     snapshot: { season: pinned.seasonYear, weekNumber: pinned.weekNumber, version: snapshotRow.version, entriesFingerprint: snapshotRow.entriesFingerprint, entries: pinned.entries },
-    artifact: ctx.artifact,
-    verified: ctx.verified,
     calledEntries: locked.flatMap((s) => s.lockedRevision!.calls.map((call) => toPreflightEntry(call.snapshotEntry))),
-    resolutions,
+    boards,
   });
   return { position, kind: "CONTEST", contestId: contest.id, build, boards };
 }

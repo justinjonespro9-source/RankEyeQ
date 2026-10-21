@@ -83,6 +83,13 @@ const STAGE4B3C_MODEL_NAMES = ["WaiverAiCompetitiveOverride"];
 const STAGE4B3C_MIGRATION = "20261011000000_waivers_ai_competitive_override";
 /** Stage 4B.4 full-board honor trigger change is covered by results/full-board-honor-migration.test.ts. */
 const STAGE4B4_MIGRATION = "20261012000000_waivers_full_board_honor_scoreable_slots";
+/** RankEyeQ final-week-stats results source is covered by rankeyeq-results/*.test.ts and docs/waivers-rankeyeq-results-source.md. */
+/** Grade publication: the explicit operator step between applying authority and public leaderboards (grading/lifecycle.integration.test.ts). */
+const GRADE_PUBLICATION_MODEL_NAMES = ["WaiverWeekGradePublication"];
+const GRADE_PUBLICATION_MIGRATION = "20261013000000_waivers_grade_publication";
+const RANKEYEQ_RESULTS_MODEL_NAMES = ["WaiverRankEyeQParticipationDecision", "WaiverRankEyeQResultsSnapshot"];
+const RANKEYEQ_RESULTS_ENUM_NAMES = ["WaiverRankEyeQResultsPublicationState", "WaiverZeroPointDecision"];
+const RANKEYEQ_RESULTS_MIGRATION = "20261013120000_waivers_rankeyeq_results_snapshot";
 const WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && PHASE1_MODEL_NAMES.includes(b.name));
 const ALL_WAIVER_MODELS = ALL.filter((b) => b.kind === "model" && b.name.startsWith("Waiver"));
 const WAIVER_ENUMS = ALL.filter((b) => b.kind === "enum" && b.name.startsWith("Waiver"));
@@ -109,10 +116,12 @@ describe("Waivers schema foundation (static)", () => {
         ...STAGE4B3A_MODEL_NAMES,
         ...STAGE4B3B_MODEL_NAMES,
         ...STAGE4B3C_MODEL_NAMES,
+        ...GRADE_PUBLICATION_MODEL_NAMES,
+        ...RANKEYEQ_RESULTS_MODEL_NAMES,
       ].sort(),
     );
     expect(WAIVER_ENUMS.map((b) => b.name).sort()).toEqual(
-      [...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES, ...STAGE4B2_ENUM_NAMES, ...STAGE4B3_ENUM_NAMES, ...STAGE4B3A_ENUM_NAMES, ...STAGE4B3B_ENUM_NAMES].sort(),
+      [...PHASE1_ENUM_NAMES, ...PHASE2_ENUM_NAMES, ...STAGE4B2_ENUM_NAMES, ...STAGE4B3_ENUM_NAMES, ...STAGE4B3A_ENUM_NAMES, ...STAGE4B3B_ENUM_NAMES, ...RANKEYEQ_RESULTS_ENUM_NAMES].sort(),
     );
   });
 
@@ -177,6 +186,8 @@ describe("Waivers migration is additive only", () => {
       STAGE4B3B_MIGRATION,
       STAGE4B3C_MIGRATION,
       STAGE4B4_MIGRATION,
+      GRADE_PUBLICATION_MIGRATION,
+      RANKEYEQ_RESULTS_MIGRATION,
     ]);
   });
 
