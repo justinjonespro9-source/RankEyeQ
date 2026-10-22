@@ -30,6 +30,7 @@ export const WAIVER_GRADING_ISSUE_CODES = [
   "CALLED_IDENTITY_AMBIGUOUS",
   // RankEyeQ results source (identity and provenance checks the SNG path does not have)
   "RANKABLE_ENTRY_MISMATCH",
+  "IDENTITY_ALIAS_REJECTED",
   "SOURCE_WEEK_MISMATCH",
   "SOURCE_SNAPSHOT_MISMATCH",
   "UNRESOLVED_SNAPSHOT_CONFLICT",
