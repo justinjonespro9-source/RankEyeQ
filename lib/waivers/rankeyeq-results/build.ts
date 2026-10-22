@@ -15,13 +15,18 @@ import {
   type RankEyeQResultsPosition,
 } from "@/lib/waivers/rankeyeq-results/contract";
 import { RankEyeQResultsError } from "@/lib/waivers/rankeyeq-results/errors";
+import {
+  formatRankEyeQIdentityAliasAppliedDetail,
+  resolveRankEyeQResultsIdentityAlias,
+} from "@/lib/waivers/rankeyeq-results/identity-alias";
 import { sortRankEyeQParticipants, summarizeRankEyeQParticipants } from "@/lib/waivers/rankeyeq-results/summary";
-import type {
-  RankEyeQBuildBlocker,
-  RankEyeQFinalWeekStatsBuild,
-  RankEyeQFinalWeekStatsContent,
-  RankEyeQParticipant,
-  RankEyeQParticipantIssue,
+import {
+  RANKEYEQ_ADVISORY_ISSUE_CODES,
+  type RankEyeQBuildBlocker,
+  type RankEyeQFinalWeekStatsBuild,
+  type RankEyeQFinalWeekStatsContent,
+  type RankEyeQParticipant,
+  type RankEyeQParticipantIssue,
 } from "@/lib/waivers/rankeyeq-results/types";
 
 /**
@@ -156,6 +161,7 @@ function classifyEntry(
   position: RankEyeQResultsPosition,
   statRows: readonly RankEyeQBuildStatRow[],
   gamesById: ReadonlyMap<string, string>,
+  weekId: string,
   extraIssues: readonly RankEyeQParticipantIssue[] = [],
 ): RankEyeQParticipant {
   const issues: RankEyeQParticipantIssue[] = [...extraIssues];
@@ -163,14 +169,38 @@ function classifyEntry(
   const team = entry.teamAtFreeze ?? entry.rankable.team;
   const label = `${entry.displayNameAtFreeze} (${entry.rankableEntryId})`;
 
-  // Identity: the frozen key when present, else the live RankableEntry key (advisory).
-  const identity = entry.frozenIdentity ?? { provider: entry.rankable.provider, externalId: entry.rankable.externalId };
+  // Identity: frozen key when present, else live RankableEntry (advisory). An
+  // audited alias may remount onto the contract namespace without mutating stamps.
+  const historical = entry.frozenIdentity ?? { provider: entry.rankable.provider, externalId: entry.rankable.externalId };
   if (entry.frozenIdentity === null) {
     issues.push({ code: "IDENTITY_NOT_FROZEN", detail: `${label} was frozen before the identity key was recorded; the live RankableEntry identity was used` });
   } else if (entry.frozenIdentity.provider !== entry.rankable.provider || entry.frozenIdentity.externalId !== entry.rankable.externalId) {
     issues.push({
       code: "FROZEN_IDENTITY_MISMATCH",
       detail: `${label}: frozen ${entry.frozenIdentity.provider}:${entry.frozenIdentity.externalId}; live ${entry.rankable.provider}:${entry.rankable.externalId}`,
+    });
+  }
+  const aliasResolution = resolveRankEyeQResultsIdentityAlias({
+    rankableEntryId: entry.rankableEntryId,
+    historical,
+    weekId,
+  });
+  let identity = historical;
+  if (aliasResolution.kind === "applied") {
+    identity = aliasResolution.identity;
+    issues.push({
+      code: "IDENTITY_ALIAS_APPLIED",
+      detail: formatRankEyeQIdentityAliasAppliedDetail({
+        label,
+        alias: aliasResolution.alias,
+        historical: aliasResolution.historical,
+        canonical: aliasResolution.identity,
+      }),
+    });
+  } else if (aliasResolution.kind === "rejected") {
+    issues.push({
+      code: "IDENTITY_ALIAS_REJECTED",
+      detail: aliasResolution.detail,
     });
   }
   if (identity.provider !== RANKEYEQ_IDENTITY_PROVIDER) {
@@ -223,7 +253,7 @@ function classifyEntry(
     }
   }
 
-  const blocking = issues.filter((issue) => issue.code !== "IDENTITY_NOT_FROZEN");
+  const blocking = issues.filter((issue) => !RANKEYEQ_ADVISORY_ISSUE_CODES.has(issue.code));
   const base = {
     rankableEntryId: entry.rankableEntryId,
     snapshotEntryId: entry.snapshotEntryId,
@@ -301,7 +331,7 @@ export function assembleRankEyeQFinalWeekStatsContent(input: RankEyeQFinalWeekSt
   for (const entry of snapshot.entries.filter(isPoolMember)) {
     if (!isResultsPosition(entry.position)) continue;
     const stats = (entry.position === "DEF" ? defenseStats : playerStats).get(entry.rankableEntryId) ?? [];
-    participants.push(classifyEntry(entry, entry.position, stats, gamesById));
+    participants.push(classifyEntry(entry, entry.position, stats, gamesById, week.id));
   }
   // Players called on locked boards outside the eligible pool: same identity and stat rules.
   for (const { entry, ambiguousIdentity } of rankEyeQCalledOutsidePool(snapshot.entries, input.calledEntries ?? [])) {
@@ -310,7 +340,7 @@ export function assembleRankEyeQFinalWeekStatsContent(input: RankEyeQFinalWeekSt
     const extra: RankEyeQParticipantIssue[] = ambiguousIdentity
       ? [{ code: "CALLED_IDENTITY_AMBIGUOUS", detail: `${entry.displayNameAtFreeze} (${entry.rankableEntryId}) was called under more than one frozen identity` }]
       : [];
-    participants.push(classifyEntry(entry, entry.position, stats, gamesById, extra));
+    participants.push(classifyEntry(entry, entry.position, stats, gamesById, week.id, extra));
   }
   const sorted = sortRankEyeQParticipants(participants);
   const content: RankEyeQFinalWeekStatsContent = {

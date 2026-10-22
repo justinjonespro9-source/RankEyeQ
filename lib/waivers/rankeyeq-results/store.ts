@@ -10,6 +10,11 @@ import {
   RANKEYEQ_RESULTS_AUTHORITY_BASIS,
 } from "@/lib/waivers/rankeyeq-results/contract";
 import { RankEyeQResultsError } from "@/lib/waivers/rankeyeq-results/errors";
+import {
+  collectRankEyeQIdentityAliasesApplied,
+  formatRankEyeQIdentityAliasCitation,
+  RANKEYEQ_IDENTITY_ALIAS_REGISTRY_VERSION,
+} from "@/lib/waivers/rankeyeq-results/identity-alias";
 import { projectRankEyeQResultsSource, type VerifiedRankEyeQResultsSource } from "@/lib/waivers/rankeyeq-results/ledger";
 import { applyParticipationDecisions, listRankEyeQParticipationReviewItems } from "@/lib/waivers/rankeyeq-results/participation";
 import type {
@@ -257,6 +262,7 @@ export async function commitRankEyeQFinalWeekStats(input: RankEyeQResultsCommitI
         supersededSnapshotRowId = previous.id;
       }
     }
+    const identityAliasesApplied = collectRankEyeQIdentityAliasesApplied(content.participants);
     await tx.adminAuditLog.create({
       data: {
         adminUserId: input.adminUserId,
@@ -272,6 +278,9 @@ export async function commitRankEyeQFinalWeekStats(input: RankEyeQResultsCommitI
           participantCount: content.summary.participantCount,
           decisionCount: decisions.length,
           sourceReference,
+          identityAliasRegistryVersion: RANKEYEQ_IDENTITY_ALIAS_REGISTRY_VERSION,
+          identityAliasesApplied,
+          identityAliasCitation: formatRankEyeQIdentityAliasCitation(identityAliasesApplied),
         },
       },
     });

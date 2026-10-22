@@ -68,6 +68,25 @@ Names, `externalPlayerId` and abbreviation similarity are never used. Rows
 frozen before the identity key existed fall back to the live identity with an
 advisory (`IDENTITY_NOT_FROZEN`), as the SNG preflight does.
 
+### Audited identity aliases
+
+A narrow, versioned registry (`lib/waivers/rankeyeq-results/identity-alias.ts`,
+`rankeyeq-identity-alias/1`) may remap a frozen non-contract identity onto
+`nflcom-bootstrap` **for results snapshot participants and ledger matching
+only**. It does **not** mutate `RankableEntry`, `WaiverSnapshotEntry` identity
+stamps, Yahoo ownership fingerprints, WeekStat component rows, or
+`WAIVER_EYEQ_V1` scoring.
+
+- Match key: exact `rankableEntryId` + historical `provider`/`externalId`
+  (optional `weekIds` scope).
+- Applied aliases emit advisory `IDENTITY_ALIAS_APPLIED` on the participant
+  evidence (checksummed) and appear in commit audit metadata /
+  `sourceReference` citations.
+- `SUPERSEDED`, `INVALID`, ambiguous, or mistargeted aliases emit blocking
+  `IDENTITY_ALIAS_REJECTED` and prevent ACCEPTED publication.
+- Grading still stores `WaiverPoolResult.identityProvider` /
+  `identityExternalId` from the **frozen** historical identity (DB triggers).
+
 ### Participation classification
 
 | Situation | State | Disposition | Proof | Points |

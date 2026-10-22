@@ -122,6 +122,7 @@ export function buildWaiverContestResultFromRankEyeQ(input: WaiverContestResultR
         // The frozen team (DEF identity is def-{TEAM} for the team at freeze), as the snapshot build uses.
         team: member.entry.teamAtFreeze ?? member.entry.rankable.team,
         name: member.entry.displayNameAtFreeze,
+        weekId: source.week.id,
       },
       source.ledger,
     );

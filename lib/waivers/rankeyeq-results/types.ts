@@ -28,9 +28,20 @@ export type RankEyeQParticipantIssueCode =
   /** A called player absent from the snapshot was called under more than one frozen identity. */
   | "CALLED_IDENTITY_AMBIGUOUS"
   /** Advisory only: the freeze predates the frozen identity key, so the live RankableEntry identity was used. */
-  | "IDENTITY_NOT_FROZEN";
+  | "IDENTITY_NOT_FROZEN"
+  /**
+   * Advisory only: an audited RankEyeQ results identity alias remapped the frozen
+   * historical identity onto the contract namespace for this snapshot participant.
+   * Historical RankableEntry / WaiverSnapshotEntry stamps are unchanged.
+   */
+  | "IDENTITY_ALIAS_APPLIED"
+  /** An identity alias matched but is SUPERSEDED, INVALID, ambiguous, or mistargeted. */
+  | "IDENTITY_ALIAS_REJECTED";
 
-export const RANKEYEQ_ADVISORY_ISSUE_CODES: ReadonlySet<RankEyeQParticipantIssueCode> = new Set(["IDENTITY_NOT_FROZEN"]);
+export const RANKEYEQ_ADVISORY_ISSUE_CODES: ReadonlySet<RankEyeQParticipantIssueCode> = new Set([
+  "IDENTITY_NOT_FROZEN",
+  "IDENTITY_ALIAS_APPLIED",
+]);
 
 export type RankEyeQParticipantIssue = { code: RankEyeQParticipantIssueCode; detail: string };
 

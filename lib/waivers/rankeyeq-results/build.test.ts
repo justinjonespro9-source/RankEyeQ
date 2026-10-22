@@ -203,6 +203,34 @@ describe("assembleRankEyeQFinalWeekStatsContent", () => {
       expect(p.get("q-pos")?.participationState).toBe("ABSENT_UNRESOLVED");
     });
 
+    it("applies the audited Ekeler alias without mutating historical stamps", () => {
+      const base = rqBuildInput().snapshot!;
+      const entry = rqEntry("cmv7hvah3000006jsasy6xvkc", "RB", {
+        frozenIdentity: { provider: "manual", externalId: "manual-austin-ekeler-was-rb-mv7hvagx" },
+        team: "WAS",
+        displayNameAtFreeze: "Austin Ekeler",
+      });
+      entry.rankable = { provider: "manual", externalId: "manual-austin-ekeler-was-rb-mv7hvagx", team: "WAS" };
+      entry.snapshotEntryId = "cmv7keqq5000s06kwq6rjxu81";
+      const input = {
+        snapshot: { ...base, entries: [entry] },
+        playerStats: [rqStat("cmv7hvah3000006jsasy6xvkc", 1.7, { id: "cmvhix9wj003308jtoclmm6c6" })],
+      };
+      const p = participantsOf(input);
+      const ekeler = p.get("cmv7hvah3000006jsasy6xvkc")!;
+      expect(ekeler).toMatchObject({
+        provider: "nflcom-bootstrap",
+        externalId: "austin-ekeler",
+        participationState: "PARTICIPATED_WITH_STATS",
+        pointsHundredths: 170,
+        evidence: { statRowId: "cmvhix9wj003308jtoclmm6c6" },
+      });
+      expect(ekeler.evidence.issues.map((i) => i.code)).toEqual(["IDENTITY_ALIAS_APPLIED"]);
+      expect(entry.frozenIdentity).toEqual({ provider: "manual", externalId: "manual-austin-ekeler-was-rb-mv7hvagx" });
+      expect(entry.rankable).toEqual({ provider: "manual", externalId: "manual-austin-ekeler-was-rb-mv7hvagx", team: "WAS" });
+      expect(verifyRankEyeQFinalWeekStatsSnapshot(build(input).content!, { allowUnresolved: true }).ok).toBe(true);
+    });
+
     it("requires DEF identity def-{TEAM} without any SNG crosswalk", () => {
       const base = rqBuildInput().snapshot!;
       const malformed = rqEntry("d-kc", "DEF", { team: "KC", externalId: "def-WAS" });

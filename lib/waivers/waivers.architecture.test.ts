@@ -100,6 +100,7 @@ const PURE_MODULES = [
   "rankeyeq-results/types",
   "rankeyeq-results/summary",
   "rankeyeq-results/participation",
+  "rankeyeq-results/identity-alias",
   "rankeyeq-results/verify",
   "rankeyeq-results/ledger",
   "play-model",

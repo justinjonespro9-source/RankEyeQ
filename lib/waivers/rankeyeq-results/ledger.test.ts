@@ -72,6 +72,32 @@ describe("matchRankEyeQResultsIdentity", () => {
     ).toEqual(["DEF_IDENTITY_MALFORMED"]);
   });
 
+  it("matches a frozen manual identity through the audited Ekeler alias onto the ledger key", () => {
+    const ekelerParticipant = {
+      ...verified().content.participants[0],
+      rankableEntryId: "cmv7hvah3000006jsasy6xvkc",
+      provider: "nflcom-bootstrap",
+      externalId: "austin-ekeler",
+      position: "RB" as const,
+      pointsHundredths: 170,
+    };
+    const ekelerIndex = indexRankEyeQResultsLedger([ekelerParticipant]);
+    const match = matchRankEyeQResultsIdentity(
+      {
+        rankableEntryId: "cmv7hvah3000006jsasy6xvkc",
+        position: "RB",
+        provider: "manual",
+        externalId: "manual-austin-ekeler-was-rb-mv7hvagx",
+        team: "WAS",
+        name: "Austin Ekeler",
+        weekId: "cmv7egzsb000006l7axfb8mvx",
+      },
+      ekelerIndex,
+    );
+    expect(match.issues).toEqual([]);
+    expect(match.participant).toMatchObject({ rankableEntryId: "cmv7hvah3000006jsasy6xvkc", pointsHundredths: 170 });
+  });
+
   it("requires the rankableEntryId to agree with the identity", () => {
     const match = matchRankEyeQResultsIdentity(identity({ rankableEntryId: "someone-else" }), index);
     expect(match.participant).toBeNull();

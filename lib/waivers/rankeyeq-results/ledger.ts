@@ -5,6 +5,7 @@ import {
   RANKEYEQ_RESULTS_AUTHORITY_BASIS,
   type RankEyeQParticipationState,
 } from "@/lib/waivers/rankeyeq-results/contract";
+import { resolveRankEyeQResultsIdentityAlias } from "@/lib/waivers/rankeyeq-results/identity-alias";
 import type { RankEyeQFinalWeekStatsContent, RankEyeQParticipant } from "@/lib/waivers/rankeyeq-results/types";
 import type { VerifiedRankEyeQFinalWeekStats } from "@/lib/waivers/rankeyeq-results/verify";
 
@@ -90,6 +91,7 @@ export const RANKEYEQ_MATCH_ISSUE_CODES = [
   "PARTICIPANT_NOT_IN_LEDGER",
   "DUPLICATE_LEDGER_MATCH",
   "RANKABLE_ENTRY_MISMATCH",
+  "IDENTITY_ALIAS_REJECTED",
 ] as const;
 export type RankEyeQMatchIssueCode = (typeof RANKEYEQ_MATCH_ISSUE_CODES)[number];
 export type RankEyeQMatchIssue = { code: RankEyeQMatchIssueCode; detail: string };
@@ -105,6 +107,8 @@ export type RankEyeQResultsIdentity = {
   team: string | null;
   /** Diagnostic only. */
   name: string;
+  /** Week scope for audited identity aliases (optional). */
+  weekId?: string | null;
 };
 
 export type RankEyeQResultsMatch = {
@@ -115,16 +119,30 @@ export type RankEyeQResultsMatch = {
 
 export function matchRankEyeQResultsIdentity(identity: RankEyeQResultsIdentity, index: RankEyeQResultsLedgerIndex): RankEyeQResultsMatch {
   const issues: RankEyeQMatchIssue[] = [];
-  const label = `${identity.name} (${identity.provider}:${identity.externalId})`;
-  if (identity.provider !== RANKEYEQ_IDENTITY_PROVIDER) {
+  const historicalLabel = `${identity.name} (${identity.provider}:${identity.externalId})`;
+  const aliasResolution = resolveRankEyeQResultsIdentityAlias({
+    rankableEntryId: identity.rankableEntryId,
+    historical: { provider: identity.provider, externalId: identity.externalId },
+    weekId: identity.weekId ?? null,
+  });
+  if (aliasResolution.kind === "rejected") {
+    issues.push({ code: "IDENTITY_ALIAS_REJECTED", detail: aliasResolution.detail });
+    return { rankableEntryId: identity.rankableEntryId, participant: null, issues };
+  }
+  const resolved = aliasResolution.identity;
+  const label =
+    aliasResolution.kind === "applied"
+      ? `${identity.name} (${identity.provider}:${identity.externalId}→${resolved.provider}:${resolved.externalId})`
+      : historicalLabel;
+  if (resolved.provider !== RANKEYEQ_IDENTITY_PROVIDER) {
     issues.push({ code: "IDENTITY_PROVIDER_NOT_CONTRACT", detail: `${label}: the contract requires ${RANKEYEQ_IDENTITY_PROVIDER}` });
     return { rankableEntryId: identity.rankableEntryId, participant: null, issues };
   }
-  if (identity.position === "DEF" && identity.externalId !== `def-${identity.team}`) {
+  if (identity.position === "DEF" && resolved.externalId !== `def-${identity.team}`) {
     issues.push({ code: "DEF_IDENTITY_MALFORMED", detail: `${label}: DEF identity must be def-{TEAM} for team ${identity.team}` });
     return { rankableEntryId: identity.rankableEntryId, participant: null, issues };
   }
-  const rows = index.get(indexKey(identity.provider, identity.externalId)) ?? [];
+  const rows = index.get(indexKey(resolved.provider, resolved.externalId)) ?? [];
   if (rows.length === 0) {
     issues.push({ code: "PARTICIPANT_NOT_IN_LEDGER", detail: `${label} has no exact RankEyeQ results participant` });
     return { rankableEntryId: identity.rankableEntryId, participant: null, issues };
