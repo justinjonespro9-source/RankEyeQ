@@ -140,6 +140,8 @@ const SERVICE_MODULES = [
   "grading/actions",
   "rankeyeq-results/build",
   "rankeyeq-results/store",
+  "rankeyeq-results/actions",
+  "rankeyeq-results/queries",
   "intake/review",
   "play-queries",
   "leaderboard-queries",
@@ -152,7 +154,7 @@ const SERVICE_MODULES = [
   "ai/queries",
   "ai/actions",
 ];
-const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions", "ai/actions", "grading/actions"];
+const ACTION_MODULES = ["actions", "snapshot/actions", "artifacts/actions", "ai/actions", "grading/actions", "rankeyeq-results/actions"];
 
 const ALLOWED_RUNTIME_IMPORTS = new Set([
   "lib/fantasy/competition-rank",
@@ -201,6 +203,9 @@ const WAIVERS_UI_RUNTIME_IMPORTS = new Set([
   "lib/waivers/grading/actions",
   "lib/waivers/grading/state",
   "lib/waivers/grading/source",
+  "lib/waivers/rankeyeq-results/actions",
+  "lib/waivers/rankeyeq-results/queries",
+  "lib/waivers/rankeyeq-results/contract",
   "lib/waivers/results/model",
   "lib/waivers/constants",
   "lib/waivers/ai/actions",
@@ -243,6 +248,7 @@ const QUERY_MODULES = new Set([
   "lib/waivers/play-queries",
   "lib/waivers/leaderboard-queries",
   "lib/waivers/ai/queries",
+  "lib/waivers/rankeyeq-results/queries",
 ]);
 /** Rankings/Official Board/leaderboard modules Waivers must never depend on. */
 const BANNED_PREFIXES = [
@@ -716,7 +722,15 @@ describe("Waivers architecture isolation", () => {
         if (/["'`]\/admin\/waivers/.test(readFileSync(file, "utf8"))) linkers.push(path.relative(ROOT, file).split(path.sep).join("/"));
       }
     }
-    const allowed = ["lib/admin/admin-nav.ts", "lib/waivers/snapshot/actions.ts", "lib/waivers/artifacts/actions.ts", "lib/waivers/ai/actions.ts", "lib/waivers/grading/actions.ts", ...WAIVERS_UI_DIRS];
+    const allowed = [
+      "lib/admin/admin-nav.ts",
+      "lib/waivers/snapshot/actions.ts",
+      "lib/waivers/artifacts/actions.ts",
+      "lib/waivers/ai/actions.ts",
+      "lib/waivers/grading/actions.ts",
+      "lib/waivers/rankeyeq-results/actions.ts",
+      ...WAIVERS_UI_DIRS,
+    ];
     expect(linkers.filter((file) => !allowed.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)))).toEqual([]);
   });
 
