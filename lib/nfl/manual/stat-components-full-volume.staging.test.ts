@@ -58,7 +58,7 @@ describe("stat components full-volume staging (synthetic)", () => {
   let protectedAvailabilityId = "";
   let protectedWeek5StatId = "";
   let csvText = "";
-  let timings: {
+  const timings: {
     previewMs: number;
     commitMs: number;
     reimportMs: number;

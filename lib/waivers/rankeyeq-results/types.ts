@@ -137,8 +137,11 @@ export type RankEyeQParticipationReviewItem = {
   position: RankEyeQResultsPosition;
   team: string | null;
   displayName: string;
-  /** ZERO_POINT_REVIEW is decidable by the operator; UNRESOLVED_BLOCKER is not (missing stats are never zero). */
-  reviewKind: "ZERO_POINT_REVIEW" | "UNRESOLVED_BLOCKER";
+  /**
+   * ZERO_POINT_REVIEW: PLAYED_ZERO or DID_NOT_PLAY with evidence.
+   * ABSENT_DNP_REVIEW: DID_NOT_PLAY with evidence only (missing WeekStat is never a played zero).
+   */
+  reviewKind: "ZERO_POINT_REVIEW" | "ABSENT_DNP_REVIEW";
   state: Extract<RankEyeQParticipationState, "PENDING_ZERO_REVIEW" | "ABSENT_UNRESOLVED">;
   statRowId: string | null;
   gameIds: readonly string[];

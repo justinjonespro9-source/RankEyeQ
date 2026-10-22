@@ -23,9 +23,11 @@ import type {
  *   DID_NOT_PLAY  PENDING_ZERO_REVIEW → VERIFIED_NON_PARTICIPANT  (disposition DNP, no points)
  *   PENDING       leaves the participant unresolved
  *
- * A participant with no usable WeekStat row (ABSENT_UNRESOLVED) can never be
- * turned into a zero or a DNP here: missing stats stay a blocker until the
- * underlying WeekStat is corrected and the snapshot is rebuilt. Pure.
+ * ABSENT_UNRESOLVED (no usable final WeekStat) can never become a played zero —
+ * there is no line to score. With verified evidence the operator may record
+ * DID_NOT_PLAY → VERIFIED_NON_PARTICIPANT (confirmed absence). PLAYED_ZERO on
+ * an absent row is always rejected. Fixing a missing WeekStat and rebuilding
+ * remains the path when the player actually played. Pure.
  */
 
 export type RankEyeQAppliedDecision = { rankableEntryId: string; decision: RankEyeQRecordedDecision["decision"] };
@@ -55,7 +57,8 @@ export function listRankEyeQParticipationReviewItems(content: RankEyeQFinalWeekS
       position: participant.position,
       team: participant.team,
       displayName: participant.displayName,
-      reviewKind: participant.participationState === "PENDING_ZERO_REVIEW" ? "ZERO_POINT_REVIEW" : "UNRESOLVED_BLOCKER",
+      // ABSENT rows are decidable as DID_NOT_PLAY only (never as a played zero).
+      reviewKind: participant.participationState === "PENDING_ZERO_REVIEW" ? "ZERO_POINT_REVIEW" : "ABSENT_DNP_REVIEW",
       state: participant.participationState,
       statRowId: participant.evidence.statRowId,
       gameIds: participant.gameIds,
@@ -104,13 +107,19 @@ export function applyParticipationDecisions(
     seen.add(id);
     if (input.decision === "PENDING") continue;
     if (participant.participationState === "ABSENT_UNRESOLVED") {
-      rejected.push(
-        reject(id, "UNRESOLVED_CANNOT_BE_ZEROED", "Missing or unverifiable WeekStat is never zero; fix the WeekStat row and rebuild instead of recording a decision"),
-      );
-      continue;
-    }
-    if (participant.participationState !== "PENDING_ZERO_REVIEW") {
-      rejected.push(reject(id, "NOT_PENDING_ZERO_REVIEW", `Participant is ${participant.participationState}; only PENDING_ZERO_REVIEW can be decided`));
+      // Missing stats are never a played zero. Confirmed non-participation with evidence is allowed.
+      if (input.decision === "PLAYED_ZERO") {
+        rejected.push(
+          reject(id, "UNRESOLVED_CANNOT_BE_ZEROED", "Missing or unverifiable WeekStat is never zero; fix the WeekStat row and rebuild, or confirm DID_NOT_PLAY with evidence"),
+        );
+        continue;
+      }
+      if (input.decision !== "DID_NOT_PLAY") {
+        rejected.push(reject(id, "DECISION_UNKNOWN", `ABSENT_UNRESOLVED accepts only DID_NOT_PLAY (with evidence), not ${String(input.decision)}`));
+        continue;
+      }
+    } else if (participant.participationState !== "PENDING_ZERO_REVIEW") {
+      rejected.push(reject(id, "NOT_PENDING_ZERO_REVIEW", `Participant is ${participant.participationState}; only PENDING_ZERO_REVIEW or ABSENT_UNRESOLVED can be decided`));
       continue;
     }
     const evidenceReference = input.evidenceReference?.trim() ?? "";

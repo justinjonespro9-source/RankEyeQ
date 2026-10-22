@@ -6,10 +6,10 @@ import { applyParticipationDecisions, listRankEyeQParticipationReviewItems } fro
 const participant = (content: ReturnType<typeof rqBuiltContent>, id: string) => content.participants.find((p) => p.rankableEntryId === id)!;
 
 describe("listRankEyeQParticipationReviewItems", () => {
-  it("lists pending zeros as decidable and absent stats as undecidable blockers", () => {
+  it("lists pending zeros and absent rows as operator review items (absent is DNP-only)", () => {
     const items = listRankEyeQParticipationReviewItems(rqBuiltContent());
     expect(items.map((i) => [i.rankableEntryId, i.reviewKind, i.state])).toEqual([
-      ["q-missing", "UNRESOLVED_BLOCKER", "ABSENT_UNRESOLVED"],
+      ["q-missing", "ABSENT_DNP_REVIEW", "ABSENT_UNRESOLVED"],
       ["q-zero", "ZERO_POINT_REVIEW", "PENDING_ZERO_REVIEW"],
       ["d-buf", "ZERO_POINT_REVIEW", "PENDING_ZERO_REVIEW"],
     ]);
@@ -68,11 +68,23 @@ describe("applyParticipationDecisions", () => {
     expect(participant(result.content, "q-zero").participationState).toBe("PENDING_ZERO_REVIEW");
   });
 
-  it.each(["PLAYED_ZERO", "DID_NOT_PLAY"] as const)("rejects inventing a %s for ABSENT_UNRESOLVED (missing stats are not zero)", (decision) => {
-    const result = applyParticipationDecisions(rqBuiltContent(), [rqDecision("q-missing", decision)]);
+  it("rejects inventing PLAYED_ZERO for ABSENT_UNRESOLVED (missing stats are never zero)", () => {
+    const result = applyParticipationDecisions(rqBuiltContent(), [rqDecision("q-missing", "PLAYED_ZERO")]);
     expect(result.rejected).toEqual([expect.objectContaining({ rankableEntryId: "q-missing", code: "UNRESOLVED_CANNOT_BE_ZEROED" })]);
     expect(result.applied).toEqual([]);
     expect(participant(result.content, "q-missing")).toMatchObject({ participationState: "ABSENT_UNRESOLVED", pointsHundredths: null });
+  });
+
+  it("allows DID_NOT_PLAY for ABSENT_UNRESOLVED when the operator supplies verified evidence", () => {
+    const result = applyParticipationDecisions(rqBuiltContent(), [rqDecision("q-missing", "DID_NOT_PLAY")]);
+    expect(result.rejected).toEqual([]);
+    expect(result.applied).toEqual([{ rankableEntryId: "q-missing", decision: "DID_NOT_PLAY" }]);
+    expect(participant(result.content, "q-missing")).toMatchObject({
+      participationState: "VERIFIED_NON_PARTICIPANT",
+      disposition: "DNP",
+      proof: "OPERATOR_DID_NOT_PLAY_REVIEW",
+      pointsHundredths: null,
+    });
   });
 
   it("rejects overriding a positive stat line", () => {

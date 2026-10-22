@@ -53,6 +53,10 @@ export default async function AdminWaiversPage({ searchParams }: { searchParams:
           Canonical artifacts (SNG) →
         </Link>
         {" · "}
+        <Link href={`/admin/waivers/rankeyeq-results${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
+          RankEyeQ results snapshots →
+        </Link>
+        {" · "}
         <Link href={`/admin/waivers/grading${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
           Grading: preview, approve, apply, publish →
         </Link>

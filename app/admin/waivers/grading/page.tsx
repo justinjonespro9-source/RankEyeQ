@@ -56,6 +56,9 @@ export default async function AdminWaiverGradingPage({
         <Link href={`/admin/waivers/artifacts${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
           Canonical artifacts &amp; results intake (D3) →
         </Link>
+        <Link href={`/admin/waivers/rankeyeq-results${weekId ? `?weekId=${weekId}` : ""}`} className="text-accent-ink hover:underline">
+          RankEyeQ results snapshots →
+        </Link>
         <Link href="/leaderboards?discipline=waivers" className="text-accent-ink hover:underline">
           Public Waivers leaderboard →
         </Link>

@@ -82,9 +82,10 @@ advisory (`IDENTITY_NOT_FROZEN`), as the SNG preflight does.
   scored nothing vs. did not play); only an operator decision with an evidence
   reference, reason, operator id and timestamp resolves it
   (`participation.ts`). A negative line is a real stat line, not a zero.
-- **Missing is not zero.** `ABSENT_UNRESOLVED` can never be turned into a zero
-  or a DNP by a decision (`UNRESOLVED_CANNOT_BE_ZEROED`); the WeekStat must be
-  corrected and the snapshot rebuilt.
+- **Missing is not zero.** `ABSENT_UNRESOLVED` can never become `PLAYED_ZERO`
+  (`UNRESOLVED_CANNOT_BE_ZEROED`). With verified evidence the operator may record
+  `DID_NOT_PLAY` → `VERIFIED_NON_PARTICIPANT`. If the player actually played, fix
+  the WeekStat and rebuild instead.
 - A positive stat line cannot be overridden by a decision.
 
 ## Verification (`verify.ts`)

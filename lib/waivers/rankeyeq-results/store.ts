@@ -91,7 +91,7 @@ export async function buildRankEyeQResultsPreview(db: WaiverDb, request: RankEye
     const pending = reviewItems.filter((item) => item.state === "PENDING_ZERO_REVIEW").length;
     blockers.push({
       code: "UNRESOLVED_PARTICIPANTS",
-      detail: `${pending} zero-point participant(s) need an operator decision and ${reviewItems.length - pending} participant(s) have no usable final WeekStat`,
+      detail: `${pending} zero-point participant(s) need an operator decision and ${reviewItems.length - pending} absent participant(s) need DID_NOT_PLAY evidence (or a corrected WeekStat rebuild)`,
     });
   }
   // Unresolved participants are reported above; verify everything else.
