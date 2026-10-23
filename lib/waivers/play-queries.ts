@@ -7,9 +7,11 @@ import { filterWaiverBoardsByCategory } from "@/lib/waivers/competitor-category"
 import { buildWaiverConsensus, publishWaiverConsensus } from "@/lib/waivers/consensus-model";
 import { WAIVER_MAX_CALLS, WAIVER_POSITIONS, type WaiverPosition, type WaiverSlotLabel } from "@/lib/waivers/constants";
 import { waiverPhaseAt } from "@/lib/waivers/lock-time";
+import { loadGradedWaiverBoards } from "@/lib/waivers/leaderboard-queries";
 import {
   resolveWaiverMatchupSide,
   resolveWaiverPlayState,
+  resolveWaiverPlayWeekIdFromCandidates,
   resolveWaiverViewerBoardStatus,
   selectWaiverPlayWeek,
   type WaiverMatchupSide,
@@ -79,10 +81,22 @@ export type WaiverPlayTab = {
   viewerStatus: WaiverViewerBoardStatus | null;
 };
 
+export type WaiverPlayWeekOption = {
+  weekId: string;
+  weekNumber: number;
+  label: string;
+  hasWaiverActivity: boolean;
+  published: boolean;
+};
+
 export type WaiverPlayView = {
   week: null | { id: string; weekNumber: number; label: string; seasonYear: number };
   /** Database clock at load (display only; never used to authorize). */
   now: string;
+  /** Official season weeks available for `?week=` browsing. */
+  weekOptions: WaiverPlayWeekOption[];
+  /** True when the selected week's current grade authority has a public publication. */
+  weekPublished: boolean;
   tabs: WaiverPlayTab[];
   selected: {
     position: WaiverPosition;
@@ -100,29 +114,45 @@ export type WaiverPlayView = {
 
 const iso = (date: Date | null | undefined) => (date ? date.toISOString() : null);
 
+type WaiverPlayWeekRow = {
+  id: string;
+  weekNumber: number;
+  label: string;
+  _count: { waiverContests: number };
+  waiverSnapshots: { id: string }[];
+  games: { startsAt: Date }[];
+};
+
 /** Active NFL season, non-test weeks only. Test and inactive seasons never appear publicly. */
-export async function resolveWaiverPlayWeekId(now?: Date): Promise<string | null> {
-  const season = await prisma.season.findFirst({ where: { active: true, sport: "NFL" }, select: { id: true } });
-  if (!season) return null;
-  const weeks = await prisma.week.findMany({
-    where: { seasonId: season.id, isTest: false },
+async function loadWaiverPlayWeekCandidates(seasonId: string): Promise<WaiverPlayWeekRow[]> {
+  return prisma.week.findMany({
+    where: { seasonId, isTest: false },
+    orderBy: { weekNumber: "asc" },
     select: {
       id: true,
       weekNumber: true,
+      label: true,
       _count: { select: { waiverContests: true } },
       waiverSnapshots: { where: { currentForWeekId: { not: null } }, select: { id: true }, take: 1 },
       games: { orderBy: { startsAt: "asc" }, take: 1, select: { startsAt: true } },
     },
   });
-  const selected = selectWaiverPlayWeek(
-    weeks.map((week) => ({
-      weekId: week.id,
-      weekNumber: week.weekNumber,
-      hasWaiverActivity: week._count.waiverContests > 0 || week.waiverSnapshots.length > 0,
-      firstKickoffAt: week.games[0]?.startsAt ?? null,
-    })),
-    now ?? (await readWaiverClock()),
-  );
+}
+
+function toPlayCandidates(weeks: WaiverPlayWeekRow[]) {
+  return weeks.map((week) => ({
+    weekId: week.id,
+    weekNumber: week.weekNumber,
+    hasWaiverActivity: week._count.waiverContests > 0 || week.waiverSnapshots.length > 0,
+    firstKickoffAt: week.games[0]?.startsAt ?? null,
+  }));
+}
+
+export async function resolveWaiverPlayWeekId(now?: Date): Promise<string | null> {
+  const season = await prisma.season.findFirst({ where: { active: true, sport: "NFL" }, select: { id: true } });
+  if (!season) return null;
+  const weeks = await loadWaiverPlayWeekCandidates(season.id);
+  const selected = selectWaiverPlayWeek(toPlayCandidates(weeks), now ?? (await readWaiverClock()));
   return selected?.weekId ?? null;
 }
 
@@ -216,13 +246,21 @@ function emptySelected(position: WaiverPosition, state: WaiverPlayState): Waiver
   };
 }
 
+async function publishedWeekIdSet(weekIds: ReadonlyArray<string>): Promise<Set<string>> {
+  if (weekIds.length === 0) return new Set();
+  const boards = await loadGradedWaiverBoards(weekIds);
+  return new Set(boards.map((board) => board.weekId));
+}
+
 /** One week's Waivers surface for one position and (optionally) one signed-in profile. */
 export async function loadWaiverPlayWeekView(input: {
   weekId: string | null;
   position: WaiverPosition;
   viewerProfileId: string | null;
+  weekOptions?: WaiverPlayWeekOption[];
 }): Promise<WaiverPlayView> {
   const now = await readWaiverClock();
+  const weekOptions = input.weekOptions ?? [];
   const week = input.weekId
     ? await prisma.week.findUnique({
         where: { id: input.weekId },
@@ -255,10 +293,16 @@ export async function loadWaiverPlayWeekView(input: {
     return {
       week: null,
       now: now.toISOString(),
+      weekOptions,
+      weekPublished: false,
       tabs: WAIVER_POSITIONS.map((position) => ({ position, state: "NO_WEEK" as const, viewerStatus: null })),
       selected: emptySelected(input.position, "NO_WEEK"),
     };
   }
+
+  const gradedIds = await publishedWeekIdSet([week.id]);
+  const weekPublished = gradedIds.has(week.id);
+  const weekHasNoContests = week.waiverContests.length === 0;
 
   const currentSnapshotId = week.waiverSnapshots[0]?.id ?? null;
   const currentCounts = currentSnapshotId ? await eligibleCountsByPosition(currentSnapshotId) : new Map<string, number>();
@@ -288,6 +332,7 @@ export async function loadWaiverPlayWeekView(input: {
       hasWeek: true,
       hasCurrentSnapshot: currentSnapshotId !== null,
       snapshotEligibleAtPosition: currentCounts.get(position) ?? 0,
+      weekHasNoContests,
       contest: contest
         ? { locked: isLocked(contest), poolSize: pinnedCounts.get(contest.snapshotId)?.get(position) ?? 0 }
         : null,
@@ -307,7 +352,14 @@ export async function loadWaiverPlayWeekView(input: {
   const selectedTab = tabs.find((tab) => tab.position === input.position)!;
   const contest = contestByPosition.get(input.position) ?? null;
   if (!contest) {
-    return { week: weekView, now: now.toISOString(), tabs, selected: emptySelected(input.position, selectedTab.state) };
+    return {
+      week: weekView,
+      now: now.toISOString(),
+      weekOptions,
+      weekPublished,
+      tabs,
+      selected: emptySelected(input.position, selectedTab.state),
+    };
   }
 
   const pool = await loadPlayPool(contest.snapshotId, input.position);
@@ -341,6 +393,8 @@ export async function loadWaiverPlayWeekView(input: {
   return {
     week: weekView,
     now: now.toISOString(),
+    weekOptions,
+    weekPublished,
     tabs,
     selected: {
       position: input.position,
@@ -365,7 +419,71 @@ export async function loadWaiverPlayWeekView(input: {
 export async function loadWaiverPlayPage(input: {
   position: WaiverPosition;
   viewerProfileId: string | null;
+  requestedWeekNumber?: number | null;
 }): Promise<WaiverPlayView> {
-  const weekId = await resolveWaiverPlayWeekId();
-  return loadWaiverPlayWeekView({ weekId, position: input.position, viewerProfileId: input.viewerProfileId });
+  const season = await prisma.season.findFirst({ where: { active: true, sport: "NFL" }, select: { id: true } });
+  if (!season) {
+    return loadWaiverPlayWeekView({
+      weekId: null,
+      position: input.position,
+      viewerProfileId: input.viewerProfileId,
+      weekOptions: [],
+    });
+  }
+
+  const now = await readWaiverClock();
+  const weeks = await loadWaiverPlayWeekCandidates(season.id);
+  const candidates = toPlayCandidates(weeks);
+  const weekId = resolveWaiverPlayWeekIdFromCandidates({
+    candidates,
+    requestedWeekNumber: input.requestedWeekNumber ?? null,
+    now,
+  });
+
+  const publishedIds = await publishedWeekIdSet(weeks.map((week) => week.id));
+  const seasonHasWaivers = weeks.some(
+    (week) => week._count.waiverContests > 0 || publishedIds.has(week.id),
+  );
+  const weekOptions: WaiverPlayWeekOption[] = weeks
+    .filter((week) => {
+      const hasActivity = week._count.waiverContests > 0 || week.waiverSnapshots.length > 0;
+      if (hasActivity || publishedIds.has(week.id)) return true;
+      // Past weeks with no contests are browseable as NO_CONTEST once Waivers has launched.
+      const kickoff = week.games[0]?.startsAt;
+      return (
+        seasonHasWaivers &&
+        week._count.waiverContests === 0 &&
+        kickoff != null &&
+        kickoff.getTime() <= now.getTime()
+      );
+    })
+    .map((week) => ({
+      weekId: week.id,
+      weekNumber: week.weekNumber,
+      label: week.label,
+      hasWaiverActivity: week._count.waiverContests > 0 || week.waiverSnapshots.length > 0,
+      published: publishedIds.has(week.id),
+    }));
+
+  // Always include a requested week even with no activity (e.g. future NO_CONTEST).
+  if (input.requestedWeekNumber != null) {
+    const requested = weeks.find((week) => week.weekNumber === input.requestedWeekNumber);
+    if (requested && !weekOptions.some((option) => option.weekId === requested.id)) {
+      weekOptions.push({
+        weekId: requested.id,
+        weekNumber: requested.weekNumber,
+        label: requested.label,
+        hasWaiverActivity: false,
+        published: publishedIds.has(requested.id),
+      });
+      weekOptions.sort((a, b) => a.weekNumber - b.weekNumber);
+    }
+  }
+
+  return loadWaiverPlayWeekView({
+    weekId,
+    position: input.position,
+    viewerProfileId: input.viewerProfileId,
+    weekOptions,
+  });
 }

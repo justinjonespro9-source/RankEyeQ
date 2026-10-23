@@ -9,7 +9,7 @@ import { canSubmitFromRankingWorkspace } from "@/lib/auth/participation";
 import { getAuthContext } from "@/lib/auth/session";
 import { privatePageMetadata } from "@/lib/seo";
 import { formatInChicago } from "@/lib/timing/chicago";
-import { parseWaiverPlayPosition } from "@/lib/waivers/play-model";
+import { parseWaiverPlayPosition, parseWaiverPlayWeekParam } from "@/lib/waivers/play-model";
 import { loadWaiverPlayPage } from "@/lib/waivers/play-queries";
 
 export const metadata: Metadata = privatePageMetadata(
@@ -31,6 +31,7 @@ const LOCK_FORMAT: Intl.DateTimeFormatOptions = {
 export default async function WaiversPage(props: PageProps<"/waivers">) {
   const searchParams = await props.searchParams;
   const position = parseWaiverPlayPosition(searchParams.position);
+  const requestedWeekNumber = parseWaiverPlayWeekParam(searchParams.week);
 
   const ctx = await getAuthContext();
   const profile = ctx?.universalProfile ?? null;
@@ -44,7 +45,11 @@ export default async function WaiversPage(props: PageProps<"/waivers">) {
           ? "ready"
           : "view-only";
 
-  const view = await loadWaiverPlayPage({ position, viewerProfileId: profile?.id ?? null });
+  const view = await loadWaiverPlayPage({
+    position,
+    viewerProfileId: profile?.id ?? null,
+    requestedWeekNumber,
+  });
   const { selected } = view;
   const locksAt = selected.locksAt ? new Date(selected.locksAt) : null;
   const lockLabel = locksAt ? formatInChicago(locksAt, LOCK_FORMAT) : null;
@@ -58,12 +63,18 @@ export default async function WaiversPage(props: PageProps<"/waivers">) {
       : null,
   }));
   const showWorkspace = selected.contestId !== null && (selected.state === "OPEN" || selected.state === "LOCKED");
+  const weekNumber = view.week?.weekNumber ?? null;
 
   return (
     <Container className="py-8 sm:py-12">
-      <WaiversHeader weekLabel={view.week?.label ?? null} />
+      <WaiversHeader
+        weekLabel={view.week?.label ?? null}
+        weekNumber={weekNumber}
+        weekPublished={view.weekPublished}
+        weekOptions={view.weekOptions}
+      />
 
-      <WaiverPositionTabs tabs={view.tabs} selected={position} />
+      <WaiverPositionTabs tabs={view.tabs} selected={position} weekNumber={weekNumber} />
 
       <section aria-labelledby="waiver-position-heading" className="mt-6">
         <h2 id="waiver-position-heading" className="sr-only">
@@ -71,7 +82,7 @@ export default async function WaiversPage(props: PageProps<"/waivers">) {
         </h2>
         {showWorkspace && selected.contestId && locksAt && lockLabel ? (
           <WaiversWorkspace
-            key={`${selected.contestId}:${selected.state}:${selected.board?.status ?? "NONE"}:${selected.board?.revisionNumber ?? 0}`}
+            key={`${selected.contestId}:${selected.state}:${selected.board?.status ?? "NONE"}:${selected.board?.revisionNumber ?? 0}:${view.weekPublished}`}
             position={position}
             contestId={selected.contestId}
             locked={selected.state === "LOCKED"}
@@ -84,9 +95,17 @@ export default async function WaiversPage(props: PageProps<"/waivers">) {
             participation={participation}
             snapshotLabel={snapshotLabel}
             snapshotSource={selected.snapshot?.sourceLabel ?? null}
+            weekPublished={view.weekPublished}
+            weekNumber={weekNumber}
           />
         ) : (
-          <WaiverStateNotice state={selected.state} position={position} />
+          <WaiverStateNotice
+            state={selected.state}
+            position={position}
+            weekLabel={view.week?.label ?? null}
+            weekNumber={weekNumber}
+            weekPublished={view.weekPublished}
+          />
         )}
         {selected.state === "LOCKED" ? (
           <WaiverConsensusPanel position={position} consensus={selected.consensus} />

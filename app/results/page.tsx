@@ -237,7 +237,16 @@ export default async function ResultsPage({
                           username={row.username}
                           displayName={row.displayName}
                           avatarUrl={row.avatarUrl}
+                          profileType={row.profileType}
                           isAi={row.profileType === "AI"}
+                          isExpert={row.profileType === "BENCHMARK"}
+                          isCreator={row.profileType === "CREATOR"}
+                          expertPublisher={row.expertPublisher}
+                          expertSourceKind={row.expertSourceKind}
+                          creatorBrand={row.creatorBrand}
+                          aiModel={
+                            row.profileType === "AI" ? row.displayName : null
+                          }
                         />
                       </div>
                       <span className="font-display font-semibold tabular-nums text-ink">

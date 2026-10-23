@@ -12,6 +12,7 @@ import {
   WAIVER_EYEQ_FUTURE_COPY,
   WAIVER_NO_BOARD_AFTER_LOCK,
   WAIVER_RESULTS_PENDING,
+  WAIVER_RESULTS_PUBLISHED,
   addWaiverCall,
   formatRosteredPercent,
   formatWaiverMatchup,
@@ -23,6 +24,7 @@ import {
   waiverBoardHint,
   waiverBoardSummary,
   waiverCallCountLabel,
+  waiverLeaderboardHref,
   waiverSignInHref,
   waiverSlotLabels,
   waiverSubmitFeedback,
@@ -65,6 +67,8 @@ type Props = {
   participation: WaiverParticipation;
   snapshotLabel: string | null;
   snapshotSource: string | null;
+  weekPublished?: boolean;
+  weekNumber?: number | null;
 };
 
 export function WaiversWorkspace(props: Props) {
@@ -262,7 +266,13 @@ export function WaiversWorkspace(props: Props) {
       </div>
 
       {locked ? (
-        <LockedBoard board={board} participation={participation} position={position} />
+        <LockedBoard
+          board={board}
+          participation={participation}
+          position={position}
+          weekPublished={props.weekPublished ?? false}
+          weekNumber={props.weekNumber ?? null}
+        />
       ) : (
         <>
           <ol className="mt-4 space-y-2" aria-label={`${position} board, ${countLabel}`}>
@@ -579,15 +589,44 @@ function LockedBoard({
   board,
   participation,
   position,
+  weekPublished,
+  weekNumber,
 }: {
   board: WaiverPlayBoard | null;
   participation: WaiverParticipation;
   position: WaiverPosition;
+  weekPublished: boolean;
+  weekNumber: number | null;
 }) {
   const results = (
     <div className="mt-4 rounded-md border border-border bg-surface px-3 py-2 text-sm text-muted">
-      <p className="font-medium text-ink">{WAIVER_RESULTS_PENDING}</p>
-      <p className="mt-1">{WAIVER_EYEQ_FUTURE_COPY}</p>
+      {weekPublished ? (
+        <>
+          <p className="font-medium text-ink">{WAIVER_RESULTS_PUBLISHED}</p>
+          <p className="mt-1">
+            {weekNumber != null ? (
+              <Link
+                href={waiverLeaderboardHref({ weekNumber })}
+                className="font-medium text-accent-ink underline-offset-2 hover:underline"
+              >
+                View Week {weekNumber} WaiverEyeQ leaderboard
+              </Link>
+            ) : (
+              <Link
+                href={waiverLeaderboardHref({ weekNumber: 1, scope: "season" })}
+                className="font-medium text-accent-ink underline-offset-2 hover:underline"
+              >
+                View Waivers leaderboard
+              </Link>
+            )}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-medium text-ink">{WAIVER_RESULTS_PENDING}</p>
+          <p className="mt-1">{WAIVER_EYEQ_FUTURE_COPY}</p>
+        </>
+      )}
     </div>
   );
   if (participation === "signed-out") {

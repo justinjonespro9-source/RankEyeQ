@@ -351,7 +351,22 @@ export default async function LeaderboardsPage({
         : "No active season found."
     }`;
     board = (
-      <BoardTable rows={rows} follow={follow} followerCounts={followerCounts} viewCard={viewCard} />
+      <BoardTable
+        rows={rows}
+        follow={follow}
+        followerCounts={followerCounts}
+        viewCard={viewCard}
+        emptyTitle={
+          filter === "HUMAN"
+            ? "No public human boards graded yet"
+            : undefined
+        }
+        emptyDescription={
+          filter === "HUMAN"
+            ? "Human (Public) leaderboards appear once signed-in players submit and grade on FINAL contests. Experts, Creators, and AI are listed under their own filters."
+            : undefined
+        }
+      />
     );
   } else {
     const waiverWeeks = context ? await loadWaiverLeaderboardWeeks(context.season.id) : [];

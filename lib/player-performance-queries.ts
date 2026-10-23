@@ -27,6 +27,7 @@ import {
   scoringDepthForRankedMetric,
   tallyScoringBoardSelection,
 } from "@/lib/player-performance-ranked";
+import { shouldIncludeInPublicPlayerListings } from "@/lib/nfl/public-player-identity";
 
 type SubmissionPickRow = {
   rankableEntryId: string;
@@ -320,8 +321,19 @@ export async function getPlayerPerformanceLeaderboard(input: {
       contest.pregameSnapshot?.entries.map((e) => [e.rankableEntryId, e]) ?? [],
     );
 
+    const publicEntries = contest.entries.filter((entry) =>
+      shouldIncludeInPublicPlayerListings({
+        provider: entry.rankableEntry.provider,
+        externalId: entry.rankableEntry.externalId,
+        position: entry.rankableEntry.position,
+        type: entry.rankableEntry.type,
+        team: entry.rankableEntry.team,
+        active: entry.rankableEntry.active,
+      }),
+    );
+
     return mapContestEntriesToPerformanceSource(
-      contest.entries.map((entry) => {
+      publicEntries.map((entry) => {
         const tally = tallies.get(entry.rankableEntryId);
         const snap = snapByPlayer.get(entry.rankableEntryId);
         return {
@@ -487,12 +499,21 @@ async function loadWeekScope(input: {
   );
 
   // Canonical actual ranks from ContestEntry — never invent ranks for missing players.
+  // Exclude synthetic fixture identities from the public week leaderboard.
   const rankedEntries = contest.entries
     .filter(
       (entry) =>
         !entry.excluded &&
         entry.actualRank != null &&
-        entry.actualRank > 0,
+        entry.actualRank > 0 &&
+        shouldIncludeInPublicPlayerListings({
+          provider: entry.rankableEntry.provider,
+          externalId: entry.rankableEntry.externalId,
+          position: entry.rankableEntry.position,
+          type: entry.rankableEntry.type,
+          team: entry.rankableEntry.team,
+          active: entry.rankableEntry.active,
+        }),
     )
     .sort((a, b) => (a.actualRank as number) - (b.actualRank as number))
     .slice(0, WEEK_LEADERBOARD_LIMIT);

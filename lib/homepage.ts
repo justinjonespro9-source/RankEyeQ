@@ -6,6 +6,7 @@ import { toUiPosition } from "@/lib/contest-defaults";
 import { ctaForContestState, hrefForContestState } from "@/lib/homepage-cta";
 import type {
   ContestStatus,
+  ProfileType,
   SubmissionStatus,
 } from "@/lib/generated/prisma/client";
 import type { Position } from "@/types/contest";
@@ -43,6 +44,11 @@ export type HomepageRecentResult = {
   winningScore: number | null;
   topPerformerUsername: string | null;
   topPerformerDisplayName: string | null;
+  topPerformerProfileType: ProfileType | null;
+  topPerformerExpertPublisher: string | null;
+  topPerformerExpertSourceKind: string | null;
+  topPerformerCreatorBrand: string | null;
+  /** @deprecated Prefer topPerformerProfileType */
   topPerformerIsAi: boolean;
   actualNumberOneName: string | null;
   href: string;
@@ -225,7 +231,11 @@ export async function getHomepageData(activeProfileId?: string | null) {
       },
       submissions: {
         where: { status: "GRADED", normalizedScore: { not: null } },
-        include: { universalProfile: true },
+        include: {
+          universalProfile: {
+            include: { expertSource: true, creatorCompetitor: true },
+          },
+        },
         orderBy: { normalizedScore: "desc" },
         take: 1,
       },
@@ -236,14 +246,19 @@ export async function getHomepageData(activeProfileId?: string | null) {
 
   const recentResults: HomepageRecentResult[] = finalized.map((contest) => {
     const top = contest.submissions[0];
+    const profile = top?.universalProfile;
     return {
       contestId: contest.id,
       position: contest.position,
       weekLabel: contest.week.label,
       winningScore: top?.normalizedScore ?? null,
-      topPerformerUsername: top?.universalProfile.username ?? null,
-      topPerformerDisplayName: top?.universalProfile.displayName ?? null,
-      topPerformerIsAi: top?.universalProfile.profileType === "AI",
+      topPerformerUsername: profile?.username ?? null,
+      topPerformerDisplayName: profile?.displayName ?? null,
+      topPerformerProfileType: profile?.profileType ?? null,
+      topPerformerExpertPublisher: profile?.expertSource?.publicationName ?? null,
+      topPerformerExpertSourceKind: profile?.expertSource?.sourceKind ?? null,
+      topPerformerCreatorBrand: profile?.creatorCompetitor?.brandName ?? null,
+      topPerformerIsAi: profile?.profileType === "AI",
       actualNumberOneName: contest.entries[0]?.rankableEntry.name ?? null,
       href: `/results?contestId=${contest.id}`,
     };

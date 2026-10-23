@@ -67,7 +67,18 @@ export function RecentResults({
                         <ProfileLink
                           username={result.topPerformerUsername}
                           displayName={result.topPerformerDisplayName}
-                          isAi={result.topPerformerIsAi}
+                          profileType={result.topPerformerProfileType}
+                          isAi={result.topPerformerProfileType === "AI"}
+                          isExpert={result.topPerformerProfileType === "BENCHMARK"}
+                          isCreator={result.topPerformerProfileType === "CREATOR"}
+                          expertPublisher={result.topPerformerExpertPublisher}
+                          expertSourceKind={result.topPerformerExpertSourceKind}
+                          creatorBrand={result.topPerformerCreatorBrand}
+                          aiModel={
+                            result.topPerformerProfileType === "AI"
+                              ? result.topPerformerDisplayName
+                              : null
+                          }
                           showAvatar={false}
                         />
                       ) : (

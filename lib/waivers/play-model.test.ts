@@ -7,9 +7,11 @@ import {
   formatWaiverMatchup,
   moveWaiverCall,
   parseWaiverPlayPosition,
+  parseWaiverPlayWeekParam,
   removeWaiverCall,
   resolveWaiverMatchupSide,
   resolveWaiverPlayState,
+  resolveWaiverPlayWeekIdFromCandidates,
   resolveWaiverViewerBoardStatus,
   sameWaiverCalls,
   selectWaiverPlayWeek,
@@ -19,10 +21,14 @@ import {
   waiverBoardHint,
   waiverBoardSummary,
   waiverCallCountLabel,
+  waiverLeaderboardHref,
   waiverPlayHref,
+  waiverResultsGuidanceCopy,
   waiverSignInHref,
   waiverSlotLabels,
   waiverSubmitFeedback,
+  WAIVER_RESULTS_PENDING,
+  WAIVER_RESULTS_PUBLISHED,
 } from "@/lib/waivers/play-model";
 
 const NOW = new Date("2026-10-06T15:00:00.000Z");
@@ -41,8 +47,27 @@ describe("routing", () => {
 
   it("builds position and sign-in hrefs that preserve the return route", () => {
     expect(waiverPlayHref("RB")).toBe("/waivers?position=RB");
+    expect(waiverPlayHref("RB", 6)).toBe("/waivers?position=RB&week=6");
     expect(waiverSignInHref("WR")).toBe("/signin?callbackUrl=%2Fwaivers%3Fposition%3DWR");
     expect(decodeURIComponent(waiverSignInHref("WR").split("=").slice(1).join("="))).toBe("/waivers?position=WR");
+    expect(decodeURIComponent(waiverSignInHref("QB", 5).split("callbackUrl=")[1]!)).toBe(
+      "/waivers?position=QB&week=5",
+    );
+  });
+
+  it("parses ?week= for official week browsing", () => {
+    expect(parseWaiverPlayWeekParam("5")).toBe(5);
+    expect(parseWaiverPlayWeekParam("06")).toBe(6);
+    expect(parseWaiverPlayWeekParam("0")).toBeNull();
+    expect(parseWaiverPlayWeekParam("abc")).toBeNull();
+    expect(parseWaiverPlayWeekParam(undefined)).toBeNull();
+  });
+
+  it("builds Waivers leaderboard deep-links", () => {
+    expect(waiverLeaderboardHref({ weekNumber: 6 })).toBe(
+      "/leaderboards?discipline=waivers&scope=weekly&week=6&position=ALL&filter=ALL",
+    );
+    expect(waiverLeaderboardHref({ weekNumber: 6, scope: "season" })).toContain("scope=season");
   });
 });
 
@@ -74,6 +99,28 @@ describe("week selection", () => {
     expect(selectWaiverPlayWeek([week(1, false, "2026-09-10T00:00:00Z"), week(2, false, null)], NOW)).toBeNull();
     expect(selectWaiverPlayWeek([], NOW)).toBeNull();
   });
+
+  it("honors requested weekNumber when present in candidates", () => {
+    const candidates = [
+      week(5, true, "2026-10-08T00:00:00Z"),
+      week(6, true, "2026-10-15T00:00:00Z"),
+      week(7, false, "2026-10-22T00:00:00Z"),
+    ];
+    expect(
+      resolveWaiverPlayWeekIdFromCandidates({
+        candidates,
+        requestedWeekNumber: 5,
+        now: NOW,
+      }),
+    ).toBe("w5");
+    expect(
+      resolveWaiverPlayWeekIdFromCandidates({
+        candidates,
+        requestedWeekNumber: null,
+        now: NOW,
+      }),
+    ).toBe("w6");
+  });
 });
 
 describe("position state", () => {
@@ -84,6 +131,13 @@ describe("position state", () => {
     expect(resolveWaiverPlayState({ ...base, hasCurrentSnapshot: false })).toBe("POOL_PREPARING");
     expect(resolveWaiverPlayState(base)).toBe("POOL_READY");
     expect(resolveWaiverPlayState({ ...base, snapshotEligibleAtPosition: 0 })).toBe("NO_PLAYERS");
+    expect(
+      resolveWaiverPlayState({
+        ...base,
+        hasCurrentSnapshot: false,
+        weekHasNoContests: true,
+      }),
+    ).toBe("NO_CONTEST");
   });
 
   it("uses the server-derived lock flag for contests", () => {
@@ -99,11 +153,19 @@ describe("position state", () => {
       POOL_PREPARING: "This week's waiver pool is being prepared.",
       POOL_READY: "This week's waiver pool is ready. Check back when Waivers opens.",
       NO_PLAYERS: "No eligible waiver players were available for this position in the official snapshot.",
+      NO_CONTEST:
+        "No Waivers contest was held for this week. Season averages only include graded Waivers weeks.",
     });
     for (const text of [...Object.values(WAIVER_PLAY_STATE_COPY), ...Object.values(WAIVER_VIEWER_STATUS_LABEL)]) {
       expect(text).not.toMatch(/[A-Z]{2,}_[A-Z]/);
       expect(text).not.toMatch(/WaiverEyeQ|Waiver IQ|Waiver Rank IQ/);
     }
+  });
+
+  it("switches locked-board EyeQ guidance by publication", () => {
+    expect(waiverResultsGuidanceCopy(false)).toContain("Results are not graded yet");
+    expect(waiverResultsGuidanceCopy(true)).toContain(WAIVER_RESULTS_PUBLISHED);
+    expect(WAIVER_RESULTS_PENDING).toBe("Results pending.");
   });
 });
 

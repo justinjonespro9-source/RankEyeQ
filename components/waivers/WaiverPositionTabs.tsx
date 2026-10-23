@@ -8,6 +8,7 @@ const STATE_LABEL: Record<WaiverPlayState, string> = {
   POOL_PREPARING: "Preparing",
   POOL_READY: "Not open",
   NO_PLAYERS: "No pool",
+  NO_CONTEST: "No contest",
   OPEN: "Open",
   LOCKED: "Locked",
 };
@@ -20,7 +21,15 @@ function tabStatus(tab: WaiverPlayTab): string {
   return STATE_LABEL[tab.state];
 }
 
-export function WaiverPositionTabs({ tabs, selected }: { tabs: WaiverPlayTab[]; selected: WaiverPosition }) {
+export function WaiverPositionTabs({
+  tabs,
+  selected,
+  weekNumber,
+}: {
+  tabs: WaiverPlayTab[];
+  selected: WaiverPosition;
+  weekNumber?: number | null;
+}) {
   return (
     <nav aria-label="Waiver positions" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
       <ul className="flex min-w-max gap-2">
@@ -31,7 +40,7 @@ export function WaiverPositionTabs({ tabs, selected }: { tabs: WaiverPlayTab[]; 
           return (
             <li key={tab.position}>
               <Link
-                href={waiverPlayHref(tab.position)}
+                href={waiverPlayHref(tab.position, weekNumber)}
                 aria-current={active ? "page" : undefined}
                 aria-label={`${tab.position} — ${status}`}
                 className={`flex min-h-12 min-w-[4.5rem] flex-col items-center justify-center rounded-md border px-3 py-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${

@@ -22,12 +22,35 @@ export function parseWaiverPlayPosition(raw: unknown): WaiverPosition {
   return (WAIVER_POSITIONS as readonly string[]).includes(upper) ? (upper as WaiverPosition) : DEFAULT_WAIVER_PLAY_POSITION;
 }
 
-export function waiverPlayHref(position: WaiverPosition): string {
-  return `/waivers?position=${position}`;
+/** Optional weekNumber preserves historical week browsing via `?week=`. */
+export function waiverPlayHref(position: WaiverPosition, weekNumber?: number | null): string {
+  const params = new URLSearchParams({ position });
+  if (weekNumber != null && weekNumber >= 1) params.set("week", String(weekNumber));
+  return `/waivers?${params.toString()}`;
 }
 
-export function waiverSignInHref(position: WaiverPosition): string {
-  return `/signin?callbackUrl=${encodeURIComponent(waiverPlayHref(position))}`;
+export function waiverSignInHref(position: WaiverPosition, weekNumber?: number | null): string {
+  return `/signin?callbackUrl=${encodeURIComponent(waiverPlayHref(position, weekNumber))}`;
+}
+
+/** `?week=` → NFL week number, or null when absent/invalid. */
+export function parseWaiverPlayWeekParam(raw: unknown): number | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" || !/^\d{1,2}$/.test(value)) return null;
+  const n = Number(value);
+  return n >= 1 ? n : null;
+}
+
+/** Leaderboard deep-link for published WaiverEyeQ standings. */
+export function waiverLeaderboardHref(input: {
+  weekNumber: number;
+  scope?: "weekly" | "season";
+}): string {
+  const scope = input.scope ?? "weekly";
+  if (scope === "season") {
+    return "/leaderboards?discipline=waivers&scope=season&position=ALL&filter=ALL";
+  }
+  return `/leaderboards?discipline=waivers&scope=weekly&week=${input.weekNumber}&position=ALL&filter=ALL`;
 }
 
 export type WaiverPlayWeekCandidate = {
@@ -66,6 +89,7 @@ export type WaiverPlayState =
   | "POOL_PREPARING"
   | "POOL_READY"
   | "NO_PLAYERS"
+  | "NO_CONTEST"
   | "OPEN"
   | "LOCKED";
 
@@ -75,6 +99,8 @@ export function resolveWaiverPlayState(input: {
   hasCurrentSnapshot: boolean;
   /** Eligible players at this position in the current snapshot (when no contest). */
   snapshotEligibleAtPosition: number;
+  /** When the week has zero Waiver contests (e.g. intentional no-contest week). */
+  weekHasNoContests?: boolean;
   contest: null | { locked: boolean; poolSize: number };
 }): WaiverPlayState {
   if (!input.hasWeek) return "NO_WEEK";
@@ -82,6 +108,7 @@ export function resolveWaiverPlayState(input: {
     if (input.contest.locked) return "LOCKED";
     return input.contest.poolSize === 0 ? "NO_PLAYERS" : "OPEN";
   }
+  if (input.weekHasNoContests) return "NO_CONTEST";
   if (!input.hasCurrentSnapshot) return "POOL_PREPARING";
   return input.snapshotEligibleAtPosition === 0 ? "NO_PLAYERS" : "POOL_READY";
 }
@@ -91,12 +118,39 @@ export const WAIVER_PLAY_STATE_COPY: Readonly<Record<Exclude<WaiverPlayState, "O
   POOL_PREPARING: "This week's waiver pool is being prepared.",
   POOL_READY: "This week's waiver pool is ready. Check back when Waivers opens.",
   NO_PLAYERS: "No eligible waiver players were available for this position in the official snapshot.",
+  NO_CONTEST: "No Waivers contest was held for this week. Season averages only include graded Waivers weeks.",
 };
 
 export const WAIVER_NO_BOARD_AFTER_LOCK = "No submitted Waiver board for this position.";
 export const WAIVER_RESULTS_PENDING = "Results pending.";
+export const WAIVER_RESULTS_PUBLISHED =
+  "Official WaiverEyeQ results are published for this week.";
 export const WAIVER_EYEQ_FUTURE_COPY =
   "Your Waiver EyeQ will measure how accurately you spotted the week's best available fantasy performers.";
+
+/** How-it-works / locked-board EyeQ copy driven by publication state. */
+export function waiverResultsGuidanceCopy(published: boolean): string {
+  if (published) {
+    return `${WAIVER_RESULTS_PUBLISHED} Open the Waivers leaderboard for standings.`;
+  }
+  return `${WAIVER_EYEQ_FUTURE_COPY} Results are not graded yet.`;
+}
+
+/**
+ * Resolve which week to show on /waivers.
+ * Requested week wins when it exists in candidates; otherwise default selection.
+ */
+export function resolveWaiverPlayWeekIdFromCandidates(input: {
+  candidates: ReadonlyArray<WaiverPlayWeekCandidate>;
+  requestedWeekNumber: number | null;
+  now: Date;
+}): string | null {
+  if (input.requestedWeekNumber != null) {
+    const match = input.candidates.find((c) => c.weekNumber === input.requestedWeekNumber);
+    if (match) return match.weekId;
+  }
+  return selectWaiverPlayWeek(input.candidates, input.now)?.weekId ?? null;
+}
 
 /** The viewer's own board standing at one position. */
 export type WaiverViewerBoardStatus =

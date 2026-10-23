@@ -32,20 +32,19 @@ export function AiVsHuman({ summary }: { summary: AiVsHumanSummary | null }) {
               average={summary.humanAverage}
               sample={summary.sampleHumans}
               top={summary.topHuman}
+              emptyHint="No public human boards graded yet."
             />
             <AverageCard
               title="Expert sources"
               average={summary.expertAverage}
               sample={summary.sampleExperts}
               top={summary.topExpert}
-              isExpert
             />
             <AverageCard
               title="AI bots"
               average={summary.aiAverage}
               sample={summary.sampleAi}
               top={summary.topAi}
-              isAi
             />
           </div>
         )}
@@ -59,15 +58,13 @@ function AverageCard({
   average,
   sample,
   top,
-  isAi = false,
-  isExpert = false,
+  emptyHint = "No graded boards yet.",
 }: {
   title: string;
   average: number | null;
   sample: number;
   top: AiVsHumanSummary["topHuman"];
-  isAi?: boolean;
-  isExpert?: boolean;
+  emptyHint?: string;
 }) {
   return (
     <div className="rounded-lg border border-border bg-surface-elevated p-6">
@@ -85,15 +82,21 @@ function AverageCard({
             username={top.username}
             displayName={top.displayName}
             avatarUrl={top.avatarUrl}
-            isAi={isAi}
-            isExpert={isExpert}
+            profileType={top.profileType}
+            isAi={top.profileType === "AI"}
+            isExpert={top.profileType === "BENCHMARK"}
+            isCreator={top.profileType === "CREATOR"}
+            expertPublisher={top.expertPublisher}
+            expertSourceKind={top.expertSourceKind}
+            creatorBrand={top.creatorBrand}
+            aiModel={top.profileType === "AI" ? top.displayName : null}
           />
           <span className="tabular-nums text-ink">
             ({formatRankIqScore(top.averageScore)})
           </span>
         </div>
       ) : (
-        <p className="mt-4 text-sm text-muted">No graded boards yet.</p>
+        <p className="mt-4 text-sm text-muted">{emptyHint}</p>
       )}
     </div>
   );

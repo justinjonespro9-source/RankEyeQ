@@ -32,6 +32,8 @@ export function BoardTable({
   follow,
   followerCounts,
   viewCard,
+  emptyTitle,
+  emptyDescription,
 }: {
   rows: LeaderboardRow[];
   follow: RowFollow;
@@ -41,12 +43,17 @@ export function BoardTable({
     weekNumber: number;
     position: ContestPosition;
   } | null;
+  emptyTitle?: string;
+  emptyDescription?: string;
 }) {
   if (rows.length === 0) {
     return (
       <EmptyState
-        title="No graded contests yet"
-        description="Leaderboards fill in after contests are graded. Contests played will stay visible for thin samples."
+        title={emptyTitle ?? "No graded contests yet"}
+        description={
+          emptyDescription ??
+          "Leaderboards fill in after contests are graded. Contests played will stay visible for thin samples."
+        }
         actionHref="/rank"
         actionLabel="Build rankings"
       />

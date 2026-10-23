@@ -3,6 +3,7 @@ import {
   canonicalDefenseExternalId,
   defenseFranchiseKey,
 } from "@/lib/nfl/defense-identity";
+import { shouldIncludeInPublicPlayerListings } from "@/lib/nfl/public-player-identity";
 import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-rosters";
 import {
   aggregatePlayerPerformance,
@@ -81,6 +82,19 @@ export async function getPlayerDetailById(
 
   // Offense + DEFENSE both supported on player performance profiles.
   if (resolved.type !== "PLAYER" && resolved.type !== "DEFENSE") {
+    return null;
+  }
+
+  if (
+    !shouldIncludeInPublicPlayerListings({
+      provider: resolved.provider,
+      externalId: resolved.externalId,
+      position: resolved.position,
+      type: resolved.type,
+      team: resolved.team,
+      active: resolved.active,
+    })
+  ) {
     return null;
   }
 
