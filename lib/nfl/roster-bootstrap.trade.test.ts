@@ -23,6 +23,14 @@ describe("roster bootstrap trade/idempotency", () => {
 
   afterAll(async () => {
     await prisma.season.deleteMany({ where: { id: seasonId } });
+    await prisma.rankableEntry.deleteMany({
+      where: {
+        OR: [
+          { externalId: "test-player-trade" },
+          { externalId: { contains: suffix } },
+        ],
+      },
+    });
   });
 
   it("updates team on same provider ID instead of creating a new identity", async () => {

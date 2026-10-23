@@ -81,6 +81,9 @@ describe("roster team audit and reconciliation", () => {
 
   afterAll(async () => {
     await prisma.season.delete({ where: { id: seasonId } });
+    await prisma.rankableEntry.deleteMany({
+      where: { externalId: { contains: suffix } },
+    });
   });
 
   it("updates canonical team from provider source without creating a duplicate", async () => {
