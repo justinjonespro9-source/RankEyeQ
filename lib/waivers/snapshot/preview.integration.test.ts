@@ -108,20 +108,38 @@ describe("previewWaiverSnapshot", () => {
     expect(preview.completeness.byPosition.find((row) => row.position === "QB")).toMatchObject({ rankingsPoolCount: 1, rankingsPoolObserved: 1 });
   });
 
-  it("blocks unmatched and ambiguous rows against real records", async () => {
+  it("blocks unmatched rows; prefers sole season-rostered twin over orphan duplicate; ID resolves dual-roster ambiguity", async () => {
     const twinA = await f.addRosterPlayer({ position: "WR", team: "SF", label: "Twin Receiver" });
     await prisma.rankableEntry.create({
       data: { provider: "waivers-test", externalId: `${f.suffix}-twin-dup`, type: "PLAYER", name: twinA.name, shortName: twinA.name, team: "SF", position: "WR" },
     });
-    const preview = await previewWaiverSnapshot({
+    const orphanPreview = await previewWaiverSnapshot({
       weekId,
       rawText: [line(twinA, "4"), `Nobody ${f.suffix} | WR | SF | 4`].join("\n"),
       sourceLabel: "Sleeper",
       sourceUrl: null,
       observedAt: new Date(Date.now() - 60_000),
     });
-    expect(preview.rows.map((row) => row.state)).toEqual(["AMBIGUOUS", "UNMATCHED"]);
-    expect(preview.rows[0].candidates).toHaveLength(2);
+    // Orphan (not on season roster) no longer blocks: sole rostered twin matches.
+    expect(orphanPreview.rows.map((row) => row.state)).toEqual(["MATCHED", "UNMATCHED"]);
+    expect(orphanPreview.rows[0]).toMatchObject({ state: "MATCHED" });
+    expect(orphanPreview.entries[0]).toMatchObject({ rankableEntryId: twinA.id, matchMethod: "EXACT_NAME_TEAM" });
+
+    await prisma.rankableEntry.deleteMany({ where: { externalId: `${f.suffix}-twin-dup` } });
+
+    const twinB = await f.addRosterPlayer({ position: "WR", team: "SF", label: "Twin Receiver B" });
+    // Force identical display name so name+team collide with two rostered rows.
+    await prisma.rankableEntry.update({ where: { id: twinB.id }, data: { name: twinA.name, shortName: twinA.name } });
+    const ambiguous = await previewWaiverSnapshot({
+      weekId,
+      rawText: line(twinA, "4"),
+      sourceLabel: "Sleeper",
+      sourceUrl: null,
+      observedAt: new Date(Date.now() - 60_000),
+    });
+    expect(ambiguous.rows[0].state).toBe("AMBIGUOUS");
+    expect(ambiguous.rows[0].candidates.map((c) => c.id).sort()).toEqual([twinA.id, twinB.id].sort());
+
     const resolved = await previewWaiverSnapshot({
       weekId,
       rawText: `${line(twinA, "4")} | ${twinA.id}`,
@@ -131,7 +149,6 @@ describe("previewWaiverSnapshot", () => {
     });
     expect(resolved.rows[0]).toMatchObject({ state: "MATCHED" });
     expect(resolved.entries[0]).toMatchObject({ rankableEntryId: twinA.id, matchMethod: "ADMIN_CONFIRMED" });
-    await prisma.rankableEntry.deleteMany({ where: { externalId: `${f.suffix}-twin-dup` } });
   });
 
   it("transaction-scoped availability matches loadResolvedStatusesForWeek", async () => {

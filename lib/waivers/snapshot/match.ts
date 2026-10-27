@@ -85,6 +85,13 @@ const ref = (candidate: WaiverMatchCandidate): WaiverCandidateRef => ({
 
 const teamConflict = (candidate: WaiverMatchCandidate, team: string) => (candidate.canonicalTeam ?? "FA") !== team;
 
+/**
+ * Settle PLAYER name/alias hits. Never uses id-order as a tiebreaker.
+ * When several records share the pasted team, prefer a match only if exactly
+ * one of those same-team hits is on the snapshot season's roster (orphan mock
+ * / sandbox duplicates with the same name+team stay out of the way). Multiple
+ * rostered same-team hits, or zero rostered same-team hits, stay AMBIGUOUS.
+ */
 function settle(
   candidates: WaiverMatchCandidate[],
   team: string,
@@ -99,15 +106,22 @@ function settle(
   if (sameTeam.length === 1) {
     return { status: "MATCHED", rankableEntryId: sameTeam[0].id, method, teamConflict: false };
   }
+  if (sameTeam.length > 1) {
+    const rosteredSameTeam = sameTeam.filter((candidate) => candidate.onSeasonRoster);
+    if (rosteredSameTeam.length === 1) {
+      return { status: "MATCHED", rankableEntryId: rosteredSameTeam[0].id, method, teamConflict: false };
+    }
+  }
   return { status: "AMBIGUOUS", candidates: candidates.map(ref) };
 }
 
 /**
  * Strict matching ladder (no fuzzy step): explicit RankEyeQ ID → DEF by team
  * (the season-rostered defense; all team defenses only when none is rostered) →
- * exact name identity → admin alias → position mismatch → unmatched. Several
- * same-name records that the pasted team does not settle are AMBIGUOUS and
- * are never auto-picked.
+ * exact name identity → admin alias → position mismatch → unmatched.
+ * PLAYER: several same-name+team records stay AMBIGUOUS unless exactly one of
+ * those same-team hits is on the season roster (then that one matches). Id
+ * order is never a tiebreaker; use the RankEyeQ ID column to Admin-confirm.
  */
 export function matchWaiverRow(
   input: { playerName: string; position: WaiverPosition; team: string; rankEyeQId: string | null },

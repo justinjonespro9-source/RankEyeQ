@@ -41,11 +41,77 @@ describe("matchWaiverRow — strict ladder", () => {
     });
   });
 
-  it("marks same-name records AMBIGUOUS when the team does not settle them (legacy duplicates never auto-picked)", () => {
+  it("marks same-name records AMBIGUOUS when several season-rostered identities share the team (no id-order pick)", () => {
     const sameTeamDupes = match("Duplicate Guy", "TE", "KC");
     expect(sameTeamDupes.status).toBe("AMBIGUOUS");
     expect(sameTeamDupes.status === "AMBIGUOUS" && sameTeamDupes.candidates.map((c) => c.id)).toEqual(["dup1", "dup2"]);
     expect(match("Mike Williams", "WR", "NYJ").status).toBe("AMBIGUOUS");
+  });
+
+  it("PLAYER: prefers the sole season-rostered same-team identity among orphan mock duplicates (Herbert case)", () => {
+    const canonical = {
+      ...player("cmtk488xo000yu8kuepnuppkg", "Justin Herbert", "QB", "LAC"),
+      onSeasonRoster: true,
+    };
+    const mocks = [
+      { ...player("cmue6oxu6000oytku84f6jr57", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false },
+      { ...player("cmufw95kb000ocqkuglvxr9d8", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false },
+      { ...player("cmufwb713000ogpkulnc44jnv", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false },
+    ];
+    // Id-desc order in the universe so a first-row / id-asc tiebreak would pick a mock.
+    const herbertIndex = buildWaiverMatchIndex([mocks[2], mocks[1], mocks[0], canonical]);
+    expect(
+      matchWaiverRow({ playerName: "Justin Herbert", position: "QB", team: "LAC", rankEyeQId: null }, herbertIndex),
+    ).toEqual({
+      status: "MATCHED",
+      rankableEntryId: "cmtk488xo000yu8kuepnuppkg",
+      method: "EXACT_NAME_TEAM",
+      teamConflict: false,
+    });
+  });
+
+  it("PLAYER: stays AMBIGUOUS when multiple season-rostered same-team identities remain", () => {
+    const a = player("herbert_a", "Justin Herbert", "QB", "LAC");
+    const b = player("herbert_b", "Justin Herbert", "QB", "LAC");
+    const mock = { ...player("herbert_mock", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false };
+    const idx = buildWaiverMatchIndex([mock, b, a]);
+    const result = matchWaiverRow({ playerName: "Justin Herbert", position: "QB", team: "LAC", rankEyeQId: null }, idx);
+    expect(result.status).toBe("AMBIGUOUS");
+    expect(result.status === "AMBIGUOUS" && result.candidates.map((c) => c.id)).toEqual([
+      "herbert_a",
+      "herbert_b",
+      "herbert_mock",
+    ]);
+  });
+
+  it("PLAYER: stays AMBIGUOUS when no same-team candidate is season-rostered", () => {
+    const mocks = [
+      { ...player("m1", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false },
+      { ...player("m2", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false },
+    ];
+    const result = matchWaiverRow(
+      { playerName: "Justin Herbert", position: "QB", team: "LAC", rankEyeQId: null },
+      buildWaiverMatchIndex(mocks),
+    );
+    expect(result.status).toBe("AMBIGUOUS");
+    expect(result.status === "AMBIGUOUS" && result.candidates.map((c) => c.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("PLAYER: explicit RankEyeQ ID still wins over roster preference", () => {
+    const canonical = player("cmtk488xo000yu8kuepnuppkg", "Justin Herbert", "QB", "LAC");
+    const mock = { ...player("cmue6oxu6000oytku84f6jr57", "Justin Herbert", "QB", "LAC"), onSeasonRoster: false };
+    const idx = buildWaiverMatchIndex([canonical, mock], [mock]);
+    expect(
+      matchWaiverRow(
+        { playerName: "Justin Herbert", position: "QB", team: "LAC", rankEyeQId: "cmue6oxu6000oytku84f6jr57" },
+        idx,
+      ),
+    ).toEqual({
+      status: "MATCHED",
+      rankableEntryId: "cmue6oxu6000oytku84f6jr57",
+      method: "ADMIN_CONFIRMED",
+      teamConflict: false,
+    });
   });
 
   it("uses admin aliases as ALIAS_TEAM", () => {
