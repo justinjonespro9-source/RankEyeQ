@@ -5,9 +5,9 @@ import {
   zonedLocalToUtc,
 } from "@/lib/timing/chicago";
 
-/** V1 Waiver lock: Tuesday 7:00 PM America/Chicago. */
+/** V1 Waiver lock: Tuesday 11:00 PM America/Chicago (permanent default from 2026 W8). */
 export const WAIVER_LOCK_WEEKDAY = "Tue";
-export const WAIVER_LOCK_HOUR_CHICAGO = 19;
+export const WAIVER_LOCK_HOUR_CHICAGO = 23;
 
 type CalendarDate = { year: number; month: number; day: number };
 
@@ -21,7 +21,7 @@ function chicagoTuesdayOnOrBefore(date: CalendarDate): CalendarDate {
   throw new Error("No Tuesday within the preceding week");
 }
 
-/** Tuesday 7:00 PM America/Chicago on or before the Chicago date of `firstKickoff`. */
+/** Tuesday 11:00 PM America/Chicago on or before the Chicago date of `firstKickoff`. */
 export function computeWaiverLocksAt(firstKickoff: Date): Date {
   if (Number.isNaN(firstKickoff.getTime())) throw new RangeError("Invalid first kickoff");
   const tuesday = chicagoTuesdayOnOrBefore(chicagoCalendarDate(firstKickoff));
@@ -30,7 +30,7 @@ export function computeWaiverLocksAt(firstKickoff: Date): Date {
 
 /**
  * Approved one-off lock instants keyed by Week id. Every other week uses the
- * Tuesday 7:00 PM CT default. A contest's locksAt is immutable once opened, so
+ * Tuesday 11:00 PM CT default. A contest's locksAt is immutable once opened, so
  * an entry only affects contests opened after it ships.
  */
 export const WAIVER_LOCK_OVERRIDES: Readonly<Record<string, string>> = {

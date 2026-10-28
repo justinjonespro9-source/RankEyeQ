@@ -125,6 +125,15 @@ Requires:
 
 Does **not** require SportsDataIO credentials or provider game-FINAL flags.
 
+## WaiverEyeQ lock (permanent default)
+
+WaiverEyeQ boards lock **Tuesday 11:00 PM America/Chicago** on or before the week's first kickoff (`lib/waivers/lock-time.ts` → `computeWaiverLocksAt` via `zonedLocalToUtc`). Do not hardcode a UTC hour — CDT is `04:00Z` next calendar day; CST is `05:00Z`.
+
+- Contests store `locksAt` at open time from `resolveWaiverLocksAt` (override map, else default). That instant is immutable once contests exist.
+- Historical one-offs stay in `WAIVER_LOCK_OVERRIDES` (2026 W5/W6). Do not reopen locked contests by changing the default.
+- Admin and player surfaces display the contest's stored `locksAt` in America/Chicago; preview uses the same resolver before open.
+- If open will miss the default lock, stop — owner must approve an explicit override entry before open. Never backdate.
+
 ## Still repetitive (by design)
 
 - Pasting schedule and position pools each week

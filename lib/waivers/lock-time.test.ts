@@ -13,18 +13,20 @@ import {
 
 const chicago = (y: number, m: number, d: number, h: number, min = 0) => zonedLocalToUtc(y, m, d, h, min);
 
-describe("computeWaiverLocksAt — Tuesday 7:00 PM America/Chicago", () => {
+describe("computeWaiverLocksAt — Tuesday 11:00 PM America/Chicago", () => {
   it.each([
-    ["Week 1 (Thursday opener, CDT)", chicago(2026, 9, 10, 19, 20), "2026-09-09T00:00:00.000Z"],
-    ["late October (CDT, before DST ends)", chicago(2026, 10, 29, 19, 15), "2026-10-28T00:00:00.000Z"],
-    ["first week after DST ends (CST)", chicago(2026, 11, 5, 19, 15), "2026-11-04T01:00:00.000Z"],
-    ["January (CST)", chicago(2027, 1, 9, 15, 30), "2027-01-06T01:00:00.000Z"],
+    // 11:00 PM CDT = 04:00Z next calendar day
+    ["Week 1 (Thursday opener, CDT)", chicago(2026, 9, 10, 19, 20), "2026-09-09T04:00:00.000Z"],
+    ["late October (CDT, before DST ends)", chicago(2026, 10, 29, 19, 15), "2026-10-28T04:00:00.000Z"],
+    // 11:00 PM CST = 05:00Z next calendar day
+    ["first week after DST ends (CST)", chicago(2026, 11, 5, 19, 15), "2026-11-04T05:00:00.000Z"],
+    ["January (CST)", chicago(2027, 1, 9, 15, 30), "2027-01-06T05:00:00.000Z"],
   ])("%s", (_label, firstKickoff, expected) => {
     expect(computeWaiverLocksAt(firstKickoff).toISOString()).toBe(expected);
   });
 
   it("uses the Tuesday on or before the first kickoff's Chicago date for any weekday opener", () => {
-    const expected = "2026-10-28T00:00:00.000Z";
+    const expected = "2026-10-28T04:00:00.000Z";
     for (const day of [28, 29, 30, 31]) {
       expect(computeWaiverLocksAt(chicago(2026, 10, day, 12)).toISOString()).toBe(expected);
     }
@@ -32,12 +34,24 @@ describe("computeWaiverLocksAt — Tuesday 7:00 PM America/Chicago", () => {
     expect(computeWaiverLocksAt(chicago(2026, 11, 2, 19, 15)).toISOString()).toBe(expected);
   });
 
-  it("an 11 PM Chicago kickoff (next UTC day) still maps to its Chicago Tuesday", () => {
-    expect(computeWaiverLocksAt(chicago(2026, 10, 29, 23, 30)).toISOString()).toBe("2026-10-28T00:00:00.000Z");
+  it("an 11:30 PM Chicago kickoff (next UTC day) still maps to its Chicago Tuesday", () => {
+    expect(computeWaiverLocksAt(chicago(2026, 10, 29, 23, 30)).toISOString()).toBe("2026-10-28T04:00:00.000Z");
+  });
+
+  it("2026 Week 8 CAR@GB opener locks Tue Oct 27 11:00 PM CDT", () => {
+    // First kickoff 2026-10-30T00:15Z = Wed Oct 29 7:15 PM CDT → Tuesday on/before = Oct 27
+    expect(computeWaiverLocksAt(new Date("2026-10-30T00:15:00.000Z")).toISOString()).toBe(
+      "2026-10-28T04:00:00.000Z",
+    );
+    expect(new Date("2026-10-28T04:00:00.000Z")).toEqual(chicago(2026, 10, 27, 23, 0));
   });
 
   it("rejects an invalid kickoff", () => {
     expect(() => computeWaiverLocksAt(new Date("nope"))).toThrow(RangeError);
+  });
+
+  it("exports the Chicago local hour 23 (never a fixed UTC hour)", () => {
+    expect(WAIVER_LOCK_HOUR_CHICAGO).toBe(23);
   });
 });
 
@@ -45,20 +59,20 @@ describe("resolveWaiverLocksAt — no override", () => {
   it("accepts a lock strictly before the first kickoff", () => {
     expect(resolveWaiverLocksAt(chicago(2026, 10, 29, 19, 15))).toEqual({
       ok: true,
-      locksAt: new Date("2026-10-28T00:00:00.000Z"),
+      locksAt: new Date("2026-10-28T04:00:00.000Z"),
     });
   });
 
-  it("refuses when the first kickoff is on Tuesday at or before 7:00 PM CT", () => {
-    for (const kickoff of [chicago(2026, 10, 27, 19, 0), chicago(2026, 10, 27, 12, 0)]) {
+  it("refuses when the first kickoff is on Tuesday at or before 11:00 PM CT", () => {
+    for (const kickoff of [chicago(2026, 10, 27, 23, 0), chicago(2026, 10, 27, 12, 0)]) {
       const result = resolveWaiverLocksAt(kickoff);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).toBe("LOCK_NOT_BEFORE_FIRST_KICKOFF");
     }
   });
 
-  it("a Tuesday kickoff after 7:00 PM CT is still valid", () => {
-    expect(resolveWaiverLocksAt(chicago(2026, 10, 27, 19, 1)).ok).toBe(true);
+  it("a Tuesday kickoff after 11:00 PM CT is still valid", () => {
+    expect(resolveWaiverLocksAt(chicago(2026, 10, 27, 23, 1)).ok).toBe(true);
   });
 });
 
@@ -89,20 +103,20 @@ describe("resolveWaiverLocksAt — per-week overrides", () => {
     expect(new Date("2026-10-15T03:00:00.000Z")).toEqual(chicago(2026, 10, 14, 22, 0));
     expect(resolveWaiverLocksAt(week6FirstKickoff)).toEqual({
       ok: true,
-      locksAt: new Date("2026-10-14T00:00:00.000Z"),
+      locksAt: new Date("2026-10-14T04:00:00.000Z"),
     });
   });
 
-  it("every other week keeps the Tuesday 7:00 PM CT default", () => {
+  it("every other week keeps the Tuesday 11:00 PM CT default", () => {
     expect(resolveWaiverLocksAt(week5FirstKickoff)).toEqual({
       ok: true,
-      locksAt: new Date("2026-10-07T00:00:00.000Z"),
+      locksAt: new Date("2026-10-07T04:00:00.000Z"),
     });
     expect(resolveWaiverLocksAt(week5FirstKickoff, "some-other-week")).toEqual({
       ok: true,
-      locksAt: new Date("2026-10-07T00:00:00.000Z"),
+      locksAt: new Date("2026-10-07T04:00:00.000Z"),
     });
-    expect(WAIVER_LOCK_HOUR_CHICAGO).toBe(19);
+    expect(WAIVER_LOCK_HOUR_CHICAGO).toBe(23);
   });
 
   it("an override at or after the first kickoff is still refused", () => {
@@ -117,7 +131,7 @@ describe("validateWaiverOpeningWindow", () => {
     observedAt: new Date("2026-10-27T13:00:00Z"),
     frozenAt: new Date("2026-10-27T14:00:00Z"),
     opensAt: new Date("2026-10-27T15:00:00Z"),
-    locksAt: new Date("2026-10-28T00:00:00Z"),
+    locksAt: new Date("2026-10-28T04:00:00Z"),
     firstKickoff: new Date("2026-10-30T00:15:00Z"),
   };
 
@@ -141,7 +155,7 @@ describe("validateWaiverOpeningWindow", () => {
 });
 
 describe("clock-derived phase and reveal", () => {
-  const locksAt = new Date("2026-10-28T00:00:00.000Z");
+  const locksAt = new Date("2026-10-28T04:00:00.000Z");
 
   it("is OPEN strictly before locksAt and LOCKED from the lock instant on", () => {
     expect(waiverPhaseAt(locksAt, new Date(locksAt.getTime() - 1))).toBe("OPEN");

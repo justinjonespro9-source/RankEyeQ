@@ -82,7 +82,7 @@ export type OpenWaiverContestsResult = {
 
 /**
  * Manually opens the week's Waiver Podiums against the current frozen snapshot.
- * Lock = Tuesday 7:00 PM America/Chicago before the first kickoff, unless the
+ * Lock = Tuesday 11:00 PM America/Chicago before the first kickoff, unless the
  * week has an approved WAIVER_LOCK_OVERRIDES entry. A position with no eligible
  * players is refused, never opened.
  */

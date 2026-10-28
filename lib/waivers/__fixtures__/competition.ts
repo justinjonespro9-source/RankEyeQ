@@ -36,7 +36,7 @@ export async function withFixtureMaintenance<T>(fn: (tx: Prisma.TransactionClien
   });
 }
 
-/** First kickoff comfortably in the future whose Tuesday 7 PM CT lock precedes it. */
+/** First kickoff comfortably in the future whose Tuesday 11 PM CT lock precedes it. */
 export function futureFirstKickoff(daysAhead = 9): Date {
   let kickoff = new Date(Date.now() + daysAhead * DAY);
   for (let i = 0; i < 3 && !resolveWaiverLocksAt(kickoff).ok; i += 1) {

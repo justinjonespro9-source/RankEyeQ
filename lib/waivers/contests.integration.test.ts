@@ -40,7 +40,7 @@ function standardRows() {
 }
 
 describe("openWaiverContestsForWeek", () => {
-  it("opens one contest per position pinned to the current snapshot, locking Tuesday 7 PM CT", async () => {
+  it("opens one contest per position pinned to the current snapshot, locking Tuesday 11 PM CT", async () => {
     const week = await f.addWeek();
     const snapshot = await f.freezeSnapshot({ weekId: week.weekId, rows: standardRows() });
     const before = Date.now();
@@ -98,7 +98,7 @@ describe("openWaiverContestsForWeek", () => {
     expect(await prisma.waiverContest.count({ where: { weekId: { in: [week.weekId, other.weekId] } } })).toBe(0);
   });
 
-  it("refuses when Tuesday 7 PM CT is not before the first kickoff (no override)", async () => {
+  it("refuses when Tuesday 11 PM CT is not before the first kickoff (no override)", async () => {
     const tuesdayLock = computeWaiverLocksAt(futureFirstKickoff(10));
     for (const kickoff of [new Date(tuesdayLock.getTime() - 7 * 3_600_000), tuesdayLock]) {
       const week = await f.addWeek({ firstKickoff: kickoff });

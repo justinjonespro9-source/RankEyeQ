@@ -24,7 +24,7 @@ import {
 
 const NOW = new Date("2026-10-06T15:00:00Z"); // Tuesday 10:00 CT
 const OBSERVED = new Date("2026-10-06T14:30:00Z");
-const KICKOFF = new Date("2026-10-11T17:00:00Z"); // Sunday → lock Tue 2026-10-06 19:00 CT
+const KICKOFF = new Date("2026-10-11T17:00:00Z"); // Sunday → lock Tue 2026-10-06 23:00 CT
 
 const games: WaiverWeekGame[] = [
   { id: "g_sf", homeTeam: "SF", awayTeam: "SEA", startsAt: KICKOFF, status: "SCHEDULED" },
@@ -148,7 +148,7 @@ describe("assembleWaiverSnapshotPreview", () => {
     expect(byId.get("def_sf")).toMatchObject({ matchMethod: "EXACT_NAME_TEAM", inputLine: "Niners D/ST | DEF | SF | 20" });
     expect(p.counts).toEqual({ candidateCount: 10, eligibleCount: 7, excludedCount: 3, followUpCount: 1 });
     expect(p.header.observedAt).toEqual(OBSERVED);
-    expect(p.locksAt?.toISOString()).toBe("2026-10-07T00:00:00.000Z");
+    expect(p.locksAt?.toISOString()).toBe("2026-10-07T04:00:00.000Z");
     expect(p.contestsCanOpen).toBe(true);
   });
 
@@ -208,7 +208,8 @@ describe("assembleWaiverSnapshotPreview", () => {
   });
 
   it("flags a missing URL, stale roster sync and an elapsed lock as confirmations", () => {
-    const p = preview(CLEAN_PASTE, context({ now: new Date("2026-10-07T01:00:00Z"), rosterSyncedAt: null }), { sourceUrl: null });
+    // Lock is Tue 2026-10-06 11:00 PM CDT = 2026-10-07T04:00:00Z
+    const p = preview(CLEAN_PASTE, context({ now: new Date("2026-10-07T04:00:00Z"), rosterSyncedAt: null }), { sourceUrl: null });
     expect(p.requiredAcknowledgments).toEqual(expect.arrayContaining(["SOURCE_URL_MISSING", "STALE_ROSTER_SYNC", "AFTER_LOCK"]));
     expect(p.contestsCanOpen).toBe(false);
   });

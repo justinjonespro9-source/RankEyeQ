@@ -112,7 +112,7 @@ export function WaiversHeader({
             by submitting it with no calls.
           </li>
           <li>
-            Boards lock at the posted lock time, normally Tuesday at 7:00 PM CT. You can revise a submitted board
+            Boards lock at the posted lock time, normally Tuesday at 11:00 PM CT. You can revise a submitted board
             until then. Unsubmitted drafts
             don&apos;t count.
           </li>
