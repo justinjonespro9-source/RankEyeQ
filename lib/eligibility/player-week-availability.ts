@@ -122,13 +122,38 @@ export type InjuryContext = {
   officialGameStatus: "QUESTIONABLE" | "DOUBTFUL" | "OUT" | null;
 };
 
-/** Designations that blank NFL Game Status must not erase. */
+/**
+ * Historical “official” weekly designations (compat / documentation).
+ * Prefer {@link PRESERVED_ON_BLANK_GAME_STATUS} for blank-GS injury sync.
+ */
 export const PRESERVED_OFFICIAL_DESIGNATIONS = new Set<WeeklyDesignation>([
   "QUESTIONABLE",
   "DOUBTFUL",
   "OUT",
   "INACTIVE",
   "AVAILABLE",
+]);
+
+/**
+ * When a successfully parsed current-week injury report **explicitly lists** a
+ * player with blank/UNSPECIFIED Game Status, keep these designations.
+ *
+ * `OUT` is intentionally excluded: a listed blank-GS row does not affirm Out, so
+ * a prior stale OUT must not persist (Week 8 Lamar / Love / Smith / Wicks /
+ * Rice / Egbuka / Warren).
+ *
+ * `INACTIVE` is preserved: official gameday inactive must not be cleared by a
+ * blank mid-week injury-report Game Status cell. Manual overrides and
+ * post-kickoff skipAfterKickoff remain additional guards.
+ *
+ * Absent players, failed fetches, and incomplete reports never invoke this set —
+ * those paths leave existing rows unchanged.
+ */
+export const PRESERVED_ON_BLANK_GAME_STATUS = new Set<WeeklyDesignation>([
+  "QUESTIONABLE",
+  "DOUBTFUL",
+  "AVAILABLE",
+  "INACTIVE",
 ]);
 
 export function derivePracticeTier(

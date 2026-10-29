@@ -247,13 +247,19 @@ describe("Player Availability V2.1 Injury Watch", () => {
     expect(presentation.designationLabel).toBe("Out");
   });
 
-  it("11. blank NFL Game Status cannot erase existing official Q/D/OUT", () => {
+  it("11. blank NFL Game Status preserves Q/D/INACTIVE but clears stale OUT to UNKNOWN", () => {
     expect(
       resolveInjurySyncDesignation({
         gameStatus: null,
         existingDesignation: "OUT",
       }),
-    ).toBe("OUT");
+    ).toBe("UNKNOWN");
+    expect(
+      resolveInjurySyncDesignation({
+        gameStatus: null,
+        existingDesignation: "INACTIVE",
+      }),
+    ).toBe("INACTIVE");
     expect(
       resolveInjurySyncDesignation({
         gameStatus: null,
@@ -266,6 +272,12 @@ describe("Player Availability V2.1 Injury Watch", () => {
         existingDesignation: "DOUBTFUL",
       }),
     ).toBe("DOUBTFUL");
+    expect(
+      resolveInjurySyncDesignation({
+        gameStatus: null,
+        existingDesignation: "AVAILABLE",
+      }),
+    ).toBe("AVAILABLE");
     expect(
       resolveInjurySyncDesignation({
         gameStatus: null,

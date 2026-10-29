@@ -24,7 +24,7 @@ import { NFL_COM_BOOTSTRAP_PROVIDER } from "@/lib/providers/nfl/nflcom/fetch-ros
 import {
   derivePracticeTier,
   entryAvailabilityFromInjuryGameStatus,
-  PRESERVED_OFFICIAL_DESIGNATIONS,
+  PRESERVED_ON_BLANK_GAME_STATUS,
   ROSTER_UNAVAILABLE_ENTRY,
   type PracticeTier,
   type WeeklyDesignation,
@@ -313,7 +313,16 @@ function buildMatched(
 
 /**
  * Resolve PWA designation for an injury row without inventing Q/D/OUT from practice.
- * Blank Game Status never clears a stronger existing official designation.
+ *
+ * Callers must only invoke this for players **explicitly listed** on a successfully
+ * parsed current-week report (matched rows). Absent players / failed fetches must
+ * not call this to infer eligibility.
+ *
+ * Blank/UNSPECIFIED Game Status:
+ * - Does not invent AVAILABLE from practice.
+ * - Preserves QUESTIONABLE / DOUBTFUL / AVAILABLE (mid-week lag).
+ * - Preserves INACTIVE (official gameday inactive is not cleared by blank GS).
+ * - Does **not** preserve stale OUT → UNKNOWN (listed blank GS does not affirm Out).
  */
 export function resolveInjurySyncDesignation(input: {
   gameStatus: ParsedInjuryRow["gameStatus"];
@@ -322,10 +331,10 @@ export function resolveInjurySyncDesignation(input: {
   if (input.gameStatus) {
     return entryAvailabilityFromInjuryGameStatus(input.gameStatus);
   }
-  // Blank GS: preserve stronger official designation if present.
+  // Blank GS on an explicit listing: practice/injury context only.
   if (
     input.existingDesignation &&
-    PRESERVED_OFFICIAL_DESIGNATIONS.has(input.existingDesignation)
+    PRESERVED_ON_BLANK_GAME_STATUS.has(input.existingDesignation)
   ) {
     return input.existingDesignation;
   }
@@ -361,9 +370,11 @@ export function classifyInjuryContextChange(input: {
  * Third-party sources (including CBS) are not used.
  * Failed fetch/parse leaves existing designations and overrides unchanged.
  *
- * V2.1: blank Game Status may persist practiceStatus + injuryDescription with
- * designation UNKNOWN (or preserved stronger designation). Practice never
- * implies Q/D/OUT.
+ * V2.1 / stale-OUT fix: blank Game Status persists practiceStatus +
+ * injuryDescription. Designation becomes UNKNOWN unless existing
+ * Q/D/AVAILABLE/INACTIVE is preserved. Stale OUT on a listed blank-GS row
+ * clears to UNKNOWN. Practice never implies Q/D/OUT. Failed fetch / unmatched
+ * players unchanged.
  */
 export async function syncWeekInjuriesFromNflCom(input: {
   weekId: string;
