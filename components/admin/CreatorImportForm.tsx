@@ -8,8 +8,14 @@ import {
   useSyncExternalStore,
   useTransition,
 } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
+import {
+  classifyCaptureSaveFailure,
+  classifyCaptureSaveResult,
+  type CaptureSaveOutcome,
+} from "@/lib/benchmarks/capture-save-outcome";
 import {
   HISTORICAL_BACKFILL_BADGE,
   HISTORICAL_BACKFILL_HELP,
@@ -41,6 +47,13 @@ import {
 } from "@/lib/timing/chicago";
 import { rankingDepthForPosition } from "@/lib/contest-defaults";
 import type { ContestPosition } from "@/lib/generated/prisma/client";
+
+function outcomeBannerClass(kind: CaptureSaveOutcome["kind"]): string {
+  if (kind === "success") {
+    return "rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success";
+  }
+  return "rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning";
+}
 
 const draftListeners = new Set<() => void>();
 
@@ -131,7 +144,8 @@ export function CreatorImportForm({
   const [bulkPreview, setBulkPreview] = useState<
     Array<{ position: ContestPosition; lineCount: number; depth: number }>
   >([]);
-  const [message, setMessage] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CaptureSaveOutcome | null>(null);
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   function ensureCapturedAt(next: CreatorImportDraft): CreatorImportDraft {
@@ -199,7 +213,7 @@ export function CreatorImportForm({
         blocking: [tiered.error],
         tierNote: null,
       });
-      setMessage(null);
+      setOutcome(null);
       return;
     }
 
@@ -230,7 +244,7 @@ export function CreatorImportForm({
           ? `Flattened ${tiered.tierCount} ordered tiers into ${tiered.lines.length} ranks.`
           : null,
     });
-    setMessage(null);
+    setOutcome(null);
   }
 
   function previewBulk() {
@@ -301,23 +315,31 @@ export function CreatorImportForm({
     );
     if (cleared || wrote) notifyCreatorImportDraftListeners();
     setBulkPreview([]);
-    setMessage(null);
+    setOutcome(null);
   }
 
   function save(asCorrection: boolean) {
     const rows = draft.rows;
     if (!rows || !draft.ready) {
-      setMessage(
-        "Fix validation errors and parse again. RankEyeQ never silently repairs creator rankings.",
-      );
+      setOutcome({
+        kind: "validation_error",
+        message:
+          "Fix validation errors and parse again. RankEyeQ never silently repairs creator rankings.",
+      });
       return;
     }
     if (asCorrection && !draft.correctionReason.trim()) {
-      setMessage("Corrections require a reason.");
+      setOutcome({
+        kind: "validation_error",
+        message: "Corrections require a reason.",
+      });
       return;
     }
     if (draft.historicalBackfill && !draft.sourcePublishedAt.trim()) {
-      setMessage("Historical / Backfill Entry requires Source published at.");
+      setOutcome({
+        kind: "validation_error",
+        message: "Historical / Backfill Entry requires Source published at.",
+      });
       return;
     }
     const withTime = ensureCapturedAt(draft);
@@ -348,11 +370,9 @@ export function CreatorImportForm({
           commitOfficial: !competitiveLate,
           historicalBackfill: withTime.historicalBackfill,
         });
-        setMessage(
-          result.ok
-            ? [result.message, ...(result.warnings ?? [])].join(" ")
-            : result.error,
-        );
+        const next = classifyCaptureSaveResult(result);
+        setOutcome(next);
+        // Clear draft only after confirmed official lock — never on UNKNOWN.
         if (shouldClearCreatorImportDraft(result)) {
           const cleared = clearCreatorImportDraft(
             typeof window !== "undefined" ? window.sessionStorage : null,
@@ -361,12 +381,12 @@ export function CreatorImportForm({
           );
           if (cleared) notifyCreatorImportDraftListeners();
         }
+        if (next.kind === "success") {
+          router.refresh();
+        }
       } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to capture benchmark snapshot",
-        );
+        // May have committed before transport failure — preserve draft, no retry.
+        setOutcome(classifyCaptureSaveFailure(error));
       }
     });
   }
@@ -659,7 +679,11 @@ export function CreatorImportForm({
             <div className="flex flex-wrap gap-2 p-3">
               <Button
                 type="button"
-                disabled={pending || !draft.ready}
+                disabled={
+                  pending ||
+                  !draft.ready ||
+                  outcome?.kind === "unknown_result"
+                }
                 onClick={() => save(false)}
               >
                 {pending ? "Submitting…" : "Submit ranking"}
@@ -669,13 +693,24 @@ export function CreatorImportForm({
                   type="button"
                   variant="secondary"
                   disabled={
-                    pending || !draft.ready || !draft.correctionReason.trim()
+                    pending ||
+                    !draft.ready ||
+                    !draft.correctionReason.trim() ||
+                    outcome?.kind === "unknown_result"
                   }
                   onClick={() => save(true)}
                 >
                   Save correction
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => router.refresh()}
+              >
+                Refresh Snapshot History
+              </Button>
             </div>
           </div>
         </div>
@@ -696,20 +731,37 @@ export function CreatorImportForm({
         </label>
       ) : null}
 
-      {message ? (
-        <p
-          className={`text-sm ${
-            message.toLowerCase().includes("unable") ||
-            message.toLowerCase().includes("failed") ||
-            message.toLowerCase().includes("cannot") ||
-            message.toLowerCase().includes("require")
-              ? "text-danger"
-              : "text-accent-ink"
-          }`}
-          role="status"
-        >
-          {message}
-        </p>
+      {outcome ? (
+        <div className={outcomeBannerClass(outcome.kind)} role="status">
+          <p className="font-medium">
+            {outcome.kind === "success"
+              ? "SUCCESS"
+              : outcome.kind === "validation_error"
+                ? "VALIDATION ERROR"
+                : "UNKNOWN RESULT"}
+          </p>
+          <p className="mt-1">{outcome.message}</p>
+          {outcome.kind === "unknown_result" ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => router.refresh()}
+              >
+                Check Snapshot History
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => setOutcome(null)}
+              >
+                I checked — allow Save again
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

@@ -1,8 +1,14 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
+import {
+  classifyCaptureSaveFailure,
+  classifyCaptureSaveResult,
+  type CaptureSaveOutcome,
+} from "@/lib/benchmarks/capture-save-outcome";
 import {
   HISTORICAL_BACKFILL_BADGE,
   HISTORICAL_BACKFILL_HELP,
@@ -19,6 +25,16 @@ import { adminCaptureBenchmarkAction } from "@/lib/admin-benchmark-actions";
 import type { EligibleParserEntry } from "@/lib/admin/ai-parser";
 import type { BenchmarkCaptureType } from "@/lib/generated/prisma/client";
 import { parseChicagoDateTimeLocal, toChicagoDateTimeLocal } from "@/lib/timing/chicago";
+
+function outcomeBannerClass(kind: CaptureSaveOutcome["kind"]): string {
+  if (kind === "success") {
+    return "rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success";
+  }
+  if (kind === "validation_error") {
+    return "rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning";
+  }
+  return "rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning";
+}
 
 export function BenchmarkImportForm({
   contestId,
@@ -60,8 +76,9 @@ export function BenchmarkImportForm({
   const [publicBoardAllowed, setPublicBoardAllowed] = useState(true);
   const [historicalBackfill, setHistoricalBackfill] = useState(false);
   const [correctionReason, setCorrectionReason] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CaptureSaveOutcome | null>(null);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   const competitiveLate = useMemo(() => {
     const lock = fullLockAt ? new Date(fullLockAt) : null;
@@ -102,7 +119,7 @@ export function BenchmarkImportForm({
     setRows(extracted.rows);
     setBlocking(extracted.blockingIssues);
     setReady(extracted.ready);
-    setMessage(null);
+    setOutcome(null);
   }
 
   function toggleExclude(sourceRank: number) {
@@ -140,11 +157,17 @@ export function BenchmarkImportForm({
   function save(asCorrection: boolean) {
     if (!rows) return;
     if (asCorrection && !correctionReason.trim()) {
-      setMessage("Corrections require a reason.");
+      setOutcome({
+        kind: "validation_error",
+        message: "Corrections require a reason.",
+      });
       return;
     }
     if (historicalBackfill && !sourcePublishedAt.trim()) {
-      setMessage("Historical / Backfill Entry requires Source published at.");
+      setOutcome({
+        kind: "validation_error",
+        message: "Historical / Backfill Entry requires Source published at.",
+      });
       return;
     }
     startTransition(async () => {
@@ -171,17 +194,16 @@ export function BenchmarkImportForm({
           commitOfficial: !competitiveLate,
           historicalBackfill,
         });
-        setMessage(
-          result.ok
-            ? [result.message, ...(result.warnings ?? [])].join(" ")
-            : result.error,
-        );
+        const next = classifyCaptureSaveResult(result);
+        setOutcome(next);
+        // Soft refresh Snapshot History only — no write / no auto-retry.
+        if (next.kind === "success") {
+          router.refresh();
+        }
       } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to capture benchmark snapshot",
-        );
+        // Transport/E394 may occur after a committed save — never claim failure
+        // and never auto-retry. Rankings paste stays intact.
+        setOutcome(classifyCaptureSaveFailure(error));
       }
     });
   }
@@ -365,7 +387,7 @@ export function BenchmarkImportForm({
           <div className="flex flex-wrap gap-2 p-3">
             <Button
               type="button"
-              disabled={pending || !ready}
+              disabled={pending || !ready || outcome?.kind === "unknown_result"}
               onClick={() => save(false)}
             >
               Save snapshot
@@ -374,12 +396,25 @@ export function BenchmarkImportForm({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={pending || !ready || !correctionReason.trim()}
+                disabled={
+                  pending ||
+                  !ready ||
+                  !correctionReason.trim() ||
+                  outcome?.kind === "unknown_result"
+                }
                 onClick={() => save(true)}
               >
                 Save correction
               </Button>
             ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => router.refresh()}
+            >
+              Refresh Snapshot History
+            </Button>
           </div>
         </div>
       ) : null}
@@ -398,7 +433,38 @@ export function BenchmarkImportForm({
         </label>
       ) : null}
 
-      {message ? <p className="text-sm text-accent-ink">{message}</p> : null}
+      {outcome ? (
+        <div className={outcomeBannerClass(outcome.kind)} role="status">
+          <p className="font-medium">
+            {outcome.kind === "success"
+              ? "SUCCESS"
+              : outcome.kind === "validation_error"
+                ? "VALIDATION ERROR"
+                : "UNKNOWN RESULT"}
+          </p>
+          <p className="mt-1">{outcome.message}</p>
+          {outcome.kind === "unknown_result" ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => router.refresh()}
+              >
+                Check Snapshot History
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => setOutcome(null)}
+              >
+                I checked — allow Save again
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

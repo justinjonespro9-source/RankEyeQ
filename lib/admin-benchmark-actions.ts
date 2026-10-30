@@ -1,7 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { logAdminAction } from "@/lib/admin/audit";
+import { revalidateBenchmarkCapture } from "@/lib/admin/benchmark-revalidate";
 import { LATE_CAPTURE_WARNING } from "@/lib/benchmark-sources";
 import {
   BenchmarkCaptureError,
@@ -18,29 +18,6 @@ import { logServerEvent } from "@/lib/log";
 import { RATE_LIMITS, rateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 import { rateLimitKey } from "@/lib/request-ip";
 import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
-
-function revalidateBenchmark(
-  weekId?: string,
-  profileId?: string,
-  contestId?: string,
-  options?: { includeBoard?: boolean },
-) {
-  revalidatePath("/admin");
-  revalidatePath("/admin/benchmarks");
-  revalidatePath("/admin/creators");
-  revalidatePath("/leaderboards");
-  revalidatePath("/consensus");
-  if (weekId) {
-    revalidatePath(`/admin/benchmarks?weekId=${weekId}`);
-    revalidatePath(`/admin/creators?weekId=${weekId}`);
-  }
-  // Remounting the import board wipes client form state — only do it after
-  // a confirmed official lock (or explicit not-available), never on soft errors.
-  if (options?.includeBoard && profileId && contestId) {
-    revalidatePath(`/admin/benchmarks/${profileId}/${contestId}`);
-    revalidatePath(`/admin/creators/board/${profileId}/${contestId}`);
-  }
-}
 
 function parseCapturedAt(raw: string | null | undefined, fallback: Date) {
   const value = String(raw ?? "").trim();
@@ -297,10 +274,15 @@ export async function adminCaptureBenchmarkAction(input: {
       },
     });
 
-    // Only remount the board page after an official lock so Retry/remount
-    // cannot wipe an in-progress paste after a soft failure.
-    revalidateBenchmark(contest.weekId, input.profileId, input.contestId, {
+    // Remount board after official/late lock only — never on soft failures
+    // (preserves in-progress paste). Public leaderboards/consensus invalidate
+    // only when an official board locks (required public cache + less E394 risk).
+    revalidateBenchmarkCapture({
+      weekId: contest.weekId,
+      profileId: input.profileId,
+      contestId: input.contestId,
       includeBoard: result.official || result.late,
+      invalidatePublic: result.official,
     });
 
     return {
@@ -361,8 +343,13 @@ export async function adminMarkBenchmarkNotAvailableAction(formData: FormData) {
       where: { id: contestId },
       select: { weekId: true },
     });
-    revalidateBenchmark(contest?.weekId, profileId, contestId, {
+    revalidateBenchmarkCapture({
+      weekId: contest?.weekId,
+      profileId,
+      contestId,
       includeBoard: true,
+      // Not-available is not an official scoring board.
+      invalidatePublic: false,
     });
   } catch (error) {
     const message =
