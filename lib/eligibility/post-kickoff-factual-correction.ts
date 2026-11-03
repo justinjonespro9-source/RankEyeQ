@@ -3,11 +3,17 @@
  *
  * Ordinary availability writes keep skipAfterKickoff: true.
  * This workflow:
- *  1. Writes OUT/INACTIVE despite kickoff (authorized only).
+ *  1. Writes OUT/INACTIVE despite kickoff (authorized only), OR
+ *     skips the PWA rewrite when designation is already correct.
  *  2. Revises RankingPick.wasUnavailableAtKickoff so deriveEffectiveBoard
  *     displaces the player after kickoff (original predictedRank unchanged).
  *  3. Does NOT auto-regrade — operator must regrade explicitly.
  *  4. Does NOT rewrite consensus / pregame snapshots.
+ *
+ * Freeze-only path (already-correct OUT/INACTIVE + missing freeze):
+ *  - Requires sourcePublishedAt strictly before kickoff (pregame fact).
+ *  - Does not invent or broaden corrections to unrelated players.
+ *  - Idempotent: picks already frozen true are left untouched.
  */
 
 import { prisma } from "@/lib/db";
@@ -49,16 +55,53 @@ export function zeroFantasyPointsAloneNeverDisplaces(): boolean {
   return true;
 }
 
-function kickoffForWeekEntry(input: {
-  contestEntries: Array<{
-    game: { startsAt: Date; weekId: string | null } | null;
-  }>;
-}, weekId: string): Date | null {
+function kickoffForWeekEntry(
+  input: {
+    contestEntries: Array<{
+      game: { startsAt: Date; weekId: string | null } | null;
+    }>;
+  },
+  weekId: string,
+): Date | null {
   const contestGame = input.contestEntries[0]?.game ?? null;
   if (contestGame && contestGame.weekId === weekId) {
     return contestGame.startsAt;
   }
   return null;
+}
+
+function parseSourcePublishedAt(
+  value: Date | string | null | undefined,
+): Date | null {
+  if (value == null) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * True when PWA designation already matches the authorized correction target.
+ * Used to skip an unnecessary availability rewrite and only stamp freezes.
+ */
+export function availabilityAlreadyMatchesCorrection(
+  existingDesignation: string | null | undefined,
+  target: PostKickoffCorrectionDesignation,
+): boolean {
+  if (!existingDesignation) return false;
+  return existingDesignation.toUpperCase() === target;
+}
+
+/**
+ * Pregame OUT/INACTIVE evidence must be published before the player's kickoff.
+ * In-game injury publications (at/after kickoff) never qualify.
+ */
+export function sourceEstablishesPregameUnavailability(input: {
+  sourcePublishedAt: Date;
+  kickoffAt: Date;
+}): boolean {
+  return input.sourcePublishedAt.getTime() < input.kickoffAt.getTime();
 }
 
 export type ApplyPostKickoffFactualCorrectionInput = {
@@ -69,6 +112,11 @@ export type ApplyPostKickoffFactualCorrectionInput = {
   reason: string;
   /** Factual source URL or free-text reference. */
   sourceReference: string;
+  /**
+   * When the OUT/INACTIVE fact was published. Required for freeze-only path
+   * (already-correct designation); must be strictly before kickoff.
+   */
+  sourcePublishedAt?: Date | string | null;
   adminUserId: string;
   now?: Date;
 };
@@ -80,6 +128,19 @@ export type ApplyPostKickoffFactualCorrectionResult =
       correctedDesignation: PostKickoffCorrectionDesignation;
       kickoffAt: Date;
       freezePicksUpdated: number;
+      /** Picks already frozen true — left untouched (idempotent). */
+      freezePicksAlreadyCorrect: number;
+      /**
+       * When true, PWA designation already matched; only missing freezes were
+       * stamped (no unnecessary availability rewrite).
+       */
+      freezeOnlyCorrection: boolean;
+      availabilityUpsertStatus:
+        | "updated"
+        | "unchanged"
+        | "updated_context_only"
+        | "skipped_already_correct"
+        | null;
       affectedContestIds: string[];
       requiresRegrade: boolean;
       auditLogId: string;
@@ -90,9 +151,13 @@ export type ApplyPostKickoffFactualCorrectionResult =
         | "invalid_designation"
         | "missing_reason"
         | "missing_source"
+        | "missing_source_published_at"
+        | "source_not_before_kickoff"
         | "kickoff_not_passed"
         | "kickoff_unknown"
-        | "player_not_found";
+        | "player_not_found"
+        | "availability_write_failed"
+        | "nothing_to_correct";
       message: string;
     };
 
@@ -130,6 +195,7 @@ export async function applyPostKickoffFactualCorrection(
   }
 
   const now = input.now ?? new Date();
+  const sourcePublishedAt = parseSourcePublishedAt(input.sourcePublishedAt);
 
   const entry = await prisma.rankableEntry.findUnique({
     where: { id: input.rankableEntryId },
@@ -185,50 +251,132 @@ export async function applyPostKickoffFactualCorrection(
   const previousDesignation =
     (existing?.designation as WeeklyDesignation | undefined) ?? null;
 
-  // Bypass normal kickoff skip — this is the explicit exception path.
-  const upsert = await upsertPlayerWeekAvailability({
-    weekId: input.weekId,
-    rankableEntryId: input.rankableEntryId,
-    designation: input.designation,
-    injuryDescription: `[Post-kickoff factual correction] ${reason}`,
-    sourceUrl: sourceReference.startsWith("http")
-      ? sourceReference
-      : `correction:${sourceReference}`,
-    sourcePublishedAt: now,
-    observedAt: now,
-    sourceType: "MANUAL",
-    setManualOverride: true,
-    respectManualOverride: false,
-    skipAfterKickoff: false,
-    updatedByUserId: input.adminUserId,
-    now,
-  });
+  const freezeOnlyCorrection = availabilityAlreadyMatchesCorrection(
+    previousDesignation,
+    input.designation,
+  );
 
-  if (
-    upsert.status !== "updated" &&
-    upsert.status !== "unchanged"
-  ) {
-    // Should not happen with skipAfterKickoff: false; surface conservatively.
-    return {
-      ok: false,
-      error: "kickoff_not_passed",
-      message: `Availability write failed (${upsert.status}).`,
-    };
+  // Freeze-only (already-correct OUT/INACTIVE) requires pregame publication
+  // evidence — never treat an in-game injury report as pregame unavailability.
+  if (freezeOnlyCorrection) {
+    if (!sourcePublishedAt) {
+      return {
+        ok: false,
+        error: "missing_source_published_at",
+        message:
+          "Freeze-only correction requires sourcePublishedAt establishing OUT/INACTIVE before kickoff.",
+      };
+    }
+    if (
+      !sourceEstablishesPregameUnavailability({
+        sourcePublishedAt,
+        kickoffAt,
+      })
+    ) {
+      return {
+        ok: false,
+        error: "source_not_before_kickoff",
+        message:
+          "Source publication is not before kickoff — in-game injuries do not qualify for pregame freeze correction.",
+      };
+    }
+  } else if (sourcePublishedAt) {
+    // When changing designation, if operator supplies publication time, enforce
+    // the same pregame evidence rule.
+    if (
+      !sourceEstablishesPregameUnavailability({
+        sourcePublishedAt,
+        kickoffAt,
+      })
+    ) {
+      return {
+        ok: false,
+        error: "source_not_before_kickoff",
+        message:
+          "Source publication is not before kickoff — in-game injuries do not qualify for pregame freeze correction.",
+      };
+    }
   }
 
-  // Revise freeze so post-kickoff deriveEffectiveBoard displaces this player.
-  // Never touch predictedRank or reserveEligiblePredecessorIds.
+  let availabilityUpsertStatus:
+    | "updated"
+    | "unchanged"
+    | "updated_context_only"
+    | "skipped_already_correct"
+    | null = null;
+
+  if (freezeOnlyCorrection) {
+    // Designation already correct — do not rewrite PWA; only stamp freezes.
+    availabilityUpsertStatus = "skipped_already_correct";
+  } else {
+    // Bypass normal kickoff skip — this is the explicit exception path.
+    const upsert = await upsertPlayerWeekAvailability({
+      weekId: input.weekId,
+      rankableEntryId: input.rankableEntryId,
+      designation: input.designation,
+      injuryDescription: `[Post-kickoff factual correction] ${reason}`,
+      sourceUrl: sourceReference.startsWith("http")
+        ? sourceReference
+        : `correction:${sourceReference}`,
+      sourcePublishedAt: sourcePublishedAt ?? now,
+      observedAt: now,
+      sourceType: "MANUAL",
+      setManualOverride: true,
+      respectManualOverride: false,
+      skipAfterKickoff: false,
+      updatedByUserId: input.adminUserId,
+      now,
+    });
+
+    if (
+      upsert.status !== "updated" &&
+      upsert.status !== "unchanged" &&
+      upsert.status !== "updated_context_only"
+    ) {
+      return {
+        ok: false,
+        error: "availability_write_failed",
+        message: `Availability write failed (${upsert.status}).`,
+      };
+    }
+    availabilityUpsertStatus = upsert.status;
+  }
+
+  // Count picks already correctly frozen (idempotency / audit).
+  const alreadyFrozen = await prisma.rankingPick.count({
+    where: {
+      rankableEntryId: input.rankableEntryId,
+      submission: { contest: { weekId: input.weekId } },
+      wasUnavailableAtKickoff: true,
+    },
+  });
+
+  // Stamp only missing / incorrect freezes — never touch predictedRank,
+  // lockedAt, or reserveEligiblePredecessorIds. Idempotent on re-run.
   const pickUpdate = await prisma.rankingPick.updateMany({
     where: {
       rankableEntryId: input.rankableEntryId,
       submission: {
         contest: { weekId: input.weekId },
       },
+      OR: [
+        { wasUnavailableAtKickoff: null },
+        { wasUnavailableAtKickoff: false },
+      ],
     },
     data: {
       wasUnavailableAtKickoff: true,
     },
   });
+
+  if (freezeOnlyCorrection && pickUpdate.count === 0) {
+    return {
+      ok: false,
+      error: "nothing_to_correct",
+      message:
+        "Availability already correct and all week picks are already frozen unavailable — nothing to correct.",
+    };
+  }
 
   const contests = await prisma.rankIQContest.findMany({
     where: {
@@ -259,13 +407,16 @@ export async function applyPostKickoffFactualCorrection(
       correctedDesignation: input.designation,
       reason,
       sourceReference,
+      sourcePublishedAt: sourcePublishedAt?.toISOString() ?? null,
       kickoffAt: kickoffAt.toISOString(),
       correctedAt: now.toISOString(),
       freezePicksUpdated: pickUpdate.count,
+      freezePicksAlreadyCorrect: alreadyFrozen,
+      freezeOnlyCorrection,
+      availabilityUpsertStatus,
       affectedContestIds,
       requiresRegrade,
       regradeOccurred: false,
-      upsertStatus: upsert.status,
     },
   });
 
@@ -275,6 +426,9 @@ export async function applyPostKickoffFactualCorrection(
     correctedDesignation: input.designation,
     kickoffAt,
     freezePicksUpdated: pickUpdate.count,
+    freezePicksAlreadyCorrect: alreadyFrozen,
+    freezeOnlyCorrection,
+    availabilityUpsertStatus,
     affectedContestIds,
     requiresRegrade,
     auditLogId: audit.id,

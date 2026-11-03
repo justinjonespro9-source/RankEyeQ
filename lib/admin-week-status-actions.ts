@@ -432,6 +432,15 @@ export async function postKickoffFactualCorrectionAction(formData: FormData) {
   const sourceReference = String(
     formData.get("sourceReference") || formData.get("sourceUrl") || "",
   );
+  const sourcePublishedRaw = String(
+    formData.get("sourcePublishedAt") || "",
+  ).trim();
+  const sourcePublishedAt = sourcePublishedRaw
+    ? new Date(sourcePublishedRaw)
+    : null;
+  if (sourcePublishedRaw && Number.isNaN(sourcePublishedAt?.getTime())) {
+    throw new Error("sourcePublishedAt must be a valid ISO-8601 timestamp");
+  }
 
   const result = await applyPostKickoffFactualCorrection({
     weekId,
@@ -439,6 +448,7 @@ export async function postKickoffFactualCorrectionAction(formData: FormData) {
     designation: designationRaw,
     reason,
     sourceReference,
+    sourcePublishedAt,
     adminUserId: admin.user.id,
   });
 

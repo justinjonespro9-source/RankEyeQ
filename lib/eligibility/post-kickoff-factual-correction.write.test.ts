@@ -7,6 +7,7 @@ const {
   findFirstSeason,
   findUniqueRankable,
   updateManyPicks,
+  countPicks,
   findManyContests,
   createAudit,
   findUniqueAudit,
@@ -17,6 +18,7 @@ const {
   findFirstSeason: vi.fn(),
   findUniqueRankable: vi.fn(),
   updateManyPicks: vi.fn(),
+  countPicks: vi.fn(),
   findManyContests: vi.fn(),
   createAudit: vi.fn(),
   findUniqueAudit: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock("@/lib/db", () => ({
     },
     rankingPick: {
       updateMany: updateManyPicks,
+      count: countPicks,
     },
     rankIQContest: {
       findMany: findManyContests,
@@ -55,13 +58,17 @@ vi.mock("@/lib/admin/audit", () => ({
 import { upsertPlayerWeekAvailability } from "@/lib/eligibility/player-week-availability-store";
 import {
   applyPostKickoffFactualCorrection,
+  availabilityAlreadyMatchesCorrection,
   POST_KICKOFF_FACTUAL_CORRECTION_ACTION,
   resolveContestsForPostKickoffCorrectionRegrade,
+  sourceEstablishesPregameUnavailability,
 } from "@/lib/eligibility/post-kickoff-factual-correction";
 
 const kickoff = new Date("2026-09-22T00:20:00Z");
 const afterKickoff = new Date("2026-09-22T06:00:00Z");
 const beforeKickoff = new Date("2026-09-21T18:00:00Z");
+const sourceBeforeKickoff = new Date("2026-09-21T15:00:00Z");
+const sourceAfterKickoff = new Date("2026-09-22T01:00:00Z");
 
 describe("ordinary admin OUT after kickoff remains blocked", () => {
   beforeEach(() => {
@@ -107,6 +114,7 @@ describe("authorized post-kickoff factual correction write path", () => {
     upsertAvail.mockResolvedValue({});
     updateRankable.mockResolvedValue({});
     updateManyPicks.mockResolvedValue({ count: 42 });
+    countPicks.mockResolvedValue(0);
     findManyContests.mockResolvedValue([
       { id: "contest-wr", position: "WR", status: "FINAL" },
     ]);
@@ -164,12 +172,17 @@ describe("authorized post-kickoff factual correction write path", () => {
     expect(result.auditLogId).toBe("audit-1");
 
     expect(upsertAvail).toHaveBeenCalled();
+    expect(result.freezeOnlyCorrection).toBe(false);
     expect(updateManyPicks).toHaveBeenCalledWith({
       where: {
         rankableEntryId: "puka",
         submission: {
           contest: { weekId: "week-mnf" },
         },
+        OR: [
+          { wasUnavailableAtKickoff: null },
+          { wasUnavailableAtKickoff: false },
+        ],
       },
       data: { wasUnavailableAtKickoff: true },
     });
@@ -189,9 +202,133 @@ describe("authorized post-kickoff factual correction write path", () => {
           regradeOccurred: false,
           requiresRegrade: true,
           reason: "Officially inactive — did not play MNF",
+          freezeOnlyCorrection: false,
         }),
       }),
     );
+  });
+
+  it("freeze-only: already OUT + missing freeze stamps picks without PWA rewrite", async () => {
+    findUniqueAvail.mockResolvedValue({
+      designation: "OUT",
+      injuryDescription: "pregame OUT",
+      sourceUrl: "https://example.com/out",
+      sourcePublishedAt: sourceBeforeKickoff,
+      manualOverride: true,
+      sourceType: "MANUAL",
+    });
+    updateManyPicks.mockResolvedValue({ count: 8 });
+    countPicks.mockResolvedValue(0);
+
+    const result = await applyPostKickoffFactualCorrection({
+      weekId: "week-mnf",
+      rankableEntryId: "aj-brown",
+      designation: "OUT",
+      reason: "Pregame OUT — missing kickoff freeze",
+      sourceReference: "https://example.com/out",
+      sourcePublishedAt: sourceBeforeKickoff,
+      adminUserId: "admin-1",
+      now: afterKickoff,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.freezeOnlyCorrection).toBe(true);
+    expect(result.availabilityUpsertStatus).toBe("skipped_already_correct");
+    expect(result.freezePicksUpdated).toBe(8);
+    expect(result.previousDesignation).toBe("OUT");
+    expect(upsertAvail).not.toHaveBeenCalled();
+    expect(createAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          freezeOnlyCorrection: true,
+          availabilityUpsertStatus: "skipped_already_correct",
+          freezePicksUpdated: 8,
+        }),
+      }),
+    );
+  });
+
+  it("idempotent: already OUT + already frozen → nothing_to_correct", async () => {
+    findUniqueAvail.mockResolvedValue({
+      designation: "OUT",
+      injuryDescription: "pregame OUT",
+      sourceUrl: "https://example.com/out",
+      sourcePublishedAt: sourceBeforeKickoff,
+      manualOverride: true,
+      sourceType: "MANUAL",
+    });
+    updateManyPicks.mockResolvedValue({ count: 0 });
+    countPicks.mockResolvedValue(11);
+
+    const result = await applyPostKickoffFactualCorrection({
+      weekId: "week-mnf",
+      rankableEntryId: "aj-brown",
+      designation: "OUT",
+      reason: "rerun",
+      sourceReference: "https://example.com/out",
+      sourcePublishedAt: sourceBeforeKickoff,
+      adminUserId: "admin-1",
+      now: afterKickoff,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("nothing_to_correct");
+    expect(upsertAvail).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
+  });
+
+  it("freeze-only requires sourcePublishedAt before kickoff", async () => {
+    findUniqueAvail.mockResolvedValue({
+      designation: "OUT",
+      injuryDescription: "pregame OUT",
+      sourceUrl: "https://example.com/out",
+      manualOverride: true,
+      sourceType: "MANUAL",
+    });
+
+    const missing = await applyPostKickoffFactualCorrection({
+      weekId: "week-mnf",
+      rankableEntryId: "aj-brown",
+      designation: "OUT",
+      reason: "missing pub",
+      sourceReference: "https://example.com/out",
+      adminUserId: "admin-1",
+      now: afterKickoff,
+    });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error).toBe("missing_source_published_at");
+
+    const late = await applyPostKickoffFactualCorrection({
+      weekId: "week-mnf",
+      rankableEntryId: "aj-brown",
+      designation: "OUT",
+      reason: "in-game injury report",
+      sourceReference: "https://example.com/injury",
+      sourcePublishedAt: sourceAfterKickoff,
+      adminUserId: "admin-1",
+      now: afterKickoff,
+    });
+    expect(late.ok).toBe(false);
+    if (!late.ok) expect(late.error).toBe("source_not_before_kickoff");
+    expect(updateManyPicks).not.toHaveBeenCalled();
+  });
+
+  it("helper: availability match + pregame source timing", () => {
+    expect(availabilityAlreadyMatchesCorrection("OUT", "OUT")).toBe(true);
+    expect(availabilityAlreadyMatchesCorrection("INACTIVE", "OUT")).toBe(false);
+    expect(
+      sourceEstablishesPregameUnavailability({
+        sourcePublishedAt: sourceBeforeKickoff,
+        kickoffAt: kickoff,
+      }),
+    ).toBe(true);
+    expect(
+      sourceEstablishesPregameUnavailability({
+        sourcePublishedAt: sourceAfterKickoff,
+        kickoffAt: kickoff,
+      }),
+    ).toBe(false);
   });
 
   it("rejects when kickoff has not passed", async () => {
