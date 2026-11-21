@@ -242,6 +242,7 @@ model UniversalProfile {
 
   submissions RankingSubmission[]
   benchmarkSnapshots BenchmarkSnapshot[]
+  rankingAiHistoricalProvenances RankingAiHistoricalProvenance[]
   /// Auth.js account linked to this sports identity (humans only).
   authUser    User?
   followsGiven     ProfileFollow[]      @relation("FollowsGiven")
@@ -521,6 +522,7 @@ model User {
   waiverAiLateEntryApprovals       WaiverAiLateEntryApproval[]     @relation("WaiverAiLateEntryApprovedBy")
   waiverAiCompetitiveOverrides     WaiverAiCompetitiveOverride[]   @relation("WaiverAiCompetitiveOverrideAuthorizedBy")
   waiverGradePublications          WaiverWeekGradePublication[]    @relation("WaiverWeekGradePublicationPublishedBy")
+  rankingAiHistoricalProvenances   RankingAiHistoricalProvenance[] @relation("RankingAiHistoricalProvenanceAdmin")
 }
 
 /// Lightweight operator audit trail. Never store secrets or auth tokens.
@@ -640,6 +642,7 @@ model Week {
   waiverGradeAuthority     WaiverWeekGradeAuthority?
   waiverGradePublications  WaiverWeekGradePublication[]
   waiverEmptyPositionResults WaiverEmptyPositionResult[]
+  rankingAiHistoricalProvenances RankingAiHistoricalProvenance[]
 
   @@unique([seasonId, weekNumber])
 }
@@ -711,6 +714,7 @@ model RankIQContest {
   pregameSnapshot    ContestPregameSnapshot?
   officialBoardPublications OfficialBoardPublication[]
   officialBoardVersions     OfficialBoardVersion[]
+  rankingAiHistoricalProvenances RankingAiHistoricalProvenance[]
 
   @@unique([weekId, position])
   @@index([seasonId, status])
@@ -1005,9 +1009,58 @@ model RankingSubmission {
   picks            RankingPick[]
   officialBoardPublication OfficialBoardPublication?
   officialBoardVersions    OfficialBoardVersion[]
+  /// Immutable dual-clock provenance for Rankings AI verified historical entry.
+  aiHistoricalProvenance RankingAiHistoricalProvenance?
 
   @@unique([contestId, universalProfileId])
   @@index([contestId, status])
+}
+
+/// Evidence kinds accepted for Rankings AI verified historical entry.
+enum RankingAiHistoricalEvidenceType {
+  PROVIDER_EXPORT
+  CHAT_TRANSCRIPT
+  API_LOG
+  SCREENSHOT
+  OTHER
+}
+
+/// Immutable dual-clock provenance for a Rankings AI historical / backfill board.
+/// Competitive prediction time lives on RankingSubmission.submittedAt/lockedAt
+/// (Expert/Creator architecture). True wall-clock entry time is capturedAt here.
+/// createdAt is the DB insert instant and is never backdated.
+model RankingAiHistoricalProvenance {
+  id                    String                           @id @default(cuid())
+  submissionId          String                           @unique
+  contestId             String
+  weekId                String
+  universalProfileId    String
+  /// Competitive original prediction / response timestamp (UTC).
+  originalPredictionAt  DateTime
+  /// Wall-clock admin capture / import timestamp (UTC). Never overwritten by prediction time.
+  capturedAt            DateTime
+  evidenceType          RankingAiHistoricalEvidenceType
+  evidenceReference     String
+  sourceIdentifier      String?
+  rawResponseText       String?
+  responseSha256        String
+  /// Ordered rankableEntryId list including reserves.
+  rankedEntryIds        Json
+  previewFingerprint    String
+  adminUserId           String
+  attestationAcceptedAt DateTime
+  createdAt             DateTime                         @default(now())
+
+  submission       RankingSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  contest          RankIQContest     @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  week             Week              @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  universalProfile UniversalProfile  @relation(fields: [universalProfileId], references: [id], onDelete: Restrict)
+  adminUser        User              @relation("RankingAiHistoricalProvenanceAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@index([weekId, contestId])
+  @@index([universalProfileId])
+  @@index([adminUserId])
+  @@index([originalPredictionAt])
 }
 
 /// Official RankEyeQ Board publication state for one owner-authored board.

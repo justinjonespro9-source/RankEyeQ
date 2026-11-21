@@ -13,6 +13,7 @@ import {
   partitionAiPromptPlayers,
   RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
 } from "@/lib/admin/ai-prompt";
+import { AI_HISTORICAL_BACKFILL_BADGE } from "@/lib/rankings/ai-historical-backfill";
 import {
   loadAiPromptBundleForContest,
   loadAiPromptContest,
@@ -47,7 +48,10 @@ export default async function AdminAiContestPage(
         },
         submissions: {
           where: { universalProfileId: profileId },
-          include: { picks: { orderBy: { predictedRank: "asc" } } },
+          include: {
+            picks: { orderBy: { predictedRank: "asc" } },
+            aiHistoricalProvenance: true,
+          },
         },
       },
     }),
@@ -86,6 +90,21 @@ export default async function AdminAiContestPage(
     .map((player) => player.rankableEntryId)
     .filter((id): id is string => Boolean(id));
 
+  const toEntry = (entry: (typeof contest.entries)[number]) =>
+    toEligibleParserEntry({
+      id: entry.rankableEntryId,
+      name: entry.rankableEntry.name,
+      team: entry.rankableEntry.team,
+      shortName: entry.rankableEntry.shortName,
+      adminNotes: entry.rankableEntry.adminNotes,
+    });
+
+  // Historical mode evaluates kickoff against the original prediction time,
+  // so the paste pool includes players who have already kicked off now.
+  const historicalEligible = contest.entries
+    .filter((entry) => !entry.excluded)
+    .map(toEntry);
+
   const eligible = contest.entries
     .filter((entry) => !entry.excluded)
     .filter((entry) => {
@@ -100,15 +119,7 @@ export default async function AdminAiContestPage(
         availability === "DOUBTFUL"
       );
     })
-    .map((entry) =>
-      toEligibleParserEntry({
-        id: entry.rankableEntryId,
-        name: entry.rankableEntry.name,
-        team: entry.rankableEntry.team,
-        shortName: entry.rankableEntry.shortName,
-        adminNotes: entry.rankableEntry.adminNotes,
-      }),
-    );
+    .map(toEntry);
 
   const timing = getWeekTimingState({
     rankingsOpenAt: contest.week.rankingsOpenAt,
@@ -152,7 +163,7 @@ export default async function AdminAiContestPage(
           {!contestOpen
             ? `Contest is ${contest.status}. Reopen to OPEN before importing a competing AI board.`
             : timing.fullBoardLocked
-              ? "Sunday full lock has passed — competing AI boards can no longer be submitted."
+              ? "Sunday full lock has passed — normal AI entry is closed. Verified historical entry may still be used when original prediction time is before full lock and evidence verifies."
               : "Weekly rankings have not opened yet."}
         </div>
       ) : null}
@@ -202,17 +213,49 @@ export default async function AdminAiContestPage(
         <MetaItem label="Generated" value={bundle.meta.generatedAtLabel} />
         <MetaItem
           label="Submission status"
-          value={submission?.status ?? "Missing"}
+          value={
+            submission
+              ? `${submission.status}${
+                  submission.historicalBackfill
+                    ? ` · ${AI_HISTORICAL_BACKFILL_BADGE}`
+                    : ""
+                }`
+              : "Missing"
+          }
         />
         <MetaItem
-          label="Submitted at"
+          label="Competitive submitted at"
           value={
             submission?.submittedAt
               ? submission.submittedAt.toISOString()
               : "—"
           }
         />
+        {submission?.historicalBackfill &&
+        submission.aiHistoricalProvenance ? (
+          <>
+            <MetaItem
+              label="Historical capture at"
+              value={submission.aiHistoricalProvenance.capturedAt.toISOString()}
+            />
+            <MetaItem
+              label="Historical evidence"
+              value={`${submission.aiHistoricalProvenance.evidenceType} · ${submission.aiHistoricalProvenance.evidenceReference}`}
+            />
+          </>
+        ) : null}
       </dl>
+
+      {submission?.historicalBackfill ? (
+        <div
+          className="mb-6 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+          role="status"
+        >
+          Verified historical / backfill board. Competitive time is the original
+          prediction timestamp; capture time is retained in provenance. Normal
+          edits and re-imports are blocked.
+        </div>
+      ) : null}
 
       <section className="mb-8 rounded-lg border border-border bg-surface-elevated p-5">
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -248,8 +291,10 @@ export default async function AdminAiContestPage(
           rankingDepth={submissionDepthFromScoring(contest.rankingDepth)}
           scoringDepth={contest.rankingDepth}
           eligible={eligible}
+          historicalEligible={historicalEligible}
           lockedPicks={lockedPicks}
           kickedOffIds={kickedOffIds}
+          allowHistoricalEntry
         />
       </section>
     </Container>

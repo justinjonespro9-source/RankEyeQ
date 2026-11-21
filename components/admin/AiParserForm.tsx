@@ -9,6 +9,29 @@ import {
   type ImmutableLockedPick,
 } from "@/lib/admin/ai-parser";
 import { adminSaveParsedBotBoardAction } from "@/lib/admin-command-actions";
+import {
+  adminCommitAiHistoricalBoardAction,
+  adminPreviewAiHistoricalBoardAction,
+} from "@/lib/admin-ai-historical-actions";
+import {
+  AI_HISTORICAL_BACKFILL_BADGE,
+  AI_HISTORICAL_ENTRY_LABEL,
+  AI_HISTORICAL_EVIDENCE_TYPES,
+} from "@/lib/rankings/ai-historical-backfill";
+
+type HistoricalPreview = {
+  ready: boolean;
+  status: "READY" | "HOLD" | "BLOCKED";
+  blockers: string[];
+  warnings: string[];
+  holdReasons: string[];
+  previewFingerprint: string;
+  competitiveAt: string;
+  capturedAt: string;
+  thursdayPlayerCount: number;
+  rankedEntryIds: string[];
+  officiallyCompetitive?: boolean;
+};
 
 export function AiParserForm({
   contestId,
@@ -17,8 +40,11 @@ export function AiParserForm({
   rankingDepth,
   scoringDepth,
   eligible,
+  /** Full non-excluded pool for historical mode (includes kicked-off players). */
+  historicalEligible,
   lockedPicks = [],
   kickedOffIds = [],
+  allowHistoricalEntry = true,
 }: {
   contestId: string;
   profileId: string;
@@ -28,11 +54,14 @@ export function AiParserForm({
   /** Scoring depth (10 / 15). */
   scoringDepth: number;
   eligible: EligibleParserEntry[];
+  historicalEligible?: EligibleParserEntry[];
   /** Profile-immutable locks preserved at their ranks during import merge. */
   lockedPicks?: Array<ImmutableLockedPick & { name?: string; team?: string }>;
-  /** Entry IDs that have kicked off and cannot be newly added. */
+  /** Entry IDs that have kicked off and cannot be newly added (normal mode). */
   kickedOffIds?: string[];
+  allowHistoricalEntry?: boolean;
 }) {
+  const [mode, setMode] = useState<"normal" | "historical">("normal");
   const [raw, setRaw] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [mergePreview, setMergePreview] = useState<{
@@ -47,28 +76,42 @@ export function AiParserForm({
   } | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const [originalPredictionAt, setOriginalPredictionAt] = useState("");
+  const [evidenceType, setEvidenceType] =
+    useState<(typeof AI_HISTORICAL_EVIDENCE_TYPES)[number]>("CHAT_TRANSCRIPT");
+  const [evidenceReference, setEvidenceReference] = useState("");
+  const [sourceIdentifier, setSourceIdentifier] = useState("");
+  const [attestationAccepted, setAttestationAccepted] = useState(false);
+  const [historicalPreview, setHistoricalPreview] =
+    useState<HistoricalPreview | null>(null);
+
+  const poolForMode =
+    mode === "historical" ? (historicalEligible ?? eligible) : eligible;
+
   const eligibleById = useMemo(() => {
     const map = new Map<string, { name: string; team?: string }>();
-    for (const entry of eligible) map.set(entry.id, entry);
+    for (const entry of poolForMode) map.set(entry.id, entry);
     for (const pick of lockedPicks) {
       if (!map.has(pick.rankableEntryId) && pick.name) {
         map.set(pick.rankableEntryId, { name: pick.name, team: pick.team });
       }
     }
     return map;
-  }, [eligible, lockedPicks]);
+  }, [poolForMode, lockedPicks]);
 
   function parse() {
+    const kicked =
+      mode === "historical" ? [] : kickedOffIds;
     const ordered = orderedMatchedIdsFromUniversalPaste({
       text: raw,
-      eligible,
-      kickedOffIds,
+      eligible: poolForMode,
+      kickedOffIds: kicked,
     });
     const merged = mergeUniversalRankingIntoLockedBoard({
       submissionDepth: rankingDepth,
-      lockedPicks,
+      lockedPicks: mode === "historical" ? [] : lockedPicks,
       orderedResponseIds: ordered,
-      kickedOffIds,
+      kickedOffIds: kicked,
     });
     setMergePreview({
       ok: merged.ok,
@@ -80,12 +123,20 @@ export function AiParserForm({
       skippedKickedOff: merged.skippedKickedOff,
       truncated: merged.truncated,
     });
+    setHistoricalPreview(null);
     setMessage(null);
   }
 
   const ready = Boolean(mergePreview?.ok);
+  const filledIds =
+    mergePreview?.ok
+      ? mergePreview.rankedEntryIds.filter(
+          (id): id is string => typeof id === "string" && id.length > 0,
+        )
+      : [];
 
   function save(submit: boolean) {
+    if (mode !== "normal") return;
     if (!mergePreview?.ok) {
       setMessage(
         mergePreview?.error ??
@@ -112,26 +163,218 @@ export function AiParserForm({
     });
   }
 
+  function runHistoricalPreview() {
+    if (!mergePreview?.ok) {
+      setMessage("Parse a complete board before historical Preview.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await adminPreviewAiHistoricalBoardAction({
+        contestId,
+        profileId,
+        weekId,
+        rankedEntryIds: filledIds,
+        originalPredictionAt,
+        evidenceType,
+        evidenceReference,
+        sourceIdentifier,
+        rawResponseText: raw,
+        attestationAccepted,
+      });
+      if (!result.ok) {
+        setHistoricalPreview(null);
+        setMessage(result.error);
+        return;
+      }
+      setHistoricalPreview(result.preview);
+      setMessage(
+        result.preview.status === "READY"
+          ? "Eligibility Preview READY — review then Commit historical entry."
+          : result.preview.status === "HOLD"
+            ? `HOLD — ${result.preview.holdReasons[0] ?? "owner review required"}`
+            : `BLOCKED — ${result.preview.blockers[0] ?? "not ready"}`,
+      );
+    });
+  }
+
+  function commitHistorical() {
+    if (!mergePreview?.ok || !historicalPreview?.ready) {
+      setMessage("Run a READY eligibility Preview before committing.");
+      return;
+    }
+    startTransition(async () => {
+      const result = await adminCommitAiHistoricalBoardAction({
+        contestId,
+        profileId,
+        weekId,
+        rankedEntryIds: filledIds,
+        originalPredictionAt,
+        evidenceType,
+        evidenceReference,
+        sourceIdentifier,
+        rawResponseText: raw,
+        attestationAccepted,
+        previewFingerprint: historicalPreview.previewFingerprint,
+      });
+      setMessage(result.ok ? result.message : result.error);
+      if (result.ok) setHistoricalPreview(null);
+    });
+  }
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">
-        Paste the universal model response (ordered selectable players). Profile
-        kickoff-locked picks stay in their original slots; only unlocked scoring
-        and reserve slots are filled from the paste. Need exactly{" "}
-        {rankingDepth} slots after merge (Top {scoringDepth} + reserves).
-      </p>
-      {lockedPicks.length > 0 ? (
+      {allowHistoricalEntry ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={mode === "normal" ? "primary" : "secondary"}
+            onClick={() => {
+              setMode("normal");
+              setHistoricalPreview(null);
+              setMergePreview(null);
+              setMessage(null);
+            }}
+          >
+            Normal entry
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "historical" ? "primary" : "secondary"}
+            onClick={() => {
+              setMode("historical");
+              setHistoricalPreview(null);
+              setMergePreview(null);
+              setMessage(null);
+            }}
+          >
+            {AI_HISTORICAL_ENTRY_LABEL}
+          </Button>
+          {mode === "historical" ? (
+            <span className="self-center rounded border border-warning/40 bg-warning-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-warning">
+              {AI_HISTORICAL_BACKFILL_BADGE}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mode === "normal" ? (
+        <p className="text-sm text-muted">
+          Paste the universal model response (ordered selectable players). Profile
+          kickoff-locked picks stay in their original slots; only unlocked scoring
+          and reserve slots are filled from the paste. Need exactly{" "}
+          {rankingDepth} slots after merge (Top {scoringDepth} + reserves).
+          Wall-clock kickoff checks apply — Thursday players already kicked off
+          cannot be newly selected.
+        </p>
+      ) : (
+        <div className="space-y-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
+          <p className="font-medium">{AI_HISTORICAL_ENTRY_LABEL}</p>
+          <p>
+            Admin-only. Use only when the AI response was produced before kickoff
+            and you have contemporaneous evidence. Competitive eligibility uses
+            the original prediction timestamp — not import wall-clock. Does not
+            reopen Thursday players for normal submissions.
+          </p>
+        </div>
+      )}
+
+      {mode === "normal" && lockedPicks.length > 0 ? (
         <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
           Preserving {lockedPicks.length} locked pick
           {lockedPicks.length === 1 ? "" : "s"} on this AI profile board during
           import.
         </p>
       ) : null}
+
+      {mode === "historical" ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm sm:col-span-2">
+            <span className="text-muted">
+              Original prediction timestamp (America/Chicago local or ISO UTC)
+            </span>
+            <input
+              type="text"
+              value={originalPredictionAt}
+              onChange={(e) => {
+                setOriginalPredictionAt(e.target.value);
+                setHistoricalPreview(null);
+              }}
+              placeholder="2026-11-19 18:40 CT or 2026-11-20T00:40:00.000Z"
+              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted">Evidence type</span>
+            <select
+              value={evidenceType}
+              onChange={(e) => {
+                setEvidenceType(
+                  e.target.value as (typeof AI_HISTORICAL_EVIDENCE_TYPES)[number],
+                );
+                setHistoricalPreview(null);
+              }}
+              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+            >
+              {AI_HISTORICAL_EVIDENCE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted">Source identifier (optional)</span>
+            <input
+              type="text"
+              value={sourceIdentifier}
+              onChange={(e) => {
+                setSourceIdentifier(e.target.value);
+                setHistoricalPreview(null);
+              }}
+              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+              placeholder="chat-id / export filename / ticket"
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="text-muted">Evidence reference (required)</span>
+            <input
+              type="text"
+              value={evidenceReference}
+              onChange={(e) => {
+                setEvidenceReference(e.target.value);
+                setHistoricalPreview(null);
+              }}
+              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+              placeholder="URL, vault path, or contemporaneous artifact locator"
+            />
+          </label>
+          <label className="flex items-start gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={attestationAccepted}
+              onChange={(e) => {
+                setAttestationAccepted(e.target.checked);
+                setHistoricalPreview(null);
+              }}
+            />
+            <span>
+              I attest this AI response was produced before the cited kickoffs,
+              the timestamp and evidence are contemporaneous, and I am not using
+              historical entry merely to bypass a missed deadline.
+            </span>
+          </label>
+        </div>
+      ) : null}
+
       <label className="block text-sm">
         <span className="text-muted">Paste AI response</span>
         <textarea
           value={raw}
-          onChange={(event) => setRaw(event.target.value)}
+          onChange={(event) => {
+            setRaw(event.target.value);
+            setHistoricalPreview(null);
+          }}
           rows={12}
           className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
           placeholder={"1. Jahmyr Gibbs\n2. Bijan Robinson\n3. Jonathan Taylor"}
@@ -181,7 +424,9 @@ export function AiParserForm({
               <tbody>
                 {mergePreview.rankedEntryIds.map((id, index) => {
                   const rank = index + 1;
-                  const locked = lockedPicks.some((pick) => pick.rank === rank);
+                  const locked =
+                    mode === "normal" &&
+                    lockedPicks.some((pick) => pick.rank === rank);
                   const entry = id ? eligibleById.get(id) : null;
                   const isReserve = rank > scoringDepth;
                   return (
@@ -196,7 +441,11 @@ export function AiParserForm({
                         {entry?.name ?? (id ? id : "—")}
                       </td>
                       <td className="px-3 py-2 text-muted">
-                        {locked ? "Locked (preserved)" : id ? "From paste" : "Empty"}
+                        {locked
+                          ? "Locked (preserved)"
+                          : id
+                            ? "From paste"
+                            : "Empty"}
                       </td>
                     </tr>
                   );
@@ -204,23 +453,89 @@ export function AiParserForm({
               </tbody>
             </table>
             <div className="flex flex-wrap gap-2 p-3">
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={pending || !ready}
-                onClick={() => save(false)}
-              >
-                Save Draft
-              </Button>
-              <Button
-                type="button"
-                disabled={pending || !ready}
-                onClick={() => save(true)}
-              >
-                Submit Ranking
-              </Button>
+              {mode === "normal" ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={pending || !ready}
+                    onClick={() => save(false)}
+                  >
+                    Save Draft
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={pending || !ready}
+                    onClick={() => save(true)}
+                  >
+                    Submit Ranking
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={pending || !ready}
+                    onClick={runHistoricalPreview}
+                  >
+                    Eligibility Preview
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={pending || !historicalPreview?.ready}
+                    onClick={commitHistorical}
+                  >
+                    Commit historical entry
+                  </Button>
+                </>
+              )}
             </div>
           </div>
+
+          {historicalPreview ? (
+            <div
+              className={`rounded-md border px-3 py-2 text-sm ${
+                historicalPreview.status === "READY"
+                  ? "border-success/30 bg-success-soft text-success"
+                  : historicalPreview.status === "HOLD"
+                    ? "border-warning/30 bg-warning-soft text-warning"
+                    : "border-danger/30 bg-danger-soft text-danger"
+              }`}
+            >
+              <p className="font-medium">
+                Preview {historicalPreview.status}
+                {historicalPreview.thursdayPlayerCount
+                  ? ` · ${historicalPreview.thursdayPlayerCount} already-kicked pick(s) eligible only via historical clock`
+                  : ""}
+              </p>
+              <p className="mt-1 font-mono text-xs">
+                competitive={historicalPreview.competitiveAt} · capture=
+                {historicalPreview.capturedAt}
+              </p>
+              {historicalPreview.blockers.length > 0 ? (
+                <ul className="mt-2 list-disc pl-5">
+                  {historicalPreview.blockers.map((b) => (
+                    <li key={b}>{b}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {historicalPreview.holdReasons.length > 0 ? (
+                <ul className="mt-2 list-disc pl-5">
+                  {historicalPreview.holdReasons.map((b) => (
+                    <li key={b}>{b}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {historicalPreview.warnings.length > 0 ? (
+                <ul className="mt-2 list-disc pl-5 text-warning">
+                  {historicalPreview.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {message ? <p className="text-sm text-accent-ink">{message}</p> : null}

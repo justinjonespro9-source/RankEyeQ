@@ -302,6 +302,12 @@ export async function saveSubmissionPicks(input: {
     throw new SubmissionError(authorityDecision.message);
   }
 
+  if (submission.historicalBackfill) {
+    throw new SubmissionError(
+      "Historical / backfilled boards cannot be edited through the normal ranking workflow.",
+    );
+  }
+
   if (
     !submissionAllowsRankingEdits({
       contestStatus: contest.status,
