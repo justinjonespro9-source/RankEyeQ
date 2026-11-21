@@ -8,7 +8,6 @@
 import { createHash } from "node:crypto";
 import {
   isOfficiallyCompetitiveBackfill,
-  HISTORICAL_BACKFILL_BADGE,
   HISTORICAL_SOURCE_REQUIRED,
 } from "@/lib/benchmarks/historical-backfill";
 import { submissionDepthFromScoring } from "@/lib/contest-defaults";
@@ -20,19 +19,19 @@ import {
 } from "@/lib/eligibility/player-week-availability";
 import type { RankingAiHistoricalEvidenceType } from "@/lib/generated/prisma/client";
 import { gradeContest } from "@/lib/grading";
+import {
+  AI_HISTORICAL_BACKFILL_BADGE,
+  AI_HISTORICAL_ENTRY_LABEL,
+  AI_HISTORICAL_EVIDENCE_TYPES,
+} from "@/lib/rankings/ai-historical-backfill-ui";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
-export const AI_HISTORICAL_ENTRY_LABEL = "Verified historical entry";
-export const AI_HISTORICAL_BACKFILL_BADGE = HISTORICAL_BACKFILL_BADGE;
-
-export const AI_HISTORICAL_EVIDENCE_TYPES = [
-  "PROVIDER_EXPORT",
-  "CHAT_TRANSCRIPT",
-  "API_LOG",
-  "SCREENSHOT",
-  "OTHER",
-] as const satisfies readonly RankingAiHistoricalEvidenceType[];
+export {
+  AI_HISTORICAL_BACKFILL_BADGE,
+  AI_HISTORICAL_ENTRY_LABEL,
+  AI_HISTORICAL_EVIDENCE_TYPES,
+};
 
 export type AiHistoricalEvidenceType = (typeof AI_HISTORICAL_EVIDENCE_TYPES)[number];
 

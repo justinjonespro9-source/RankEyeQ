@@ -13,7 +13,7 @@ import {
   partitionAiPromptPlayers,
   RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
 } from "@/lib/admin/ai-prompt";
-import { AI_HISTORICAL_BACKFILL_BADGE } from "@/lib/rankings/ai-historical-backfill";
+import { AI_HISTORICAL_BACKFILL_BADGE } from "@/lib/rankings/ai-historical-backfill-ui";
 import {
   loadAiPromptBundleForContest,
   loadAiPromptContest,

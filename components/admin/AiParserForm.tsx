@@ -17,7 +17,7 @@ import {
   AI_HISTORICAL_BACKFILL_BADGE,
   AI_HISTORICAL_ENTRY_LABEL,
   AI_HISTORICAL_EVIDENCE_TYPES,
-} from "@/lib/rankings/ai-historical-backfill";
+} from "@/lib/rankings/ai-historical-backfill-ui";
 
 type HistoricalPreview = {
   ready: boolean;
