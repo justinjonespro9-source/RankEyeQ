@@ -1,7 +1,6 @@
 import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  AiHistoricalBackfillError,
   commitAiHistoricalBoard,
   previewAiHistoricalBoard,
 } from "@/lib/rankings/ai-historical-backfill";
@@ -19,7 +18,7 @@ const postKickoffPrediction = zonedLocalToUtc(2026, 11, 19, 20, 0);
 const afterLockPrediction = zonedLocalToUtc(2026, 11, 22, 11, 0);
 const fridayCapture = zonedLocalToUtc(2026, 11, 20, 14, 0);
 
-describe("Rankings AI verified historical backfill (integration)", () => {
+describe("Rankings AI historical backfill (integration)", () => {
   let seasonId = "";
   let weekId = "";
   let contestId = "";
@@ -274,22 +273,103 @@ describe("Rankings AI verified historical backfill (integration)", () => {
     attestationAccepted: true,
   };
 
-  it("rejects missing evidence / attestation", async () => {
-    const preview = await previewAiHistoricalBoard({
+  it("rejects missing acknowledgment but allows missing evidence URL", async () => {
+    const withoutAck = await previewAiHistoricalBoard({
       contestId,
       universalProfileId: aiProfileId,
       rankedEntryIds: entryIds,
       originalPredictionAt: preKickoffPrediction,
-      evidenceType: "CHAT_TRANSCRIPT",
-      evidenceReference: "   ",
+      evidenceType: null,
+      evidenceReference: null,
       attestationAccepted: false,
       capturedAt: fridayCapture,
+      now: fridayCapture,
     });
-    expect(preview.status).toBe("BLOCKED");
-    expect(preview.blockers.some((b) => /evidence reference/i.test(b))).toBe(
+    expect(withoutAck.status).toBe("BLOCKED");
+    expect(withoutAck.blockers.some((b) => /acknowledgment/i.test(b))).toBe(
       true,
     );
-    expect(preview.blockers.some((b) => /attestation/i.test(b))).toBe(true);
+    expect(withoutAck.blockers.some((b) => /evidence reference/i.test(b))).toBe(
+      false,
+    );
+
+    const withoutEvidence = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      sourceIdentifier: null,
+      attestationAccepted: true,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(withoutEvidence.status).toBe("READY");
+    expect(withoutEvidence.provenanceClass).toBe("OWNER_REPORTED");
+    expect(
+      withoutEvidence.blockers.some((b) => /evidence/i.test(b)),
+    ).toBe(false);
+  });
+
+  it("rejects missing original prediction timestamp via invalid date", async () => {
+    const preview = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: new Date("not-a-date"),
+      ...baseEvidence,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(preview.status).toBe("BLOCKED");
+    expect(preview.blockers.length).toBeGreaterThan(0);
+  });
+
+  it("does not auto-VERIFIED from evidence URL alone; VERIFIED needs independent review", async () => {
+    const ownerReported = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      ...baseEvidence,
+      evidenceIndependentlyReviewed: false,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(ownerReported.status).toBe("READY");
+    expect(ownerReported.provenanceClass).toBe("OWNER_REPORTED");
+
+    const verifiedMissingDetails = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      sourceIdentifier: null,
+      attestationAccepted: true,
+      evidenceIndependentlyReviewed: true,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(verifiedMissingDetails.status).toBe("BLOCKED");
+    expect(
+      verifiedMissingDetails.blockers.some((b) => /VERIFIED provenance/i.test(b)),
+    ).toBe(true);
+
+    const verified = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      ...baseEvidence,
+      evidenceIndependentlyReviewed: true,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(verified.status).toBe("READY");
+    expect(verified.provenanceClass).toBe("VERIFIED");
   });
 
   it("rejects original prediction after Sunday full lock", async () => {
@@ -575,6 +655,71 @@ describe("Rankings AI verified historical backfill (integration)", () => {
     expect(boards[0]!.aiHistoricalProvenance).not.toBeNull();
   });
 
+  it("commits OWNER_REPORTED historical entry with no evidence URL", async () => {
+    // Uses a fresh AI profile created inline so this can run independently of
+    // the primary aiProfileId commit ordering.
+    const noEvidenceAi = await prisma.universalProfile.create({
+      data: {
+        username: `ai-hbf-noe-${suffix}`,
+        displayName: "Fixture No Evidence AI",
+        profileType: "AI",
+        universalUserId: `uu_ai_noe_${suffix}`,
+        competitorActive: true,
+        publicVisible: true,
+        status: "ACTIVE",
+      },
+    });
+
+    const preview = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: noEvidenceAi.id,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      sourceIdentifier: null,
+      rawResponseText: "1. AI RB 1\n2. AI RB 2\n3. AI RB 3\n4. AI RB 4",
+      attestationAccepted: true,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(preview.status).toBe("READY");
+    expect(preview.provenanceClass).toBe("OWNER_REPORTED");
+    expect(preview.thursdayPlayerCount).toBe(2);
+
+    const result = await commitAiHistoricalBoard({
+      contestId,
+      universalProfileId: noEvidenceAi.id,
+      adminUserId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      sourceIdentifier: null,
+      rawResponseText: "1. AI RB 1\n2. AI RB 2\n3. AI RB 3\n4. AI RB 4",
+      attestationAccepted: true,
+      previewFingerprint: preview.previewFingerprint,
+      capturedAt: fridayCapture,
+    });
+    expect(result.provenanceClass).toBe("OWNER_REPORTED");
+
+    const prov = await prisma.rankingAiHistoricalProvenance.findUniqueOrThrow({
+      where: { submissionId: result.submissionId },
+    });
+    expect(prov.provenanceClass).toBe("OWNER_REPORTED");
+    expect(prov.evidenceType).toBeNull();
+    expect(prov.evidenceReference).toBeNull();
+
+    await prisma.rankingAiHistoricalProvenance.deleteMany({
+      where: { submissionId: result.submissionId },
+    });
+    await prisma.rankingPick.deleteMany({
+      where: { submissionId: result.submissionId },
+    });
+    await prisma.rankingSubmission.delete({ where: { id: result.submissionId } });
+    await prisma.universalProfile.delete({ where: { id: noEvidenceAi.id } });
+  });
+
   it("blocks hard-unavailable with dated evidence before prediction", async () => {
     await prisma.playerWeekAvailability.create({
       data: {
@@ -635,6 +780,7 @@ describe("Rankings AI verified historical backfill (integration)", () => {
     });
 
     expect(result.historicalBackfill).toBe(true);
+    expect(result.provenanceClass).toBe("OWNER_REPORTED");
     expect(result.competitiveAt).toBe(preKickoffPrediction.toISOString());
     expect(result.capturedAt).toBe(fridayCapture.toISOString());
 
@@ -670,6 +816,7 @@ describe("Rankings AI verified historical backfill (integration)", () => {
 
     const prov = submission.aiHistoricalProvenance;
     expect(prov).not.toBeNull();
+    expect(prov!.provenanceClass).toBe("OWNER_REPORTED");
     expect(prov!.originalPredictionAt.toISOString()).toBe(
       preKickoffPrediction.toISOString(),
     );

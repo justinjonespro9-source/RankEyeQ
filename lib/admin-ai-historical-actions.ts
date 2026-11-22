@@ -5,6 +5,7 @@ import { assertAdmin } from "@/lib/auth/session";
 import {
   AiHistoricalBackfillError,
   AI_HISTORICAL_EVIDENCE_TYPES,
+  AI_HISTORICAL_PROVENANCE_CLASSES,
   commitAiHistoricalBoard,
   previewAiHistoricalBoard,
 } from "@/lib/rankings/ai-historical-backfill";
@@ -14,12 +15,16 @@ import { parseChicagoDateTimeLocal } from "@/lib/timing/chicago";
 
 function parseTimestamp(raw: string, label: string): Date {
   const value = String(raw ?? "").trim();
-  if (!value) throw new AiHistoricalBackfillError(`${label} is required.`);
+  if (!value) {
+    throw new AiHistoricalBackfillError(`${label} is required.`);
+  }
   const chicago = parseChicagoDateTimeLocal(value);
   if (chicago) return chicago;
   const asDate = new Date(value);
   if (Number.isNaN(asDate.getTime())) {
-    throw new AiHistoricalBackfillError(`${label} must be a valid ISO or Chicago datetime.`);
+    throw new AiHistoricalBackfillError(
+      `${label} must be a valid ISO or Chicago datetime.`,
+    );
   }
   return asDate;
 }
@@ -30,10 +35,11 @@ export async function adminPreviewAiHistoricalBoardAction(input: {
   weekId?: string;
   rankedEntryIds: string[];
   originalPredictionAt: string;
-  evidenceType: string;
-  evidenceReference: string;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
   sourceIdentifier?: string | null;
   rawResponseText?: string | null;
+  evidenceIndependentlyReviewed?: boolean;
   attestationAccepted: boolean;
 }) {
   try {
@@ -59,6 +65,9 @@ export async function adminPreviewAiHistoricalBoardAction(input: {
       evidenceReference: input.evidenceReference,
       sourceIdentifier: input.sourceIdentifier,
       rawResponseText: input.rawResponseText,
+      evidenceIndependentlyReviewed: Boolean(
+        input.evidenceIndependentlyReviewed,
+      ),
       attestationAccepted: Boolean(input.attestationAccepted),
     });
 
@@ -66,6 +75,7 @@ export async function adminPreviewAiHistoricalBoardAction(input: {
       ok: true as const,
       preview,
       evidenceTypes: AI_HISTORICAL_EVIDENCE_TYPES,
+      provenanceClasses: AI_HISTORICAL_PROVENANCE_CLASSES,
     };
   } catch (error) {
     return {
@@ -85,10 +95,11 @@ export async function adminCommitAiHistoricalBoardAction(input: {
   weekId?: string;
   rankedEntryIds: string[];
   originalPredictionAt: string;
-  evidenceType: string;
-  evidenceReference: string;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
   sourceIdentifier?: string | null;
   rawResponseText?: string | null;
+  evidenceIndependentlyReviewed?: boolean;
   attestationAccepted: boolean;
   previewFingerprint: string;
 }) {
@@ -116,6 +127,9 @@ export async function adminCommitAiHistoricalBoardAction(input: {
       evidenceReference: input.evidenceReference,
       sourceIdentifier: input.sourceIdentifier,
       rawResponseText: input.rawResponseText,
+      evidenceIndependentlyReviewed: Boolean(
+        input.evidenceIndependentlyReviewed,
+      ),
       attestationAccepted: Boolean(input.attestationAccepted),
       previewFingerprint: input.previewFingerprint,
     });
@@ -128,7 +142,9 @@ export async function adminCommitAiHistoricalBoardAction(input: {
       ok: true as const,
       ...result,
       message:
-        "Verified historical AI board locked. Competitive time = original prediction; capture time retained in provenance audit.",
+        result.provenanceClass === "VERIFIED"
+          ? "Historical AI board locked (VERIFIED). Competitive time = original prediction; capture time retained in provenance."
+          : "Historical AI board locked (OWNER_REPORTED). Competitive time = original prediction; capture time retained in provenance.",
     };
   } catch (error) {
     return {

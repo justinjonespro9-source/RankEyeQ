@@ -14,9 +14,11 @@ import {
   adminPreviewAiHistoricalBoardAction,
 } from "@/lib/admin-ai-historical-actions";
 import {
+  AI_HISTORICAL_ACK_TEXT,
   AI_HISTORICAL_BACKFILL_BADGE,
   AI_HISTORICAL_ENTRY_LABEL,
   AI_HISTORICAL_EVIDENCE_TYPES,
+  type AiHistoricalProvenanceClassUi,
 } from "@/lib/rankings/ai-historical-backfill-ui";
 
 type HistoricalPreview = {
@@ -28,6 +30,7 @@ type HistoricalPreview = {
   previewFingerprint: string;
   competitiveAt: string;
   capturedAt: string;
+  provenanceClass: AiHistoricalProvenanceClassUi;
   thursdayPlayerCount: number;
   rankedEntryIds: string[];
   officiallyCompetitive?: boolean;
@@ -77,10 +80,12 @@ export function AiParserForm({
   const [pending, startTransition] = useTransition();
 
   const [originalPredictionAt, setOriginalPredictionAt] = useState("");
-  const [evidenceType, setEvidenceType] =
-    useState<(typeof AI_HISTORICAL_EVIDENCE_TYPES)[number]>("CHAT_TRANSCRIPT");
+  const [evidenceType, setEvidenceType] = useState<string>("");
   const [evidenceReference, setEvidenceReference] = useState("");
   const [sourceIdentifier, setSourceIdentifier] = useState("");
+  const [evidenceIndependentlyReviewed, setEvidenceIndependentlyReviewed] =
+    useState(false);
+  const [showOptionalEvidence, setShowOptionalEvidence] = useState(false);
   const [attestationAccepted, setAttestationAccepted] = useState(false);
   const [historicalPreview, setHistoricalPreview] =
     useState<HistoricalPreview | null>(null);
@@ -175,10 +180,11 @@ export function AiParserForm({
         weekId,
         rankedEntryIds: filledIds,
         originalPredictionAt,
-        evidenceType,
-        evidenceReference,
-        sourceIdentifier,
+        evidenceType: evidenceType || null,
+        evidenceReference: evidenceReference || null,
+        sourceIdentifier: sourceIdentifier || null,
         rawResponseText: raw,
+        evidenceIndependentlyReviewed,
         attestationAccepted,
       });
       if (!result.ok) {
@@ -209,10 +215,11 @@ export function AiParserForm({
         weekId,
         rankedEntryIds: filledIds,
         originalPredictionAt,
-        evidenceType,
-        evidenceReference,
-        sourceIdentifier,
+        evidenceType: evidenceType || null,
+        evidenceReference: evidenceReference || null,
+        sourceIdentifier: sourceIdentifier || null,
         rawResponseText: raw,
+        evidenceIndependentlyReviewed,
         attestationAccepted,
         previewFingerprint: historicalPreview.previewFingerprint,
       });
@@ -270,8 +277,8 @@ export function AiParserForm({
         <div className="space-y-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
           <p className="font-medium">{AI_HISTORICAL_ENTRY_LABEL}</p>
           <p>
-            Admin-only. Use only when the AI response was produced before kickoff
-            and you have contemporaneous evidence. Competitive eligibility uses
+            Admin-only. Capture the AI model&apos;s original rankings and
+            prediction time. Evidence is optional. Competitive eligibility uses
             the original prediction timestamp — not import wall-clock. Does not
             reopen Thursday players for normal submissions.
           </p>
@@ -290,7 +297,7 @@ export function AiParserForm({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm sm:col-span-2">
             <span className="text-muted">
-              Original prediction timestamp (America/Chicago local or ISO UTC)
+              Original prediction date/time (America/Chicago local or ISO UTC)
             </span>
             <input
               type="text"
@@ -303,51 +310,88 @@ export function AiParserForm({
               className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm"
             />
           </label>
-          <label className="block text-sm">
-            <span className="text-muted">Evidence type</span>
-            <select
-              value={evidenceType}
-              onChange={(e) => {
-                setEvidenceType(
-                  e.target.value as (typeof AI_HISTORICAL_EVIDENCE_TYPES)[number],
-                );
-                setHistoricalPreview(null);
-              }}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+
+          <div className="sm:col-span-2">
+            <button
+              type="button"
+              className="text-sm text-accent-ink underline-offset-2 hover:underline"
+              onClick={() => setShowOptionalEvidence((open) => !open)}
             >
-              {AI_HISTORICAL_EVIDENCE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className="text-muted">Source identifier (optional)</span>
-            <input
-              type="text"
-              value={sourceIdentifier}
-              onChange={(e) => {
-                setSourceIdentifier(e.target.value);
-                setHistoricalPreview(null);
-              }}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
-              placeholder="chat-id / export filename / ticket"
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="text-muted">Evidence reference (required)</span>
-            <input
-              type="text"
-              value={evidenceReference}
-              onChange={(e) => {
-                setEvidenceReference(e.target.value);
-                setHistoricalPreview(null);
-              }}
-              className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
-              placeholder="URL, vault path, or contemporaneous artifact locator"
-            />
-          </label>
+              {showOptionalEvidence
+                ? "Hide optional evidence"
+                : "Optional evidence details"}
+            </button>
+            {showOptionalEvidence ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="text-muted">Evidence type (optional)</span>
+                  <select
+                    value={evidenceType}
+                    onChange={(e) => {
+                      setEvidenceType(e.target.value);
+                      setHistoricalPreview(null);
+                    }}
+                    className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                  >
+                    <option value="">None</option>
+                    {AI_HISTORICAL_EVIDENCE_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  <span className="text-muted">
+                    Source identifier (optional)
+                  </span>
+                  <input
+                    type="text"
+                    value={sourceIdentifier}
+                    onChange={(e) => {
+                      setSourceIdentifier(e.target.value);
+                      setHistoricalPreview(null);
+                    }}
+                    className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                    placeholder="chat-id / export filename / ticket"
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
+                  <span className="text-muted">
+                    Evidence reference / URL (optional)
+                  </span>
+                  <input
+                    type="text"
+                    value={evidenceReference}
+                    onChange={(e) => {
+                      setEvidenceReference(e.target.value);
+                      setHistoricalPreview(null);
+                    }}
+                    className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                    placeholder="URL, vault path, screenshot, chat export, or other locator"
+                  />
+                </label>
+                <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={evidenceIndependentlyReviewed}
+                    onChange={(e) => {
+                      setEvidenceIndependentlyReviewed(e.target.checked);
+                      setHistoricalPreview(null);
+                    }}
+                  />
+                  <span>
+                    I independently reviewed supporting evidence for the
+                    original prediction time (sets provenance to VERIFIED when
+                    evidence details are present). Leaving this unchecked keeps
+                    OWNER_REPORTED even if a URL or screenshot is supplied.
+                  </span>
+                </label>
+              </div>
+            ) : null}
+          </div>
+
           <label className="flex items-start gap-2 text-sm sm:col-span-2">
             <input
               type="checkbox"
@@ -358,11 +402,7 @@ export function AiParserForm({
                 setHistoricalPreview(null);
               }}
             />
-            <span>
-              I attest this AI response was produced before the cited kickoffs,
-              the timestamp and evidence are contemporaneous, and I am not using
-              historical entry merely to bypass a missed deadline.
-            </span>
+            <span>{AI_HISTORICAL_ACK_TEXT}</span>
           </label>
         </div>
       ) : null}
@@ -505,12 +545,14 @@ export function AiParserForm({
             >
               <p className="font-medium">
                 Preview {historicalPreview.status}
+                {historicalPreview.ready ? " · Commit allowed" : " · Commit blocked"}
                 {historicalPreview.thursdayPlayerCount
                   ? ` · ${historicalPreview.thursdayPlayerCount} already-kicked pick(s) eligible only via historical clock`
                   : ""}
               </p>
               <p className="mt-1 font-mono text-xs">
-                competitive={historicalPreview.competitiveAt} · capture=
+                provenance={historicalPreview.provenanceClass} · competitive=
+                {historicalPreview.competitiveAt} · capture=
                 {historicalPreview.capturedAt}
               </p>
               {historicalPreview.blockers.length > 0 ? (

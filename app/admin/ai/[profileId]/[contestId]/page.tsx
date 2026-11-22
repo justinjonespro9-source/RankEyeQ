@@ -239,8 +239,19 @@ export default async function AdminAiContestPage(
               value={submission.aiHistoricalProvenance.capturedAt.toISOString()}
             />
             <MetaItem
+              label="Historical provenance"
+              value={submission.aiHistoricalProvenance.provenanceClass}
+            />
+            <MetaItem
               label="Historical evidence"
-              value={`${submission.aiHistoricalProvenance.evidenceType} · ${submission.aiHistoricalProvenance.evidenceReference}`}
+              value={
+                submission.aiHistoricalProvenance.evidenceType ||
+                submission.aiHistoricalProvenance.evidenceReference
+                  ? `${submission.aiHistoricalProvenance.evidenceType ?? "—"} · ${
+                      submission.aiHistoricalProvenance.evidenceReference ?? "—"
+                    }`
+                  : "None (OWNER_REPORTED)"
+              }
             />
           </>
         ) : null}
@@ -251,9 +262,12 @@ export default async function AdminAiContestPage(
           className="mb-6 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
           role="status"
         >
-          Verified historical / backfill board. Competitive time is the original
-          prediction timestamp; capture time is retained in provenance. Normal
-          edits and re-imports are blocked.
+          Historical AI / backfill board
+          {submission.aiHistoricalProvenance
+            ? ` (${submission.aiHistoricalProvenance.provenanceClass})`
+            : ""}
+          . Competitive time is the original prediction timestamp; capture time
+          is retained in provenance. Normal edits and re-imports are blocked.
         </div>
       ) : null}
 

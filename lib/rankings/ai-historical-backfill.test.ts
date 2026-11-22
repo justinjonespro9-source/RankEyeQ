@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiHistoricalPreviewFingerprint,
   evaluateHistoricalAvailability,
+  resolveAiHistoricalProvenanceClass,
 } from "@/lib/rankings/ai-historical-backfill";
 
 describe("evaluateHistoricalAvailability", () => {
@@ -74,8 +75,44 @@ describe("evaluateHistoricalAvailability", () => {
   });
 });
 
+describe("resolveAiHistoricalProvenanceClass", () => {
+  it("defaults to OWNER_REPORTED without independent review", () => {
+    expect(
+      resolveAiHistoricalProvenanceClass({
+        evidenceIndependentlyReviewed: false,
+        evidenceReference: "https://example.com/export",
+        evidenceType: "CHAT_TRANSCRIPT",
+      }),
+    ).toEqual({ provenanceClass: "OWNER_REPORTED", blocker: null });
+  });
+
+  it("does not auto-VERIFIED merely because a URL or screenshot was supplied", () => {
+    expect(
+      resolveAiHistoricalProvenanceClass({
+        evidenceReference: "https://example.com/shot.png",
+        evidenceType: "SCREENSHOT",
+      }).provenanceClass,
+    ).toBe("OWNER_REPORTED");
+  });
+
+  it("requires evidence details for VERIFIED", () => {
+    const missing = resolveAiHistoricalProvenanceClass({
+      evidenceIndependentlyReviewed: true,
+    });
+    expect(missing.provenanceClass).toBe("OWNER_REPORTED");
+    expect(missing.blocker).toMatch(/VERIFIED provenance requires/i);
+
+    const verified = resolveAiHistoricalProvenanceClass({
+      evidenceIndependentlyReviewed: true,
+      evidenceReference: "vault://w11/claude",
+      evidenceType: "CHAT_TRANSCRIPT",
+    });
+    expect(verified).toEqual({ provenanceClass: "VERIFIED", blocker: null });
+  });
+});
+
 describe("buildAiHistoricalPreviewFingerprint", () => {
-  it("is stable for identical inputs and changes when picks or evidence change", () => {
+  it("is stable for identical inputs and changes when picks, evidence, or provenance change", () => {
     const base = {
       contestId: "c1",
       universalProfileId: "ai1",
@@ -84,6 +121,8 @@ describe("buildAiHistoricalPreviewFingerprint", () => {
       evidenceType: "CHAT_TRANSCRIPT",
       evidenceReference: "vault://w11-claude-qb",
       sourceIdentifier: "chat-1",
+      evidenceIndependentlyReviewed: false,
+      provenanceClass: "OWNER_REPORTED" as const,
       responseSha256: "abc",
     };
     const first = buildAiHistoricalPreviewFingerprint(base);
@@ -99,6 +138,21 @@ describe("buildAiHistoricalPreviewFingerprint", () => {
       buildAiHistoricalPreviewFingerprint({
         ...base,
         evidenceReference: "vault://other",
+      }),
+    ).not.toBe(first);
+    expect(
+      buildAiHistoricalPreviewFingerprint({
+        ...base,
+        evidenceType: null,
+        evidenceReference: null,
+        sourceIdentifier: null,
+      }),
+    ).not.toBe(first);
+    expect(
+      buildAiHistoricalPreviewFingerprint({
+        ...base,
+        evidenceIndependentlyReviewed: true,
+        provenanceClass: "VERIFIED",
       }),
     ).not.toBe(first);
   });

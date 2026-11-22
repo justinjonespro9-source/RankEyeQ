@@ -1,9 +1,10 @@
 /**
- * Rankings AI verified historical / backfill entry.
+ * Rankings AI historical / backfill entry.
  *
- * Reuses Expert/Creator competitive-clock rules and WaiverEyeQ-style evidence
- * attestation. Does not bypass NFL kickoffs, rewrite pools, or alter normal
- * AI wall-clock entry.
+ * Reuses Expert/Creator competitive-clock rules for kickoff eligibility.
+ * Evidence is optional; provenance defaults to OWNER_REPORTED unless the Admin
+ * explicitly marks independent evidence review (VERIFIED). Does not bypass NFL
+ * kickoffs, rewrite pools, or alter normal AI wall-clock entry.
  */
 import { createHash } from "node:crypto";
 import {
@@ -17,23 +18,32 @@ import {
   WEEKLY_SELECTABLE_DESIGNATIONS,
   WEEKLY_UNAVAILABLE_DESIGNATIONS,
 } from "@/lib/eligibility/player-week-availability";
-import type { RankingAiHistoricalEvidenceType } from "@/lib/generated/prisma/client";
+import type {
+  RankingAiHistoricalEvidenceType,
+  RankingAiHistoricalProvenanceClass,
+} from "@/lib/generated/prisma/client";
 import { gradeContest } from "@/lib/grading";
 import {
+  AI_HISTORICAL_ACK_TEXT,
   AI_HISTORICAL_BACKFILL_BADGE,
   AI_HISTORICAL_ENTRY_LABEL,
   AI_HISTORICAL_EVIDENCE_TYPES,
+  AI_HISTORICAL_PROVENANCE_CLASSES,
 } from "@/lib/rankings/ai-historical-backfill-ui";
 import { resolveWeekScopedKickoff } from "@/lib/timing/resolve-contest-kickoff";
 import { kickoffHasPassed } from "@/lib/timing/partial-lock";
 
 export {
+  AI_HISTORICAL_ACK_TEXT,
   AI_HISTORICAL_BACKFILL_BADGE,
   AI_HISTORICAL_ENTRY_LABEL,
   AI_HISTORICAL_EVIDENCE_TYPES,
+  AI_HISTORICAL_PROVENANCE_CLASSES,
 };
 
 export type AiHistoricalEvidenceType = (typeof AI_HISTORICAL_EVIDENCE_TYPES)[number];
+export type AiHistoricalProvenanceClass =
+  (typeof AI_HISTORICAL_PROVENANCE_CLASSES)[number];
 
 export class AiHistoricalBackfillError extends Error {
   constructor(
@@ -91,6 +101,7 @@ export type AiHistoricalPreviewResult = {
   previewFingerprint: string;
   competitiveAt: string;
   capturedAt: string;
+  provenanceClass: AiHistoricalProvenanceClass;
   officiallyCompetitive: boolean;
   thursdayPlayerCount: number;
   rankedEntryIds: string[];
@@ -108,10 +119,12 @@ export type AiHistoricalCommitInput = {
   adminUserId: string;
   rankedEntryIds: string[];
   originalPredictionAt: Date;
-  evidenceType: string;
-  evidenceReference: string;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
   sourceIdentifier?: string | null;
   rawResponseText?: string | null;
+  /** Explicit Admin mark that supporting evidence was independently reviewed. */
+  evidenceIndependentlyReviewed?: boolean;
   attestationAccepted: boolean;
   previewFingerprint: string;
   /** Wall-clock capture; defaults to now. Never replaced by prediction time. */
@@ -127,14 +140,68 @@ function isEvidenceType(value: string): value is AiHistoricalEvidenceType {
   return (AI_HISTORICAL_EVIDENCE_TYPES as readonly string[]).includes(value);
 }
 
+function normalizeOptionalText(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+function hasOptionalEvidenceDetail(input: {
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
+  sourceIdentifier?: string | null;
+}): boolean {
+  const type = normalizeOptionalText(input.evidenceType);
+  const reference = normalizeOptionalText(input.evidenceReference);
+  const source = normalizeOptionalText(input.sourceIdentifier);
+  return Boolean(type) || Boolean(reference) || Boolean(source);
+}
+
+/**
+ * Resolve provenance class.
+ * - Default OWNER_REPORTED (Admin-attested prediction time; evidence optional).
+ * - VERIFIED only when Admin explicitly marks independent evidence review AND
+ *   at least one evidence detail is present.
+ * - Supplying a URL/screenshot alone never auto-upgrades to VERIFIED.
+ */
+export function resolveAiHistoricalProvenanceClass(input: {
+  evidenceIndependentlyReviewed?: boolean;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
+  sourceIdentifier?: string | null;
+}): {
+  provenanceClass: AiHistoricalProvenanceClass;
+  blocker: string | null;
+} {
+  const reviewed = Boolean(input.evidenceIndependentlyReviewed);
+  if (!reviewed) {
+    return { provenanceClass: "OWNER_REPORTED", blocker: null };
+  }
+  if (!hasOptionalEvidenceDetail(input)) {
+    return {
+      provenanceClass: "OWNER_REPORTED",
+      blocker:
+        "VERIFIED provenance requires independently reviewed evidence details (type, reference, or source identifier).",
+    };
+  }
+  const type = normalizeOptionalText(input.evidenceType);
+  if (type && !isEvidenceType(type)) {
+    return {
+      provenanceClass: "OWNER_REPORTED",
+      blocker: "Evidence type is invalid.",
+    };
+  }
+  return { provenanceClass: "VERIFIED", blocker: null };
+}
+
 export function buildAiHistoricalPreviewFingerprint(input: {
   contestId: string;
   universalProfileId: string;
   rankedEntryIds: string[];
   originalPredictionAt: Date;
-  evidenceType: string;
-  evidenceReference: string;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
   sourceIdentifier?: string | null;
+  evidenceIndependentlyReviewed?: boolean;
+  provenanceClass: AiHistoricalProvenanceClass;
   responseSha256: string;
 }): string {
   const payload = [
@@ -142,9 +209,11 @@ export function buildAiHistoricalPreviewFingerprint(input: {
     input.universalProfileId,
     input.rankedEntryIds.join(","),
     input.originalPredictionAt.toISOString(),
-    input.evidenceType,
-    input.evidenceReference.trim(),
-    (input.sourceIdentifier ?? "").trim(),
+    normalizeOptionalText(input.evidenceType),
+    normalizeOptionalText(input.evidenceReference),
+    normalizeOptionalText(input.sourceIdentifier),
+    input.evidenceIndependentlyReviewed ? "1" : "0",
+    input.provenanceClass,
     input.responseSha256,
   ].join("|");
   return sha256Text(payload);
@@ -233,10 +302,11 @@ export async function previewAiHistoricalBoard(input: {
   universalProfileId: string;
   rankedEntryIds: string[];
   originalPredictionAt: Date;
-  evidenceType: string;
-  evidenceReference: string;
+  evidenceType?: string | null;
+  evidenceReference?: string | null;
   sourceIdentifier?: string | null;
   rawResponseText?: string | null;
+  evidenceIndependentlyReviewed?: boolean;
   attestationAccepted: boolean;
   capturedAt?: Date;
   now?: Date;
@@ -250,22 +320,60 @@ export async function previewAiHistoricalBoard(input: {
 
   if (!input.attestationAccepted) {
     blockers.push(
-      "Explicit historical-entry attestation is required (predictions were produced before kickoff with supporting evidence).",
+      `Admin acknowledgment is required: ${AI_HISTORICAL_ACK_TEXT}`,
     );
   }
-  if (!input.evidenceReference?.trim()) {
-    blockers.push("Evidence reference is required.");
-  }
-  if (!isEvidenceType(input.evidenceType)) {
+
+  const evidenceTypeRaw = normalizeOptionalText(input.evidenceType);
+  if (evidenceTypeRaw && !isEvidenceType(evidenceTypeRaw)) {
     blockers.push("Evidence type is invalid.");
   }
+
+  const provenance = resolveAiHistoricalProvenanceClass({
+    evidenceIndependentlyReviewed: input.evidenceIndependentlyReviewed,
+    evidenceType: evidenceTypeRaw || null,
+    evidenceReference: input.evidenceReference,
+    sourceIdentifier: input.sourceIdentifier,
+  });
+  if (provenance.blocker) {
+    blockers.push(provenance.blocker);
+  }
+
   if (Number.isNaN(competitiveAt.getTime())) {
     blockers.push(HISTORICAL_SOURCE_REQUIRED);
-  }
-  if (competitiveAt.getTime() > capturedAt.getTime()) {
+  } else if (competitiveAt.getTime() > capturedAt.getTime()) {
     blockers.push(
       "Original prediction timestamp cannot be after the capture timestamp.",
     );
+  }
+
+  // Invalid prediction time cannot be fingerprinted or eligibility-checked.
+  // Surface the blocker immediately (Admin actions already reject empty/invalid
+  // strings before reaching here).
+  if (Number.isNaN(competitiveAt.getTime())) {
+    return {
+      ready: false,
+      status: "BLOCKED",
+      blockers,
+      warnings,
+      holdReasons,
+      pickIssues,
+      previewFingerprint: "",
+      competitiveAt: "",
+      capturedAt: capturedAt.toISOString(),
+      provenanceClass: provenance.provenanceClass,
+      officiallyCompetitive: false,
+      thursdayPlayerCount: 0,
+      rankedEntryIds: input.rankedEntryIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+      contestId: input.contestId,
+      profileId: input.universalProfileId,
+      weekId: "",
+      position: "",
+      rankingDepth: 0,
+      reserveCount: 0,
+    };
   }
 
   const profile = await prisma.universalProfile.findUnique({
@@ -285,7 +393,7 @@ export async function previewAiHistoricalBoard(input: {
     !profile.competitorActive
   ) {
     throw new AiHistoricalBackfillError(
-      "Verified historical entry requires an active SYSTEM_OPERATED AI competitor profile.",
+      "Historical AI entry requires an active SYSTEM_OPERATED AI competitor profile.",
       "NOT_AI",
     );
   }
@@ -429,7 +537,7 @@ export async function previewAiHistoricalBoard(input: {
       );
     }
     // Players already kicked off now, but still eligible at the historical
-    // prediction time — the boards that need verified historical entry.
+    // prediction time — the boards that need historical entry.
     if (
       kickoff &&
       kickoffHasPassed(kickoff, wallNow) &&
@@ -470,6 +578,12 @@ export async function previewAiHistoricalBoard(input: {
     }
   }
 
+  if (provenance.provenanceClass === "OWNER_REPORTED") {
+    warnings.push(
+      "Provenance OWNER_REPORTED — Admin-attested original prediction time; eligible for internal grading and analysis, not independently verified competitive results.",
+    );
+  }
+
   const responseSha256 = sha256Text(
     input.rawResponseText?.trim() || ranked.join(","),
   );
@@ -478,9 +592,11 @@ export async function previewAiHistoricalBoard(input: {
     universalProfileId: input.universalProfileId,
     rankedEntryIds: ranked,
     originalPredictionAt: competitiveAt,
-    evidenceType: input.evidenceType,
+    evidenceType: evidenceTypeRaw || null,
     evidenceReference: input.evidenceReference,
     sourceIdentifier: input.sourceIdentifier,
+    evidenceIndependentlyReviewed: input.evidenceIndependentlyReviewed,
+    provenanceClass: provenance.provenanceClass,
     responseSha256,
   });
 
@@ -507,6 +623,7 @@ export async function previewAiHistoricalBoard(input: {
     previewFingerprint,
     competitiveAt: competitiveAt.toISOString(),
     capturedAt: capturedAt.toISOString(),
+    provenanceClass: provenance.provenanceClass,
     officiallyCompetitive,
     thursdayPlayerCount,
     rankedEntryIds: ranked,
@@ -527,15 +644,17 @@ export async function commitAiHistoricalBoard(
   auditLogId: string;
   status: string;
   historicalBackfill: true;
+  provenanceClass: AiHistoricalProvenanceClass;
   competitiveAt: string;
   capturedAt: string;
 }> {
   if (!input.attestationAccepted) {
     throw new AiHistoricalBackfillError(
-      "Explicit historical-entry attestation is required.",
+      `Admin acknowledgment is required: ${AI_HISTORICAL_ACK_TEXT}`,
     );
   }
-  if (!isEvidenceType(input.evidenceType)) {
+  const evidenceTypeRaw = normalizeOptionalText(input.evidenceType);
+  if (evidenceTypeRaw && !isEvidenceType(evidenceTypeRaw)) {
     throw new AiHistoricalBackfillError("Evidence type is invalid.");
   }
 
@@ -545,10 +664,11 @@ export async function commitAiHistoricalBoard(
     universalProfileId: input.universalProfileId,
     rankedEntryIds: input.rankedEntryIds,
     originalPredictionAt: input.originalPredictionAt,
-    evidenceType: input.evidenceType,
+    evidenceType: evidenceTypeRaw || null,
     evidenceReference: input.evidenceReference,
     sourceIdentifier: input.sourceIdentifier,
     rawResponseText: input.rawResponseText,
+    evidenceIndependentlyReviewed: input.evidenceIndependentlyReviewed,
     attestationAccepted: input.attestationAccepted,
     capturedAt,
   });
@@ -577,6 +697,11 @@ export async function commitAiHistoricalBoard(
     input.rawResponseText?.trim() || preview.rankedEntryIds.join(","),
   );
   const contest = await loadContestContext(input.contestId);
+  const evidenceReference = normalizeOptionalText(input.evidenceReference) || null;
+  const sourceIdentifier = normalizeOptionalText(input.sourceIdentifier) || null;
+  const evidenceTypeDb = (evidenceTypeRaw || null) as RankingAiHistoricalEvidenceType | null;
+  const provenanceClassDb =
+    preview.provenanceClass as RankingAiHistoricalProvenanceClass;
 
   let result: {
     submission: { id: string };
@@ -661,9 +786,10 @@ export async function commitAiHistoricalBoard(
             universalProfileId: input.universalProfileId,
             originalPredictionAt: competitiveAt,
             capturedAt,
-            evidenceType: input.evidenceType as RankingAiHistoricalEvidenceType,
-            evidenceReference: input.evidenceReference.trim(),
-            sourceIdentifier: input.sourceIdentifier?.trim() || null,
+            provenanceClass: provenanceClassDb,
+            evidenceType: evidenceTypeDb,
+            evidenceReference,
+            sourceIdentifier,
             rawResponseText: input.rawResponseText?.trim() || null,
             responseSha256,
             rankedEntryIds: preview.rankedEntryIds,
@@ -687,11 +813,15 @@ export async function commitAiHistoricalBoard(
               profileId: input.universalProfileId,
               position: contest.position,
               provenanceId: provenance.id,
+              provenanceClass: preview.provenanceClass,
               originalPredictionAt: competitiveAt.toISOString(),
               capturedAt: capturedAt.toISOString(),
-              evidenceType: input.evidenceType,
-              evidenceReference: input.evidenceReference.trim(),
-              sourceIdentifier: input.sourceIdentifier?.trim() || null,
+              evidenceType: evidenceTypeDb,
+              evidenceReference,
+              sourceIdentifier,
+              evidenceIndependentlyReviewed: Boolean(
+                input.evidenceIndependentlyReviewed,
+              ),
               responseSha256,
               previewFingerprint: preview.previewFingerprint,
               thursdayPlayerCount: preview.thursdayPlayerCount,
@@ -748,6 +878,7 @@ export async function commitAiHistoricalBoard(
     auditLogId: result.audit.id,
     status: "LOCKED",
     historicalBackfill: true,
+    provenanceClass: preview.provenanceClass,
     competitiveAt: competitiveAt.toISOString(),
     capturedAt: capturedAt.toISOString(),
   };

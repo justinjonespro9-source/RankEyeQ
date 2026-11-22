@@ -1016,13 +1016,21 @@ model RankingSubmission {
   @@index([contestId, status])
 }
 
-/// Evidence kinds accepted for Rankings AI verified historical entry.
+/// Evidence kinds accepted for Rankings AI historical entry (optional).
 enum RankingAiHistoricalEvidenceType {
   PROVIDER_EXPORT
   CHAT_TRANSCRIPT
   API_LOG
   SCREENSHOT
   OTHER
+}
+
+/// How the original prediction time was established for a Rankings AI historical entry.
+/// OWNER_REPORTED = Admin-attested time (evidence optional).
+/// VERIFIED = original prediction time independently supported by reviewed evidence.
+enum RankingAiHistoricalProvenanceClass {
+  OWNER_REPORTED
+  VERIFIED
 }
 
 /// Immutable dual-clock provenance for a Rankings AI historical / backfill board.
@@ -1039,8 +1047,12 @@ model RankingAiHistoricalProvenance {
   originalPredictionAt  DateTime
   /// Wall-clock admin capture / import timestamp (UTC). Never overwritten by prediction time.
   capturedAt            DateTime
-  evidenceType          RankingAiHistoricalEvidenceType
-  evidenceReference     String
+  /// OWNER_REPORTED (default) vs VERIFIED after independent evidence review.
+  provenanceClass       RankingAiHistoricalProvenanceClass @default(OWNER_REPORTED)
+  /// Optional; required only when provenanceClass = VERIFIED.
+  evidenceType          RankingAiHistoricalEvidenceType?
+  /// Optional evidence URL / vault path / artifact locator.
+  evidenceReference     String?
   sourceIdentifier      String?
   rawResponseText       String?
   responseSha256        String
@@ -1061,6 +1073,7 @@ model RankingAiHistoricalProvenance {
   @@index([universalProfileId])
   @@index([adminUserId])
   @@index([originalPredictionAt])
+  @@index([provenanceClass])
 }
 
 /// Official RankEyeQ Board publication state for one owner-authored board.
