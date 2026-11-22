@@ -24,6 +24,10 @@ import type {
 } from "@/lib/generated/prisma/client";
 import { gradeContest } from "@/lib/grading";
 import {
+  evaluateAiHistoricalContestGate,
+  contestAllowsAiHistoricalEntry,
+} from "@/lib/rankings/ai-historical-contest-gate";
+import {
   AI_HISTORICAL_ACK_TEXT,
   AI_HISTORICAL_BACKFILL_BADGE,
   AI_HISTORICAL_ENTRY_LABEL,
@@ -39,6 +43,8 @@ export {
   AI_HISTORICAL_ENTRY_LABEL,
   AI_HISTORICAL_EVIDENCE_TYPES,
   AI_HISTORICAL_PROVENANCE_CLASSES,
+  evaluateAiHistoricalContestGate,
+  contestAllowsAiHistoricalEntry,
 };
 
 export type AiHistoricalEvidenceType = (typeof AI_HISTORICAL_EVIDENCE_TYPES)[number];
@@ -399,6 +405,21 @@ export async function previewAiHistoricalBoard(input: {
   }
 
   const contest = await loadContestContext(input.contestId);
+
+  // Historical-only exception: OPEN or LOCKED may receive boards. Normal AI
+  // entry remains gated by contestAllowsRankingEdits / saveSubmissionPicks.
+  const contestGate = evaluateAiHistoricalContestGate({
+    contestStatus: contest.status,
+    weekStatus: contest.week.status,
+  });
+  if (!contestGate.allowed && contestGate.reason) {
+    if (contestGate.outcome === "HOLD") {
+      holdReasons.push(contestGate.reason);
+    } else {
+      blockers.push(contestGate.reason);
+    }
+  }
+
   const reserveCount = contest.reserveCount ?? 0;
   const submissionDepth = submissionDepthFromScoring(
     contest.rankingDepth,

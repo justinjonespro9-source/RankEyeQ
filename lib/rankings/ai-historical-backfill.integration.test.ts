@@ -273,6 +273,114 @@ describe("Rankings AI historical backfill (integration)", () => {
     attestationAccepted: true,
   };
 
+  it("allows historical Preview/Commit when contest is LOCKED (week still OPEN)", async () => {
+    await prisma.rankIQContest.update({
+      where: { id: contestId },
+      data: { status: "LOCKED", locksAt: sundayLock },
+    });
+
+    const lockedAi = await prisma.universalProfile.create({
+      data: {
+        username: `ai-hbf-locked-${suffix}`,
+        displayName: "Fixture Locked Contest AI",
+        profileType: "AI",
+        universalUserId: `uu_ai_locked_${suffix}`,
+        competitorActive: true,
+        publicVisible: true,
+        status: "ACTIVE",
+      },
+    });
+
+    const preview = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: lockedAi.id,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      attestationAccepted: true,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(preview.status).toBe("READY");
+    expect(preview.provenanceClass).toBe("OWNER_REPORTED");
+
+    const result = await commitAiHistoricalBoard({
+      contestId,
+      universalProfileId: lockedAi.id,
+      adminUserId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      evidenceType: null,
+      evidenceReference: null,
+      attestationAccepted: true,
+      previewFingerprint: preview.previewFingerprint,
+      capturedAt: fridayCapture,
+    });
+    expect(result.historicalBackfill).toBe(true);
+    expect(result.provenanceClass).toBe("OWNER_REPORTED");
+
+    // Normal wall-clock AI / shared submission path must still reject after
+    // Sunday full lock (LOCKED + now >= fullLockAt). Historical already committed.
+    await expect(
+      saveSubmissionPicks({
+        contestId,
+        universalProfileId: aiDupProfileId,
+        rankedEntryIds: entryIds,
+        authority: "SYSTEM_OPERATED",
+        requireComplete: true,
+        now: afterLockPrediction,
+      }),
+    ).rejects.toBeInstanceOf(SubmissionError);
+
+    await prisma.rankingAiHistoricalProvenance.deleteMany({
+      where: { submissionId: result.submissionId },
+    });
+    await prisma.rankingPick.deleteMany({
+      where: { submissionId: result.submissionId },
+    });
+    await prisma.rankingSubmission.delete({ where: { id: result.submissionId } });
+    await prisma.universalProfile.delete({ where: { id: lockedAi.id } });
+    await prisma.rankIQContest.update({
+      where: { id: contestId },
+      data: { status: "OPEN", locksAt: null },
+    });
+  });
+
+  it("HOLDs historical entry when week is COMPLETE", async () => {
+    await prisma.week.update({
+      where: { id: weekId },
+      data: { status: "COMPLETE" },
+    });
+    await prisma.rankIQContest.update({
+      where: { id: contestId },
+      data: { status: "LOCKED", locksAt: sundayLock },
+    });
+
+    const preview = await previewAiHistoricalBoard({
+      contestId,
+      universalProfileId: aiProfileId,
+      rankedEntryIds: entryIds,
+      originalPredictionAt: preKickoffPrediction,
+      ...baseEvidence,
+      capturedAt: fridayCapture,
+      now: fridayCapture,
+    });
+    expect(preview.status).toBe("HOLD");
+    expect(preview.holdReasons.some((r) => /Week is COMPLETE/i.test(r))).toBe(
+      true,
+    );
+
+    await prisma.week.update({
+      where: { id: weekId },
+      data: { status: "OPEN" },
+    });
+    await prisma.rankIQContest.update({
+      where: { id: contestId },
+      data: { status: "OPEN", locksAt: null },
+    });
+  });
+
   it("rejects missing acknowledgment but allows missing evidence URL", async () => {
     const withoutAck = await previewAiHistoricalBoard({
       contestId,

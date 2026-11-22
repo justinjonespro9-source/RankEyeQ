@@ -14,6 +14,7 @@ import {
   RANKEYEQ_AI_WEEKLY_PROMPT_VERSION,
 } from "@/lib/admin/ai-prompt";
 import { AI_HISTORICAL_BACKFILL_BADGE } from "@/lib/rankings/ai-historical-backfill-ui";
+import { contestAllowsAiHistoricalEntry } from "@/lib/rankings/ai-historical-contest-gate";
 import {
   loadAiPromptBundleForContest,
   loadAiPromptContest,
@@ -135,7 +136,11 @@ export default async function AdminAiContestPage(
     fullLockAt: contest.week.fullLockAt,
     now: generatedAt,
   });
-  const canImport = contestOpen && timing.canEditUnlocked;
+  const canImportNormal = contestOpen && timing.canEditUnlocked;
+  const canImportHistorical = contestAllowsAiHistoricalEntry(
+    contest.status,
+    contest.week.status,
+  );
 
   return (
     <Container className="py-12 sm:py-16">
@@ -155,15 +160,30 @@ export default async function AdminAiContestPage(
         }
       />
 
-      {!canImport ? (
+      {!canImportNormal && canImportHistorical ? (
+        <div
+          className="mb-6 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning"
+          role="status"
+        >
+          Contest is {contest.status}
+          {timing.fullBoardLocked ? " and Sunday full lock has passed" : ""}.
+          Normal AI entry is closed. Historical AI Entry remains available when
+          the original prediction time and eligibility checks pass — do not
+          reopen the contest.
+        </div>
+      ) : null}
+
+      {!canImportNormal && !canImportHistorical ? (
         <div
           className="mb-6 rounded-md border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
           role="alert"
         >
-          {!contestOpen
-            ? `Contest is ${contest.status}. Reopen to OPEN before importing a competing AI board.`
+          {!contestOpen &&
+          contest.status !== "LOCKED" &&
+          contest.status !== "OPEN"
+            ? `Contest is ${contest.status}. Normal and historical AI entry are unavailable.`
             : timing.fullBoardLocked
-              ? "Sunday full lock has passed — normal AI entry is closed. Verified historical entry may still be used when original prediction time is before full lock and evidence verifies."
+              ? "Sunday full lock has passed and historical AI entry is not available for this week/contest state."
               : "Weekly rankings have not opened yet."}
         </div>
       ) : null}
@@ -308,7 +328,8 @@ export default async function AdminAiContestPage(
           historicalEligible={historicalEligible}
           lockedPicks={lockedPicks}
           kickedOffIds={kickedOffIds}
-          allowHistoricalEntry
+          allowNormalEntry={canImportNormal}
+          allowHistoricalEntry={canImportHistorical}
         />
       </section>
     </Container>

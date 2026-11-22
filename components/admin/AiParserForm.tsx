@@ -47,6 +47,7 @@ export function AiParserForm({
   historicalEligible,
   lockedPicks = [],
   kickedOffIds = [],
+  allowNormalEntry = true,
   allowHistoricalEntry = true,
 }: {
   contestId: string;
@@ -62,9 +63,13 @@ export function AiParserForm({
   lockedPicks?: Array<ImmutableLockedPick & { name?: string; team?: string }>;
   /** Entry IDs that have kicked off and cannot be newly added (normal mode). */
   kickedOffIds?: string[];
+  /** Wall-clock / OPEN contest normal AI import. */
+  allowNormalEntry?: boolean;
   allowHistoricalEntry?: boolean;
 }) {
-  const [mode, setMode] = useState<"normal" | "historical">("normal");
+  const initialMode: "normal" | "historical" =
+    allowNormalEntry || !allowHistoricalEntry ? "normal" : "historical";
+  const [mode, setMode] = useState<"normal" | "historical">(initialMode);
   const [raw, setRaw] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [mergePreview, setMergePreview] = useState<{
@@ -142,6 +147,12 @@ export function AiParserForm({
 
   function save(submit: boolean) {
     if (mode !== "normal") return;
+    if (!allowNormalEntry) {
+      setMessage(
+        "Normal AI entry is closed for this contest. Use Historical AI Entry instead.",
+      );
+      return;
+    }
     if (!mergePreview?.ok) {
       setMessage(
         mergePreview?.error ??
@@ -228,40 +239,53 @@ export function AiParserForm({
     });
   }
 
+  const showModeSwitcher = allowNormalEntry || allowHistoricalEntry;
+
   return (
     <div className="space-y-4">
-      {allowHistoricalEntry ? (
+      {showModeSwitcher ? (
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={mode === "normal" ? "primary" : "secondary"}
-            onClick={() => {
-              setMode("normal");
-              setHistoricalPreview(null);
-              setMergePreview(null);
-              setMessage(null);
-            }}
-          >
-            Normal entry
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "historical" ? "primary" : "secondary"}
-            onClick={() => {
-              setMode("historical");
-              setHistoricalPreview(null);
-              setMergePreview(null);
-              setMessage(null);
-            }}
-          >
-            {AI_HISTORICAL_ENTRY_LABEL}
-          </Button>
+          {allowNormalEntry ? (
+            <Button
+              type="button"
+              variant={mode === "normal" ? "primary" : "secondary"}
+              onClick={() => {
+                setMode("normal");
+                setHistoricalPreview(null);
+                setMergePreview(null);
+                setMessage(null);
+              }}
+            >
+              Normal entry
+            </Button>
+          ) : null}
+          {allowHistoricalEntry ? (
+            <Button
+              type="button"
+              variant={mode === "historical" ? "primary" : "secondary"}
+              onClick={() => {
+                setMode("historical");
+                setHistoricalPreview(null);
+                setMergePreview(null);
+                setMessage(null);
+              }}
+            >
+              {AI_HISTORICAL_ENTRY_LABEL}
+            </Button>
+          ) : null}
           {mode === "historical" ? (
             <span className="self-center rounded border border-warning/40 bg-warning-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-warning">
               {AI_HISTORICAL_BACKFILL_BADGE}
             </span>
           ) : null}
         </div>
+      ) : null}
+
+      {!allowNormalEntry && allowHistoricalEntry && mode === "historical" ? (
+        <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
+          Normal AI entry is closed for this contest. Use Historical AI Entry
+          with the original prediction timestamp.
+        </p>
       ) : null}
 
       {mode === "normal" ? (
