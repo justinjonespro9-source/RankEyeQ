@@ -35,6 +35,16 @@ describe("NFL.com roster parser", () => {
     expect(isFantasySourcePosition("FB")).toBe(true);
     expect(isFantasySourcePosition("LB")).toBe(false);
   });
+
+  it("decodes numeric HTML entities in player names", () => {
+    const rows = parseNflComRosterHtml(`
+      <table><tr>
+        <td class="nfl-o-roster__player-name"><a href="/players/audric-estime">Audric Estim&#xE9;</a></td>
+        <td>23</td><td>RB</td><td>ACT</td><td>71</td><td>227</td><td>2</td><td>Notre Dame</td>
+      </tr></table>
+    `);
+    expect(rows[0]?.name).toBe("Audric Estimé");
+  });
 });
 
 describe("NFL.com roster status mapping", () => {

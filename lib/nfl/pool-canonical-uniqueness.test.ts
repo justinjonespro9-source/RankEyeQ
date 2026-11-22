@@ -92,6 +92,9 @@ describe("weekly pool canonical uniqueness", () => {
 
   afterAll(async () => {
     await prisma.season.deleteMany({ where: { id: seasonId } });
+    await prisma.rankableEntry.deleteMany({
+      where: { externalId: { contains: suffix } },
+    });
   });
 
   it("detects duplicate canonical players in a weekly pool", async () => {
